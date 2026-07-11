@@ -112,10 +112,18 @@ export class StateManager {
   }
 
   goHome() {
+    // Bank any materials picked up this run into permanent storage
+    // before the run object gets wiped/replaced by the next startRun().
+    const runMaterials = this.gameState.run?.materials ?? {};
+    Object.entries(runMaterials).forEach(([id, amt]) => {
+      if (amt > 0) this.inventory.addMaterial(id, amt, false);
+    });
+
     this.combatManager.reset();
     this.gameState.combat = null;
     this.gameState.paused = false;
     this.setState(GAME_STATES.HOME);
+    this.saveSystem.save();
   }
 
   togglePause() {

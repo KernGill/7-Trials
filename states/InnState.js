@@ -35,6 +35,7 @@ export class InnState {
     this.list.querySelectorAll('[data-id]').forEach((el) => {
       el.addEventListener('click', () => {
         app.inn.selectMainCharacter(el.dataset.id);
+        app.saveSystem.save();
         this.renderAll();
       });
     });

@@ -22,14 +22,15 @@ const CATEGORY_LABELS = {
 
 /**
  * FightState — 1v1 turn-based combat, top-level peer of ExploreState.
- * Arena (left) + move-category panel (right), matching the PDF layout.
+ * Layout: battle log (left) + arena (center) + move-category panel
+ * (right). Every combat message (whose move was used, damage dealt,
+ * energy gained, etc) accumulates in the left-side log instead of
+ * flashing transiently in the middle of the arena.
  *
- * IMPORTANT: this panel is rebuilt ONLY in response to actual events
- * (StateManager wires combat:log / combat:player_turn / combat:move_resolved
- * to onCombatUpdate()) — never from a per-frame render loop. That frame-loop
- * rebuild was exactly what broke the category buttons before: DOM nodes
- * were being destroyed/recreated up to 60x/sec, so any click landing
- * between two rebuilds lost its target.
+ * Re-renders only from real events (StateManager wires combat:log /
+ * combat:player_turn / combat:move_resolved to onCombatUpdate()) —
+ * never a per-frame loop, which is what broke the category buttons
+ * before this file was rewritten.
  */
 export class FightState {
   constructor(app) {
@@ -44,9 +45,10 @@ export class FightState {
     root.innerHTML = `
       <div class="fight-screen">
         <div class="fight-turn"></div>
+        <div class="battle-log"></div>
         <div class="arena">
           <div class="combatant enemy-slot"></div>
-          <div class="feedback-line"></div>
+          <div class="arena-spacer"></div>
           <div class="combatant player-slot"></div>
         </div>
         <div class="fight-sidebar">
@@ -56,9 +58,9 @@ export class FightState {
       </div>`;
     this.els = {
       turn: root.querySelector('.fight-turn'),
+      log: root.querySelector('.battle-log'),
       enemy: root.querySelector('.enemy-slot'),
       player: root.querySelector('.player-slot'),
-      feedback: root.querySelector('.feedback-line'),
       order: root.querySelector('.move-order'),
       panel: root.querySelector('.category-panel'),
     };
@@ -77,10 +79,6 @@ export class FightState {
 
   onCombatUpdate() { this.renderAll(); }
 
-  onEnemyMoveFlash(move) {
-    if (this.els?.feedback) this.els.feedback.textContent = `Enemy uses ${move.name}!`;
-  }
-
   renderAll() {
     const { app } = this;
     const combat = app.combatManager;
@@ -89,7 +87,9 @@ export class FightState {
     this.els.turn.textContent = `FIGHT TURN: ${combat.turnOrder.fightTurn}`;
     this.els.player.innerHTML = this.combatantHTML(combat.player, 'PLAYER');
     combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, 'ENEMY'); });
-    this.els.feedback.textContent = combat.log[0] ?? '';
+
+    // Newest message on top.
+    this.els.log.innerHTML = combat.log.map((line) => `<div class="log-line">${line}</div>`).join('');
 
     const order = [...combat.combatants].sort((a, b) => b.battleSpeed - a.battleSpeed);
     this.els.order.innerHTML = '<div class="order-title">Move Order:</div>' +

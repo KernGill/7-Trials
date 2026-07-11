@@ -70,10 +70,11 @@ export class PauseOverlay {
         <div class="pause-row">Sound: <button data-a="sound">${s.sound ? 'On' : 'Off'}</button></div>
         <button data-a="back">&larr; BACK</button>
       </div>`;
+    this.el.querySelector('.brightness-slider').addEventListener('change', () => app.saveSystem.save());
     this.el.querySelector('.brightness-slider').addEventListener('input', (e) => {
       s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
     });
-    this.el.querySelector('[data-a="sound"]').addEventListener('click', () => { s.sound = !s.sound; this.render(); });
+    this.el.querySelector('[data-a="sound"]').addEventListener('click', () => { s.sound = !s.sound; app.saveSystem.save(); this.render(); });
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 

@@ -66,20 +66,26 @@ export class GameState {
   }
 
   getSnapshot() {
+    // Deliberately NOT persisting `run` or `currentState`: an in-progress
+    // dungeon run contains Tile class instances that would lose their
+    // methods across a JSON round-trip, and resuming mid-fight isn't
+    // meaningfully reconstructable anyway. A refresh always drops you
+    // back to Home with everything you've already banked there (gold,
+    // equipment, bestiary, arc progress) intact — same rule the game
+    // already uses for dying mid-run.
     return {
-      currentState: this.currentState,
       meta: deepClone(this.meta),
       player: deepClone(this.player),
-      run: deepClone(this.run),
       bestiary: deepClone(this.bestiary),
       settings: deepClone(this.settings),
     };
   }
 
   loadSnapshot(snapshot) {
-    Object.assign(this, deepClone(snapshot));
-    this.combat = null;
-    this.paused = false;
-    this.enemyMoveFlash = null;
+    const { meta, player, bestiary, settings } = deepClone(snapshot);
+    if (meta) this.meta = meta;
+    if (player) this.player = player;
+    if (bestiary) this.bestiary = bestiary;
+    if (settings) this.settings = settings;
   }
 }

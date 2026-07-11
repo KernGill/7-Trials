@@ -7,6 +7,7 @@ export class HomeState {
   }
 
   enter(root) {
+    this.root = root;
     root.innerHTML = `
       <div class="home-screen">
         <h1 class="home-title">7 TRIALS</h1>
@@ -18,6 +19,7 @@ export class HomeState {
           <button class="home-tile" data-a="settings">SETTINGS</button>
           <button class="home-tile" data-a="locker">LOCKER</button>
         </div>
+        <button class="save-btn" data-a="save">Save Game</button>
       </div>`;
 
     const actions = {
@@ -27,10 +29,19 @@ export class HomeState {
       inn: () => this.app.setState(GAME_STATES.INN),
       locker: () => this.app.setState(GAME_STATES.LOCKER),
       settings: () => this.app.setState(GAME_STATES.SETTINGS),
+      save: () => { this.app.saveSystem.save(); this.flashSaved(); },
     };
     root.querySelectorAll('[data-a]').forEach((btn) => {
       btn.addEventListener('click', () => actions[btn.dataset.a]());
     });
+  }
+
+  flashSaved() {
+    const btn = this.root?.querySelector('.save-btn');
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = 'Saved!';
+    setTimeout(() => { if (btn.isConnected) btn.textContent = original; }, 900);
   }
 
   exit() {}

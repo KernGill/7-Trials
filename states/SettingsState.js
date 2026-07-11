@@ -30,9 +30,10 @@ export class SettingsState {
         <span>Sound: (no audio implemented yet)</span>
         <button class="sound-btn">${s.sound ? 'On' : 'Off'}</button>
       </div>`;
+    this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
       s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
     });
-    this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; this.renderAll(); });
+    this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; this.app.saveSystem.save(); this.renderAll(); });
   }
 }
