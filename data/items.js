@@ -64,7 +64,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'the_hollowed', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_helmet' },
   },
   wooden_chestplate: {
@@ -76,7 +76,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'the_hollowed', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_chestplate' },
   },
   wooden_arm_guard: {
@@ -88,7 +88,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'indebted_fallen', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_arm_guard' },
   },
   arm_of_the_corpse: {
@@ -125,7 +125,7 @@ export const ITEMS = {
     moveIds: ['potion_maniac'],
     price: { gold: 300, consumables: { minor_potion: 10 } },
     unlock: { potionsUsed: 10 },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#b2bec3', spriteId: 'potion_belt' },
   },
   wooden_leggings: {
@@ -137,7 +137,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'indebted_fallen', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_leggings' },
   },
   flesh_eaters_palm: {
@@ -149,7 +149,7 @@ export const ITEMS = {
     moveIds: ['gluttonous_maw'],
     price: { gold: 620, materials: { mana_stone: 10, flesh: 8, bones: 2 } },
     unlock: { achievement: 'survive_final_rites' },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#e84393', spriteId: 'flesh_eaters_palm' },
   },
   wooden_dagger: {
@@ -161,7 +161,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'the_hollowed', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#8B4513', spriteId: 'wooden_dagger' },
   },
   bone_mans_ribcage: {
@@ -173,7 +173,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 830, materials: { bones: 30 } },
     unlock: { runKill: { enemyId: 'indebted_fallen', count: 4 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#dfe6e9', spriteId: 'bone_mans_ribcage' },
   },
   homunculus_ring: {
@@ -197,7 +197,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'the_hollowed', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_ring' },
   },
   wooden_necklace: {
@@ -209,7 +209,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'the_hollowed', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_necklace' },
   },
   wooden_boots: {
@@ -221,7 +221,7 @@ export const ITEMS = {
     moveIds: [],
     price: { gold: 100 },
     unlock: { kill: { enemyId: 'indebted_fallen', count: 1 } },
-    shopState: ITEM_STATES.LOCKED,
+    shopState: ITEM_STATES.FOR_SALE,
     visual: { shape: 'rect', color: '#a0522d', spriteId: 'wooden_boots' },
   },
 };
