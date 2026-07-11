@@ -1,0 +1,128 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: #0b0c10; color: #eee;
+  font-family: 'Courier New', monospace;
+}
+#screen { min-height: 100vh; width: 100%; }
+button {
+  font-family: inherit; cursor: pointer;
+  background: #16213e; color: #eee; border: 1px solid #e94560;
+  border-radius: 4px;
+}
+button:hover:not(:disabled) { background: #e94560; color: #fff; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.back-btn {
+  position: fixed; top: 16px; left: 16px;
+  padding: 10px 18px; font-size: 13px; z-index: 20;
+}
+
+/* ---------------- HOME ---------------- */
+.home-screen {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 32px;
+}
+.home-title { color: #e94560; letter-spacing: 6px; font-size: 42px; margin: 0; }
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 200px);
+  grid-template-rows: repeat(2, 120px);
+  gap: 16px;
+}
+.home-tile { font-size: 16px; letter-spacing: 2px; }
+.home-tile-battle {
+  grid-column: 2; grid-row: 1 / span 2;
+  font-size: 22px; background: #e94560; color: #fff; border-color: #fff;
+}
+.home-tile-battle:hover { background: #ff5f7e; }
+
+/* ---------------- EXPLORE ---------------- */
+.explore-screen {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 20px; padding: 20px;
+}
+.explore-hud { display: flex; gap: 24px; font-size: 13px; color: #aaa; }
+.dungeon-grid { display: grid; gap: 4px; }
+.dtile {
+  width: 64px; height: 64px;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; font-size: 10px; font-weight: bold;
+  border: 1px solid #fff; background: #000; color: #fff;
+}
+.dtile.blank { border: none; background: transparent; }
+.dtile.t-unseen { background: #000; border-color: #333; }
+.dtile.t-floor { background: #222; }
+.dtile.t-enemy { background: #7a1f1f; }
+.dtile.t-stairs { background: #7a5c1f; }
+.dtile.t-locked { background: #3a1f7a; }
+.dtile.t-player { background: #e94560; color: #fff; }
+.floor-message { color: #f1c40f; font-size: 16px; min-height: 20px; }
+
+/* ---------------- FIGHT ---------------- */
+.fight-screen {
+  min-height: 100vh; display: flex; align-items: stretch;
+  justify-content: center; gap: 24px; padding: 24px; flex-wrap: wrap;
+}
+.fight-turn {
+  position: fixed; top: 16px; right: 16px; color: #aaa; font-size: 13px;
+}
+.arena {
+  flex: 1 1 480px; max-width: 560px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  border: 1px solid #222; border-radius: 6px; padding: 24px;
+  background: #14151f;
+}
+.combatant { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.combatant .label { color: #888; font-size: 12px; letter-spacing: 2px; }
+.avatar-box { width: 80px; height: 80px; border: 2px solid #fff; border-radius: 4px; }
+.stat-line { font-size: 14px; }
+.feedback-line { text-align: center; color: #f1c40f; font-size: 15px; min-height: 22px; }
+
+.fight-sidebar { flex: 0 0 280px; display: flex; flex-direction: column; gap: 16px; }
+.move-order { font-size: 12px; color: #ccc; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px; }
+.order-title { color: #888; margin-bottom: 6px; }
+.category-panel { display: flex; flex-direction: column; gap: 8px; }
+.cat-btn { padding: 16px; font-size: 14px; text-align: left; letter-spacing: 1px; }
+.move-btn { padding: 10px; font-size: 12px; text-align: left; line-height: 1.5; }
+.empty-note { color: #666; font-size: 12px; padding: 8px; }
+
+/* ---------------- Pause overlay ---------------- */
+.pause-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.pause-box {
+  display: flex; flex-direction: column; gap: 12px; align-items: stretch;
+  width: 320px; padding: 24px; background: #16213e; border: 1px solid #e94560; border-radius: 8px;
+}
+.pause-box h2 { margin: 0 0 8px; text-align: center; color: #fff; letter-spacing: 2px; }
+.pause-box button { padding: 12px; font-size: 13px; }
+.pause-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #ccc; font-size: 13px; }
+
+/* ---------------- Shop / Inn / Locker / Bestiary / Settings ---------------- */
+.shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen {
+  min-height: 100vh; padding: 80px 40px 40px; max-width: 900px; margin: 0 auto;
+}
+.shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1 {
+  color: #e94560; letter-spacing: 3px; text-align: center;
+}
+.shop-gold { text-align: center; color: #f1c40f; margin-bottom: 16px; }
+.shop-list, .inn-list, .bestiary-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
+.shop-row, .inn-card, .bestiary-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px 16px;
+}
+.inn-card { cursor: pointer; flex-direction: column; align-items: flex-start; }
+.shop-item-flavour { color: #777; font-size: 11px; flex: 1; }
+.shop-buy-btn { padding: 8px 14px; font-size: 12px; white-space: nowrap; }
+.bestiary-stats { color: #888; font-size: 11px; }
+.inn-locked, .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }
+
+.locker-columns { display: flex; gap: 24px; flex-wrap: wrap; }
+.locker-equipped, .locker-owned { flex: 1 1 320px; }
+.locker-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1c1d29; font-size: 13px; }
+
+.settings-body { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 14px 18px; }
+.brightness-slider { width: 200px; }
