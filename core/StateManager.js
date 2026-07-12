@@ -71,6 +71,7 @@ export class StateManager {
 
     this.bindEvents();
     this.bindInput();
+    this.saveSystem.clear();
     this.saveSystem.load();
     this.setState(GAME_STATES.HOME);
   }
