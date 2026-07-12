@@ -62,10 +62,27 @@ export class DungeonGenerator {
       remaining[i].type = TILE_TYPES.ENEMY;
       remaining[i].meta.enemySpawn = true;
     }
+
+    // Boss floor: exactly ONE of the enemy tiles is the boss, not every
+    // enemy tile on that floor. (Previously the boss check was purely
+    // floor-based with no tile distinction, so every enemy encounter on
+    // the boss floor silently WAS the boss — killing any of them
+    // completed the arc and flipped the enemy pool over to the next
+    // arc's roster.)
+    const isBossFloor = floor === this.arcConfig.bossFloor;
+    if (isBossFloor && enemyCount > 0) {
+      remaining[0].meta.isBoss = true;
+    }
+
     const lockedRoomTile = remaining[enemyCount];
     if (lockedRoomTile) {
       lockedRoomTile.type = TILE_TYPES.LOCKED_DOOR;
       lockedRoomTile.meta.lockDifficulty = 10 + floor;
+    }
+
+    const treasureTile = remaining[enemyCount + 1];
+    if (treasureTile) {
+      treasureTile.type = TILE_TYPES.TREASURE;
     }
 
     return {

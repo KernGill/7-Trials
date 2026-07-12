@@ -1,6 +1,9 @@
 import { TILE_TYPES } from '../exploration/Tile.js';
 import { PauseOverlay } from './PauseOverlay.js';
 import { clamp } from '../utils/MathUtils.js';
+import { getConsumableConfig } from '../data/consumables.js';
+import { getMaterialConfig } from '../data/items.js';
+import { getArcForFloor } from '../data/arcs.js';
 
 const VIEW_W = 9;
 const VIEW_H = 7;
@@ -43,8 +46,36 @@ export class ExploreState {
   }
 
   onPauseToggled() {
-    if (this.app.gameState.paused) this.pause.mount(this.root, { canAbandon: true });
-    else this.pause.unmount();
+    if (this.app.gameState.paused) {
+      this.pause.mount(this.root, {
+        canAbandon: true,
+        allowConsumables: true,
+        onUseConsumable: (id) => this.useConsumable(id),
+      });
+    } else {
+      this.pause.unmount();
+    }
+  }
+
+  /** Uses a consumable's explorationEffect (distinct from its combatEffect). */
+  useConsumable(id) {
+    const cfg = getConsumableConfig(id);
+    if (!cfg) return;
+    const effect = cfg.explorationEffect ?? {};
+
+    if (effect.healMaxPercent) {
+      const healed = this.player.heal(Math.ceil(this.player.getMaxHealth() * (effect.healMaxPercent / 100)));
+      this.app.gameState.addLog(`Used ${cfg.name}, healed ${healed} HP.`);
+    }
+    if (effect.buff) {
+      this.app.gameState.run.explorationBuffs = this.app.gameState.run.explorationBuffs ?? [];
+      this.app.gameState.run.explorationBuffs.push(effect.buff);
+      this.app.gameState.addLog(`Used ${cfg.name}. Its effect will apply at the start of your next fight.`);
+    }
+
+    this.app.inventory.useConsumable(id, 1);
+    this.app.gameState.run.savedHealth = this.player.currentHealth;
+    this.renderAll();
   }
 
   tick(dt) {
@@ -59,7 +90,7 @@ export class ExploreState {
   }
 
   handleKeydown(e) {
-    if (this.app.gameState.paused) return;
+    if (this.app.gameState.paused || this.resultOpen) return;
     const key = e.key;
     const moves = {
       arrowup: [0, -1], w: [0, -1],
@@ -98,7 +129,7 @@ export class ExploreState {
     const run = app.gameState.run;
     switch (tile.type) {
       case TILE_TYPES.ENEMY: {
-        const enemyId = app.progression.getEnemyForFloor(run.floor);
+        const enemyId = tile.meta.isBoss ? app.progression.getBossId(run.floor) : app.progression.getRandomEnemyId(run.floor);
         run.savedHealth = this.player.currentHealth;
         tile.type = TILE_TYPES.FLOOR;
         app.startCombat(enemyId); // immediate setState(FIGHT)
@@ -122,15 +153,66 @@ export class ExploreState {
         tile.meta.resolved = true;
         if (result.success) {
           app.gameState.player.gold += result.reward.amount;
-          app.gameState.addLog(`Locked room opened! +${result.reward.amount} gold.`);
+          this.showResult('LOCKED ROOM — OPENED', [
+            `Success chance was ${Math.round(result.chance)}%.`,
+            `Reward: +${result.reward.amount} gold.`,
+          ]);
         } else {
-          app.gameState.addLog('Failed to open the locked room.');
+          this.showResult('LOCKED ROOM — FAILED', [
+            `Success chance was ${Math.round(result.chance)}%.`,
+            'The lock held. No harm done.',
+          ]);
+        }
+        break;
+      }
+      case TILE_TYPES.TREASURE: {
+        if (tile.meta.resolved) break;
+        const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
+        const result = app.trapSystem.attemptChest(this.player.getStat('dex'), materialPool);
+        tile.meta.resolved = true;
+        if (result.success) {
+          app.inventory.addMaterial(result.reward.id, result.reward.amount, true);
+          this.showResult('CHEST — OPENED', [
+            `Success chance was ${Math.round(result.chance)}%.`,
+            `Reward: ${result.reward.amount}x ${getMaterialConfig(result.reward.id)?.name ?? result.reward.id}.`,
+          ]);
+        } else {
+          const before = this.player.currentHealth;
+          this.player.currentHealth = Math.max(1, this.player.currentHealth - result.damage);
+          const dealt = before - this.player.currentHealth;
+          run.savedHealth = this.player.currentHealth;
+          this.showResult('CHEST — TRAPPED', [
+            `Success chance was ${Math.round(result.chance)}%.`,
+            `The chest was trapped! Took ${dealt} damage.`,
+          ]);
         }
         break;
       }
       default:
         break;
     }
+  }
+
+  /**
+   * Persistent result window (per user request): stays on screen until
+   * explicitly closed, rather than just flashing a log line. Movement
+   * is blocked while it's open.
+   */
+  showResult(title, lines) {
+    this.resultOpen = true;
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box">
+        <h2>${title}</h2>
+        ${lines.map((l) => `<div class="result-line">${l}</div>`).join('')}
+        <button class="result-close">CLOSE</button>
+      </div>`;
+    this.root.appendChild(modal);
+    modal.querySelector('.result-close').addEventListener('click', () => {
+      modal.remove();
+      this.resultOpen = false;
+    });
   }
 
   renderAll() {
@@ -170,6 +252,7 @@ export class ExploreState {
       if (tile.type === TILE_TYPES.ENEMY) { cls += ' t-enemy'; label = 'ENEMY'; }
       else if (tile.type === TILE_TYPES.STAIRS) { cls += ' t-stairs'; label = 'STAIRS'; }
       else if (tile.type === TILE_TYPES.LOCKED_DOOR) { cls += ' t-locked'; label = 'LOCKED ROOM'; }
+      else if (tile.type === TILE_TYPES.TREASURE) { cls += ' t-treasure'; label = 'CHEST'; }
       else cls += ' t-floor';
     } else {
       cls += ' t-unseen';

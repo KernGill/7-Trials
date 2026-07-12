@@ -1,6 +1,7 @@
 import { MOVE_CATEGORIES, MOVE_PROPERTIES } from '../utils/Constants.js';
 import { COMBAT_PHASE } from '../combat/CombatManager.js';
 import { PauseOverlay } from './PauseOverlay.js';
+import { getConsumableConfig } from '../data/consumables.js';
 
 function isAttack(m) { return m.properties.includes(MOVE_PROPERTIES.PHYSICAL) || m.properties.includes(MOVE_PROPERTIES.MAGIC); }
 function isSustain(m) { return m.properties.includes(MOVE_PROPERTIES.DEFENCE) || m.properties.includes(MOVE_PROPERTIES.HEALING); }
@@ -138,6 +139,11 @@ export class FightState {
       return;
     }
 
+    if (this.openCategory === MOVE_CATEGORIES.CONSUMABLES) {
+      this.renderConsumablesCategory();
+      return;
+    }
+
     const player = combat.player;
     const moves = this.getAvailableMoves(this.openCategory);
     const moveButtons = moves.map((move) => {
@@ -160,6 +166,46 @@ export class FightState {
       btn.addEventListener('click', () => {
         const result = combat.playerUseMove(btn.dataset.move);
         if (!result.ok) app.gameState.addLog(result.reason);
+        this.openCategory = null;
+        this.renderAll();
+      });
+    });
+  }
+
+  /**
+   * CONSUMABLES draws from the player's actual carried items
+   * (gameState.run.consumables — seeded from the permanent locker
+   * stock at run start), not from player.moves. Using one applies its
+   * combatEffect and ends the turn, same as any other action.
+   */
+  renderConsumablesCategory() {
+    const { app } = this;
+    const combat = app.combatManager;
+    const panel = this.els.panel;
+    const entries = Object.entries(app.gameState.run.consumables ?? {}).filter(([, amt]) => amt > 0);
+
+    const itemButtons = entries.map(([id, amt]) => {
+      const cfg = getConsumableConfig(id);
+      return `
+        <button class="move-btn" data-consumable="${id}">
+          <strong>${cfg?.name ?? id}</strong> x${amt}<br>
+          <small>${cfg?.flavour ?? ''}</small>
+        </button>`;
+    }).join('');
+    panel.innerHTML = `<button class="cat-btn back-btn">&larr; BACK</button>${itemButtons || '<div class="empty-note">No consumables carried this run.</div>'}`;
+
+    panel.querySelector('.back-btn').addEventListener('click', () => {
+      this.openCategory = null;
+      this.renderCategoryPanel();
+    });
+    panel.querySelectorAll('[data-consumable]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.consumable;
+        const cfg = getConsumableConfig(id);
+        if (!cfg) return;
+        const result = combat.playerUseConsumable(cfg.name, cfg.combatEffect ?? {});
+        if (result.ok) app.inventory.useConsumable(id, 1);
+        else app.gameState.addLog(result.reason);
         this.openCategory = null;
         this.renderAll();
       });

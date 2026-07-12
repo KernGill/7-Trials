@@ -9,6 +9,7 @@ export const ARCS = {
     enemiesPerFloor: 3,
     enemyPool: ['indebted_fallen', 'the_hollowed'],
     bossId: 'indebted_fallen_boss',
+    materials: ['bones', 'flesh', 'mana_stone'],
     shopTier: 'arc0',
     startFloor: 1,
   },
@@ -49,4 +50,17 @@ export function getArcConfig(arcIndex) {
 
 export function getArcById(arcId) {
   return ARCS[arcId] ?? ARCS.arc0;
+}
+
+/**
+ * Which arc's content (enemy pool, boss) applies to a given floor number,
+ * based purely on the floor bracket (1-10 = arc0, 11-20 = arc1, ...) —
+ * NOT on meta.currentArc. This is what makes a boss floor always have
+ * its boss, every time you visit, whether or not you've already beaten
+ * it: the floor itself determines the content, not a one-way progress
+ * counter.
+ */
+export function getArcForFloor(floor) {
+  const arcs = Object.values(ARCS).sort((a, b) => a.index - b.index);
+  return arcs.find((arc) => floor <= arc.bossFloor) ?? arcs[arcs.length - 1];
 }

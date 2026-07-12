@@ -92,23 +92,41 @@ export class CombatManager {
     };
   }
 
-  advanceTurn() {
+  /**
+   * Status damage (bleed/poison/fire) is applied inside tick blocks below,
+   * not as part of a move's own executeMove()/endActorTurn() chain — so a
+   * kill from a tick doesn't get the immediate follow-up victory/defeat
+   * check that a direct attack kill does. Without this, the enemy could
+   * die to a status tick mid-advanceTurn(), the game would still hand the
+   * player another turn, and playerUseMove() would then fail forever with
+   * "No valid target" (since aliveEnemies is empty) without ever calling
+   * advanceTurn() again to notice the fight is actually over.
+   * Returns true if the fight ended (caller should stop immediately).
+   */
+  checkFightEnd() {
     if (!this.player?.isAlive()) {
       this.phase = COMBAT_PHASE.DEFEAT;
       this.eventBus.emit('combat:defeat', this.getState());
-      return;
+      return true;
     }
     if (!this.aliveEnemies.length) {
       this.finishVictory();
-      return;
+      return true;
     }
+    return false;
+  }
+
+  advanceTurn() {
+    if (this.checkFightEnd()) return;
 
     if (this.turnOrder.allHaveMoved(this.combatants)) {
       this.statusSystem.tickFightTurnEnd(this.combatants, (m) => this.logMessage(m));
+      if (this.checkFightEnd()) return;
       this.combatants.forEach((c) => this.statusSystem.decayBuffDurations(c));
       this.turnOrder.endFightTurn(this.combatants);
       this.turnOrder.beginFightTurn(this.combatants);
       this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m));
+      if (this.checkFightEnd()) return;
       this.cooldownSystem.tickFightTurn(this.combatants);
       this.triggerPassives('fight_turn_start');
     }
@@ -125,6 +143,7 @@ export class CombatManager {
     }
 
     this.statusSystem.tickCharacterTurnStart(actor, (m) => this.logMessage(m));
+    if (this.checkFightEnd()) return;
     this.triggerPassives('character_turn_start', actor);
     const gained = this.energySystem.gainEnergy(actor);
     if (gained > 0) this.logMessage(`${actor.name} gains ${gained} energy.`);
@@ -190,8 +209,9 @@ export class CombatManager {
       // final rites style
     }
 
+    let result = null;
     if (move.template.damage > 0 || move.scaling !== 'none') {
-      const result = DamageCalculator.resolveAttack({ attacker, defender, move });
+      result = DamageCalculator.resolveAttack({ attacker, defender, move });
       if (!result.hit) {
         this.logMessage(`${attacker.name}'s ${move.name} missed!`);
       } else if (result.split) {
@@ -235,7 +255,30 @@ export class CombatManager {
       });
     }
 
-    this.eventBus.emit('combat:move_resolved', { attacker, defender, move });
+    this.eventBus.emit('combat:move_resolved', { attacker, defender, move, result });
+  }
+
+  /**
+   * Using a consumable takes the character's turn but skips normal
+   * move machinery (no energy cost, no cooldown, no target selection —
+   * always affects the player). `effect` is the consumable's own
+   * combatEffect config (data/consumables.js), applied here so
+   * CombatManager stays the single place that knows how to end a turn.
+   */
+  playerUseConsumable(name, effect = {}) {
+    if (this.phase !== COMBAT_PHASE.PLAYER_TURN) return { ok: false, reason: 'Not your turn.' };
+
+    this.logMessage(`${this.player.name} uses ${name}.`);
+    if (effect.healMaxPercent) {
+      const healed = this.player.healMissingPercent(effect.healMaxPercent);
+      this.logMessage(`${this.player.name} heals ${healed} HP.`);
+    }
+    if (effect.buff) {
+      this.statusSystem.applyBuffs(this.player, [effect.buff], this.player);
+    }
+
+    this.endActorTurn(this.player);
+    return { ok: true };
   }
 
   triggerPassives(trigger, actor = null) {

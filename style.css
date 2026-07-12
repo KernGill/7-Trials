@@ -58,8 +58,22 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .dtile.t-enemy { background: #7a1f1f; }
 .dtile.t-stairs { background: #7a5c1f; }
 .dtile.t-locked { background: #3a1f7a; }
+.dtile.t-treasure { background: #7a6a1f; }
 .dtile.t-player { background: #e94560; color: #fff; }
 .floor-message { color: #f1c40f; font-size: 16px; min-height: 20px; }
+
+.result-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center; z-index: 60;
+}
+.result-box {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 340px; padding: 24px; background: #16213e;
+  border: 1px solid #f1c40f; border-radius: 8px;
+}
+.result-box h2 { margin: 0 0 4px; text-align: center; color: #f1c40f; letter-spacing: 1px; font-size: 18px; }
+.result-line { color: #ddd; font-size: 13px; text-align: center; }
+.result-close { padding: 10px; font-size: 13px; margin-top: 8px; }
 
 /* ---------------- FIGHT ---------------- */
 .fight-screen {

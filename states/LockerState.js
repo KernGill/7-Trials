@@ -1,12 +1,13 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { getMaterialConfig } from '../data/items.js';
+import { getConsumableConfig } from '../data/consumables.js';
 
 export class LockerState {
   constructor(app) { this.app = app; }
 
   enter(root) {
     this.root = root;
-    this.tab = 'equipment'; // 'equipment' | 'materials'
+    this.tab = 'equipment'; // 'equipment' | 'materials' | 'consumables'
     root.innerHTML = `
       <div class="locker-screen">
         <button class="back-btn">RETURN HOME</button>
@@ -14,6 +15,7 @@ export class LockerState {
         <div class="locker-tabs">
           <button class="tab-btn" data-tab="equipment">EQUIPMENT</button>
           <button class="tab-btn" data-tab="materials">MATERIALS</button>
+          <button class="tab-btn" data-tab="consumables">CONSUMABLES</button>
         </div>
         <div class="locker-body"></div>
       </div>`;
@@ -32,6 +34,7 @@ export class LockerState {
       btn.classList.toggle('active', btn.dataset.tab === this.tab);
     });
     if (this.tab === 'materials') this.renderMaterials();
+    else if (this.tab === 'consumables') this.renderConsumables();
     else this.renderEquipment();
   }
 
@@ -84,6 +87,26 @@ export class LockerState {
             </div>`;
         }).join('')}
         ${entries.length === 0 ? '<div class="locker-empty">No materials yet — fight enemies or open locked rooms to find some.</div>' : ''}
+      </div>`;
+  }
+
+  renderConsumables() {
+    const { app } = this;
+    const entries = Object.entries(app.gameState.player.consumables ?? {}).filter(([, amt]) => amt > 0);
+    if (entries.length === 0) {
+      this.body.innerHTML = '<div class="locker-empty">No consumables yet — buy some from the Shop.</div>';
+      return;
+    }
+    this.body.innerHTML = `
+      <div class="materials-grid">
+        ${entries.map(([id, amt]) => {
+          const cfg = getConsumableConfig(id);
+          return `
+            <div class="material-card">
+              <div class="material-name">${cfg?.name ?? id}</div>
+              <div class="material-amount">${amt}</div>
+            </div>`;
+        }).join('')}
       </div>`;
   }
 }

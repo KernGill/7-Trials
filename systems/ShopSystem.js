@@ -17,8 +17,7 @@ export class ShopSystem {
 
   buildListing(config, type) {
     const unlocked = this.progression.meetsUnlockCondition(config.unlock);
-    let state = config.shopState ?? ITEM_STATES.FOR_SALE;
-    if (!unlocked) state = ITEM_STATES.LOCKED;
+    let state = unlocked ? ITEM_STATES.FOR_SALE : ITEM_STATES.LOCKED;
     if (type === 'item' && this.inventory.ownsItem(config.id)) state = ITEM_STATES.BOUGHT;
 
     return {

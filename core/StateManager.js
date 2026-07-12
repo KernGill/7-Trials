@@ -6,12 +6,15 @@ import { GameLoop } from './GameLoop.js';
 import { CombatManager } from '../combat/CombatManager.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { ProgressionSystem } from '../systems/ProgressionSystem.js';
+import { AchievementSystem } from '../systems/AchievementSystem.js';
+import { getAchievementConfig } from '../data/achievements.js';
 import { ShopSystem } from '../systems/ShopSystem.js';
 import { InnSystem } from '../systems/InnSystem.js';
 import { BestiarySystem } from '../systems/BestiarySystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
 import { TrapSystem } from '../exploration/TrapSystem.js';
+import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
 import { HomeState } from '../states/HomeState.js';
@@ -46,7 +49,8 @@ export class StateManager {
     this.input = new InputManager(document);
     this.combatManager = new CombatManager(this.eventBus);
     this.inventory = new InventorySystem(this.gameState);
-    this.progression = new ProgressionSystem(this.gameState);
+    this.achievements = new AchievementSystem(this.gameState);
+    this.progression = new ProgressionSystem(this.gameState, this.achievements);
     this.shop = new ShopSystem(this.gameState, this.inventory, this.progression);
     this.inn = new InnSystem(this.gameState);
     this.bestiary = new BestiarySystem(this.gameState);
@@ -79,8 +83,25 @@ export class StateManager {
     this.eventBus.on('combat:defeat', () => this.onCombatDefeat());
     this.eventBus.on('combat:abandoned', () => this.onCombatDefeat());
     this.eventBus.on('combat:player_turn', () => this.currentStateHandler.onCombatUpdate?.());
-    this.eventBus.on('combat:move_resolved', () => this.currentStateHandler.onCombatUpdate?.());
+    this.eventBus.on('combat:move_resolved', (payload) => {
+      this.trackAchievementTriggers(payload);
+      this.currentStateHandler.onCombatUpdate?.();
+    });
     this.eventBus.on('combat:log', () => this.currentStateHandler.onCombatUpdate?.());
+  }
+
+  /**
+   * Central place for "did something achievement-relevant just happen"
+   * checks that hook into combat events. Final Rites specifically:
+   * count hits on the player within the current run; checked against
+   * the achievement's target when the run is survived (see goHome).
+   */
+  trackAchievementTriggers({ defender, move, result }) {
+    if (move?.id === 'final_rites' && defender?.isPlayer && result?.hit) {
+      this.gameState.run.achievementProgress = this.gameState.run.achievementProgress ?? {};
+      this.gameState.run.achievementProgress.finalRitesHits =
+        (this.gameState.run.achievementProgress.finalRitesHits ?? 0) + 1;
+    }
   }
 
   bindInput() {
@@ -111,13 +132,29 @@ export class StateManager {
     this.currentStateHandler.enter(this.screenRoot);
   }
 
-  goHome() {
+  goHome({ died = false } = {}) {
     // Bank any materials picked up this run into permanent storage
     // before the run object gets wiped/replaced by the next startRun().
     const runMaterials = this.gameState.run?.materials ?? {};
     Object.entries(runMaterials).forEach(([id, amt]) => {
       if (amt > 0) this.inventory.addMaterial(id, amt, false);
     });
+
+    // run.consumables started as a copy of the permanent stock at
+    // startRun() and only ever depletes (usage) or grows (drops) from
+    // there — write it back so the next run starts from the correct
+    // count instead of silently resetting to what you had before.
+    if (this.gameState.run?.consumables) {
+      this.gameState.player.consumables = { ...this.gameState.run.consumables };
+    }
+
+    // "Survive a run" achievements only count if you actually survived
+    // (left voluntarily or won) — not if you died.
+    if (!died) {
+      const hits = this.gameState.run?.achievementProgress?.finalRitesHits ?? 0;
+      const target = getAchievementConfig('survive_final_rites')?.target ?? 3;
+      if (hits >= target) this.achievements.setComplete('survive_final_rites');
+    }
 
     this.combatManager.reset();
     this.gameState.combat = null;
@@ -156,7 +193,7 @@ export class StateManager {
   }
 
   generateFloor() {
-    const arc = this.progression.getCurrentArc();
+    const arc = getArcForFloor(this.gameState.run.floor);
     const generator = new DungeonGenerator(arc);
     const dungeon = generator.generate(this.gameState.run.floor);
     this.gameState.run.dungeon = dungeon;
@@ -215,7 +252,8 @@ export class StateManager {
 
     if (this.progression.isBossFloor(this.gameState.run.floor) &&
         enemies.some((e) => e.isBoss)) {
-      this.progression.completeArc();
+      const clearedArc = getArcForFloor(this.gameState.run.floor);
+      this.progression.completeArc(clearedArc.id); // no-ops if already completed before
       this.gameState.run.active = false;
       this.goHome();
       return;
@@ -229,7 +267,7 @@ export class StateManager {
     this.gameState.run.active = false;
     this.gameState.run.savedHealth = null;
     this.gameState.addLog('You were defeated.');
-    this.goHome();
+    this.goHome({ died: true });
   }
 
   // --- Loop (timers only — no per-frame rendering) ------------------------
