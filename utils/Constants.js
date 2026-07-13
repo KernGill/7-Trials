@@ -37,7 +37,7 @@ export const MULTI_EQUIPMENT_SLOTS = {
 export const EQUIPMENT_SLOTS = [...SINGLE_EQUIPMENT_SLOTS, ...Object.keys(MULTI_EQUIPMENT_SLOTS)];
 
 export const STAT_KEYS = [
-  'con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage',
+  'con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage', 'energy',
 ];
 
 export const SCALING_TYPES = {

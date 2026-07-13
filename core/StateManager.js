@@ -87,6 +87,7 @@ export class StateManager {
     this.eventBus.on('combat:move_resolved', (payload) => {
       this.trackAchievementTriggers(payload);
       this.currentStateHandler.onCombatUpdate?.();
+      this.currentStateHandler.onMoveResolved?.(payload);
     });
     this.eventBus.on('combat:log', () => this.currentStateHandler.onCombatUpdate?.());
   }

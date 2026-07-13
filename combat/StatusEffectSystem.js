@@ -1,9 +1,4 @@
-import {
-  FIRE_DAMAGE_MULTIPLIER,
-  FIRE_DECAY_RATIO,
-  FROST_MAX_STACKS,
-} from '../utils/Constants.js';
-import { roundDown } from '../utils/MathUtils.js';
+import { FROST_MAX_STACKS } from '../utils/Constants.js';
 import { STATUS_EFFECTS as CONFIG } from '../data/statusEffectConfig.js';
 
 export class StatusEffectSystem {
@@ -13,7 +8,7 @@ export class StatusEffectSystem {
       if (!template || template.tickOn !== 'character_turn_start') return;
       const damage = template.formula(effect.stacks, character);
       if (damage > 0) {
-        character.takeDamage(damage);
+        character.takeDamage(damage, { source: effect.id });
         log?.(`${character.name} takes ${damage} ${template.name} damage.`);
       }
     });
@@ -26,13 +21,18 @@ export class StatusEffectSystem {
         if (!template || template.tickOn !== 'fight_turn_start') return;
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
-          character.takeDamage(damage);
+          character.takeDamage(damage, { source: effect.id });
           log?.(`${character.name} takes ${damage} ${template.name} damage.`);
         }
       });
     });
   }
 
+  /**
+   * Fire no longer decays on a timer here — Character.takeDamage()
+   * burns off 35% of fire stacks whenever the burning character takes
+   * any OTHER instance of damage (fire's own tick is exempted there).
+   */
   tickFightTurnEnd(combatants, log) {
     combatants.forEach((character) => {
       character.statusEffects.forEach((effect) => {
@@ -40,13 +40,8 @@ export class StatusEffectSystem {
         if (!template || template.tickOn !== 'fight_turn_end') return;
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
-          character.takeDamage(damage);
+          character.takeDamage(damage, { source: effect.id });
           log?.(`${character.name} takes ${damage} ${template.name} damage.`);
-        }
-        if (template.stacksDecrease) {
-          const decay = roundDown(effect.stacks * template.decayRatio);
-          effect.stacks = Math.max(0, effect.stacks - Math.max(1, decay));
-          if (effect.stacks <= 0) character.removeStatusEffect(effect.id);
         }
       });
 

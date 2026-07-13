@@ -81,6 +81,29 @@ export class FightState {
 
   onCombatUpdate() { this.renderAll(); }
 
+  /**
+   * Fires after onCombatUpdate() has already rebuilt the arena DOM for
+   * this event, so the .avatar-box we grab here is the fresh one — a
+   * class added before that rebuild would just get thrown away with the
+   * old innerHTML. Only attacks (physical/magic) that actually landed
+   * get the bump; misses and non-attack moves (guard, heals, buffs) don't.
+   */
+  onMoveResolved({ attacker, move, result } = {}) {
+    if (!this.els || !attacker || !move) return;
+    const isAttack = move.properties?.includes(MOVE_PROPERTIES.PHYSICAL) ||
+      move.properties?.includes(MOVE_PROPERTIES.MAGIC);
+    if (!isAttack || (result && !result.hit)) return;
+
+    const slot = attacker.isPlayer ? this.els.player : this.els.enemy;
+    const box = slot?.querySelector('.avatar-box');
+    if (!box) return;
+
+    const bumpClass = attacker.isPlayer ? 'bump-up' : 'bump-down';
+    box.classList.remove('bump-up', 'bump-down');
+    void box.offsetWidth; // restart the animation if it's still mid-flight
+    box.classList.add(bumpClass);
+  }
+
   renderAll() {
     const { app } = this;
     const combat = app.combatManager;
@@ -112,15 +135,61 @@ export class FightState {
       <div class="stat-line">${c.energy} / ${c.getMaxEnergy()}</div>`;
   }
 
+  /**
+   * Beyond the raw statusEffects list, also surfaces things that were
+   * previously invisible to the player: stacked stat buffs (Golden
+   * Calling's permanent +str, Accumulating Mana's per-turn +str, etc,
+   * grouped and totalled per stat) and active defensive move states
+   * (Guard, the various damageReduction moves, Arcane Split's reflect)
+   * so "I used a defence move" has visible on-board proof.
+   */
   statusIconsHTML(character) {
-    return character.statusEffects.map((effect) => {
+    const icons = character.statusEffects.map((effect) => {
       const cfg = STATUS_EFFECTS[effect.id];
       if (!cfg) return '';
       return `
         <span class="status-icon ${cfg.type}" style="background:${cfg.color}" title="${cfg.name} x${effect.stacks}">
           ${cfg.icon}<sub class="status-stacks">${effect.stacks}</sub>
         </span>`;
-    }).join('');
+    });
+
+    const buffTotals = {};
+    character.statBuffs.forEach((buff) => {
+      buffTotals[buff.stat] = (buffTotals[buff.stat] ?? 0) + buff.amount;
+    });
+    Object.entries(buffTotals).forEach(([stat, amount]) => {
+      if (amount === 0) return;
+      const label = stat.slice(0, 3).toUpperCase();
+      icons.push(`
+        <span class="status-icon buff" style="background:#2ecc71" title="${stat.toUpperCase()} +${amount}">
+          +${label}<sub class="status-stacks">${amount}</sub>
+        </span>`);
+    });
+
+    if (character.guardState) {
+      icons.push(`
+        <span class="status-icon defence" style="background:#3498db" title="Guarding: ${character.guardState.percent}% damage reduction">
+          GD
+        </span>`);
+    }
+    if (character.pendingDamageReduction) {
+      const dr = character.pendingDamageReduction;
+      const label = dr.percent
+        ? `Defended: ${dr.percent}% reduction${dr.hits ? ` (${dr.hits} hit${dr.hits === 1 ? '' : 's'} left)` : ''}`
+        : `Defended: -${dr.flat} damage`;
+      icons.push(`
+        <span class="status-icon defence" style="background:#3498db" title="${label}">
+          DEF
+        </span>`);
+    }
+    if (character.reflectSplitPercent > 0) {
+      icons.push(`
+        <span class="status-icon defence" style="background:#3498db" title="Reflecting ${character.reflectSplitPercent}% of the next hit">
+          RS
+        </span>`);
+    }
+
+    return icons.join('');
   }
 
   getAvailableMoves(category) {

@@ -96,7 +96,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 3,
     cooldown: 6,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    healMissingPercent: 30,
+    healMaxPercent: 30,
   },
   arcane_split: {
     id: 'arcane_split',
@@ -131,8 +131,11 @@ export const MOVE_TEMPLATES = {
     energyCost: 3,
     cooldown: 8,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    // 3 total damage instances: the immediate hit below, plus one more
+    // at the start of each of the next 2 fight turns (repeatInstances).
+    // Each landed instance — including this one — applies 3 frost stacks.
     debuffs: [{ effect: 'frost', stacks: 3 }],
-    dotDurationFightTurns: 3,
+    repeatInstances: 2,
   },
   undead_fury: {
     id: 'undead_fury',

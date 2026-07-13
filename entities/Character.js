@@ -1,12 +1,13 @@
 import {
   DEX_CRIT_RATIO,
   DEX_COOLDOWN_REDUCTION_INTERVAL,
-  ENERGY_CAP_RATIO,
+  FROST_HIT_PENALTY,
   STAT_KEYS,
 } from '../utils/Constants.js';
-import { clamp, roundUp } from '../utils/MathUtils.js';
+import { clamp, roundDown, roundUp } from '../utils/MathUtils.js';
 import { StatusEffect } from './SatusEffect.js';
 import { Move } from './Move.js';
+import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 
 export class Character {
   constructor(config) {
@@ -50,6 +51,15 @@ export class Character {
   }
 
   getStat(stat) {
+    // Dodge/accuracy are only ever moved by frost — no equipment, battle
+    // buff, or stat buff is allowed to touch them, so they bypass the
+    // normal stacking pipeline entirely.
+    if (stat === 'dodge' || stat === 'accuracy') {
+      const base = this.baseStats[stat] ?? 100;
+      const frostStacks = this.getStatusStacks('frost');
+      return Math.max(0, base - frostStacks * FROST_HIT_PENALTY * 100);
+    }
+
     const base = this.baseStats[stat] ?? 0;
     const equip = this.equipmentStats[stat] ?? 0;
     const battle = this.battleBuffs[stat] ?? 0;
@@ -71,10 +81,6 @@ export class Character {
       }
     });
 
-    this.statBuffs.forEach((buff) => {
-      if (buff.stat === stat) value += buff.amount;
-    });
-
     return Math.max(0, value);
   }
 
@@ -93,7 +99,7 @@ export class Character {
   }
 
   getMaxEnergy() {
-    return Math.max(1, Math.round(this.getStat('con') * ENERGY_CAP_RATIO));
+    return Math.max(1, Math.round(this.getStat('energy')));
   }
 
   getCooldownReduction() {
@@ -136,10 +142,22 @@ export class Character {
     return this.getStatusStacks('stun') > 0;
   }
 
-  takeDamage(amount) {
+  takeDamage(amount, { source = null } = {}) {
     const actual = Math.max(0, Math.round(amount));
     this.currentHealth = clamp(this.currentHealth - actual, 0, this.getMaxHealth());
+    // Fire's own tick doesn't count as "an instance of damage" for its
+    // own decay — everything else that lands (attacks, other status
+    // ticks) burns off 35% of the stacks.
+    if (actual > 0 && source !== 'fire') this.decayFireStacks();
     return actual;
+  }
+
+  decayFireStacks() {
+    const fire = this.statusEffects.find((e) => e.id === 'fire');
+    if (!fire) return;
+    const decay = Math.max(1, roundDown(fire.stacks * STATUS_EFFECTS.fire.decayRatio));
+    fire.stacks = Math.max(0, fire.stacks - decay);
+    if (fire.stacks <= 0) this.removeStatusEffect('fire');
   }
 
   heal(amount) {

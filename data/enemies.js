@@ -16,7 +16,7 @@ export const ENEMIES = {
       spriteId: 'indebted_fallen',
     },
     baseStats: {
-      con: 450,
+      con: 400,
       dex: 14,
       str: 24,
       spd: 16,
@@ -24,6 +24,9 @@ export const ENEMIES = {
       int: 0,
       critChance: 4,
       critDamage: 43,
+      dodge: 100,
+      accuracy: 100,
+      energy: 6,
     },
     moveIds: [
       'shard_stab',
@@ -68,6 +71,9 @@ export const ENEMIES = {
       int: 0,
       critChance: 6,
       critDamage: 50,
+      dodge: 100,
+      accuracy: 100,
+      energy: 10,
     },
     moveIds: [
       'shard_stab',
@@ -103,7 +109,7 @@ export const ENEMIES = {
       spriteId: 'the_hollowed',
     },
     baseStats: {
-      con: 660,
+      con: 540,
       dex: 20,
       str: 18,
       spd: 20,
@@ -111,6 +117,9 @@ export const ENEMIES = {
       int: 0,
       critChance: 5,
       critDamage: 54,
+      dodge: 100,
+      accuracy: 100,
+      energy: 6,
     },
     moveIds: [
       'spore_assault',

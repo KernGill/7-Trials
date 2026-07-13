@@ -3,7 +3,6 @@ import {
   DEX_CRIT_RATIO,
   DEX_ENERGY_THRESHOLD,
   FROST_DAMAGE_BONUS,
-  FROST_HIT_PENALTY,
   LIFESTEAL_PER_STACK,
   SCALING_TYPES,
   THORNS_REFLECT_PER_STACK,
@@ -49,13 +48,19 @@ export class DamageCalculator {
     return { isCrit: true, multiplier, tier };
   }
 
-  static calculateAccuracy(attacker, defender) {
-    let accuracy = 100;
-    const attackerFrost = attacker.getStatusStacks('frost');
-    const defenderFrost = defender.getStatusStacks('frost');
-    accuracy -= attackerFrost * FROST_HIT_PENALTY * 100;
-    accuracy += defenderFrost * FROST_HIT_PENALTY * 100;
-    return clamp(accuracy, 5, 100);
+  /**
+   * Dodge/accuracy only ever move via frost (see Character.getStat).
+   * Excess dodge (>100) is a chance to evade; excess accuracy (>100)
+   * cancels out excess dodge point-for-point. Accuracy below 100 is a
+   * flat miss chance that stacks on top of whatever dodge gets through.
+   */
+  static calculateHitChance(attacker, defender) {
+    const dodgeExcess = Math.max(0, defender.getStat('dodge') - 100);
+    const accuracyExcess = Math.max(0, attacker.getStat('accuracy') - 100);
+    const effectiveDodge = Math.max(0, dodgeExcess - accuracyExcess);
+    const accuracyDeficit = Math.max(0, 100 - attacker.getStat('accuracy'));
+    const missChance = clamp(effectiveDodge + accuracyDeficit, 0, 100);
+    return clamp(100 - missChance, 0, 100);
   }
 
   static applyDefense(damage, defender) {
@@ -106,7 +111,7 @@ export class DamageCalculator {
   }
 
   static resolveAttack({ attacker, defender, move, forceHit = false }) {
-    if (!forceHit && !rollChance(this.calculateAccuracy(attacker, defender))) {
+    if (!forceHit && !rollChance(this.calculateHitChance(attacker, defender))) {
       return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false };
     }
 

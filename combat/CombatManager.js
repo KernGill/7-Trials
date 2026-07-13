@@ -53,6 +53,7 @@ export class CombatManager {
     this.triggerPassives('fight_start');
     this.turnOrder.beginFightTurn(this.combatants);
     this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m));
+    this.processDotEffects();
     this.cooldownSystem.tickFightTurn(this.combatants);
     this.triggerPassives('fight_turn_start');
     this.advanceTurn();
@@ -116,6 +117,34 @@ export class CombatManager {
     return false;
   }
 
+  /**
+   * Resolves queued follow-up damage instances (e.g. Bone Zone: 1 hit on
+   * cast + 2 more queued via `repeatInstances`, one per fight-turn-start).
+   * Each instance re-rolls hit/crit/defense like a normal attack and only
+   * applies the move's debuffs if it actually lands.
+   */
+  processDotEffects() {
+    this.combatants.forEach((attacker) => {
+      if (!attacker.dotEffects.length) return;
+      attacker.dotEffects = attacker.dotEffects.filter((dot) => {
+        if (!attacker.isAlive() || !dot.target.isAlive()) return false;
+
+        const result = DamageCalculator.resolveAttack({ attacker, defender: dot.target, move: dot.move });
+        if (!result.hit) {
+          this.logMessage(`${dot.move.name}'s follow-up on ${dot.target.name} missed!`);
+        } else {
+          const critText = result.isCrit ? ' CRIT!' : '';
+          this.logMessage(`${dot.move.name} deals ${result.damage} follow-up damage to ${dot.target.name}${critText}.`);
+          if (dot.move.debuffs) this.statusSystem.applyDebuffs(dot.target, dot.move.debuffs, attacker);
+          this.eventBus.emit('combat:move_resolved', { attacker, defender: dot.target, move: dot.move, result });
+        }
+
+        dot.remaining -= 1;
+        return dot.remaining > 0;
+      });
+    });
+  }
+
   advanceTurn() {
     if (this.checkFightEnd()) return;
 
@@ -126,6 +155,8 @@ export class CombatManager {
       this.turnOrder.endFightTurn(this.combatants);
       this.turnOrder.beginFightTurn(this.combatants);
       this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m));
+      if (this.checkFightEnd()) return;
+      this.processDotEffects();
       if (this.checkFightEnd()) return;
       this.cooldownSystem.tickFightTurn(this.combatants);
       this.triggerPassives('fight_turn_start');
@@ -205,10 +236,6 @@ export class CombatManager {
       this.logMessage(`${attacker.name} heals ${healed} HP.`);
     }
 
-    if (move.template.healMissingPercent && move.template.debuffs) {
-      // final rites style
-    }
-
     let result = null;
     if (move.template.damage > 0 || move.scaling !== 'none') {
       result = DamageCalculator.resolveAttack({ attacker, defender, move });
@@ -223,7 +250,7 @@ export class CombatManager {
       }
     }
 
-    if (move.template.debuffs) {
+    if (move.template.debuffs && (!result || result.hit)) {
       this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker);
     }
     if (move.template.buffs) {
@@ -247,10 +274,10 @@ export class CombatManager {
       attacker.reflectSplitPercent = move.template.reflectSplitPercent;
     }
 
-    if (move.template.dotDurationFightTurns) {
+    if (move.template.repeatInstances) {
       attacker.dotEffects.push({
         move: move.template,
-        remaining: move.template.dotDurationFightTurns,
+        remaining: move.template.repeatInstances,
         target: defender,
       });
     }

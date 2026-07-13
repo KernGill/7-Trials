@@ -24,6 +24,9 @@ export const CHARACTERS = {
       int: 15,
       critChance: 8,
       critDamage: 33,
+      dodge: 100,
+      accuracy: 100,
+      energy: 6,
     },
     moveIds: [
       'challengers_mettle',
