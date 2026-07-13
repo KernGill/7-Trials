@@ -16,7 +16,7 @@ export const ENEMIES = {
       spriteId: 'indebted_fallen',
     },
     baseStats: {
-      con: 400,
+      con: 325,
       dex: 14,
       str: 24,
       spd: 16,
@@ -109,7 +109,7 @@ export const ENEMIES = {
       spriteId: 'the_hollowed',
     },
     baseStats: {
-      con: 630,
+      con: 430,
       dex: 20,
       str: 18,
       spd: 20,
