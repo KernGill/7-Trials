@@ -1,6 +1,17 @@
 import { GAME_STATES, ITEM_STATES } from '../utils/Constants.js';
-import { getMaterialConfig } from '../data/items.js';
+import { getMaterialConfig, getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { itemTooltipHTML, abilitySummaryLine } from '../ui/InfoFormatters.js';
+
+function consumableTooltipHTML(config) {
+  const ability = config.moveId ? abilitySummaryLine(config.moveId) : '';
+  return `
+    <h4>${config.name}</h4>
+    <div class="tt-row"><span>${config.flavour ?? ''}</span></div>
+    ${ability ? `<div class="tt-row tt-section-label"><strong>Effect:</strong></div>${ability}` : ''}
+  `;
+}
 
 function formatPrice(price) {
   if (!price) return '';
@@ -34,11 +45,13 @@ export class ShopState {
       list: root.querySelector('.shop-list'),
       flash: root.querySelector('.flash-message'),
     };
+    this.tooltip = new TooltipManager();
     this.renderAll();
   }
 
   exit() {
     clearTimeout(this.flashTimeout);
+    this.tooltip?.destroy();
   }
 
   /** Prioritizes gold over materials — canBuy() already checks gold first and short-circuits, so the reason string tells us which one to flash. */
@@ -61,13 +74,20 @@ export class ShopState {
       const label = l.state === ITEM_STATES.LOCKED ? 'LOCKED' : formatPrice(l.price);
       const ownedTag = l.type === 'item' ? `<div class="shop-owned">Owned: ${l.ownedCount}</div>` : '';
       return `
-        <div class="shop-row">
+        <div class="shop-row" data-row-id="${l.id}" data-row-type="${l.type}">
           <div class="shop-item-name">${l.name}</div>
           <div class="shop-item-flavour">${l.flavour ?? ''}</div>
           ${ownedTag}
           <button class="shop-buy-btn" data-id="${l.id}" ${l.state === ITEM_STATES.LOCKED ? 'disabled' : ''}>${label}</button>
         </div>`;
     }).join('');
+    this.els.list.querySelectorAll('[data-row-id]').forEach((row) => {
+      this.tooltip.bind(row, () => {
+        const config = row.dataset.rowType === 'item' ? getItemConfig(row.dataset.rowId) : getConsumableConfig(row.dataset.rowId);
+        if (!config) return '';
+        return row.dataset.rowType === 'item' ? itemTooltipHTML(config) : consumableTooltipHTML(config);
+      });
+    });
     this.els.list.querySelectorAll('[data-id]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const result = app.shop.buy(btn.dataset.id);

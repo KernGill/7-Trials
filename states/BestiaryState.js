@@ -1,37 +1,142 @@
 import { GAME_STATES } from '../utils/Constants.js';
+import { getArcConfig, ARCS } from '../data/arcs.js';
+import { getMoveTemplate } from '../data/moves.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { statsListHTML, abilityDetailHTML } from '../ui/InfoFormatters.js';
 
+const SLOTS_PER_ARC = 12;
+const MAX_ARC_INDEX = Math.max(...Object.values(ARCS).map((a) => a.index));
+
+/**
+ * BestiaryState — arc-grouped 12-slot grid (Previous/Next arc nav),
+ * hover-tooltip stats on discovered tiles, click to open a detail panel
+ * with a scrollable, hoverable moves list. Undiscovered enemies (ones
+ * you haven't beaten yet) stay locked behind "???" — that gating is
+ * existing gameplay (BestiarySystem.recordEncounter on victory) and is
+ * preserved here, not touched. Pool slots with no enemy defined yet at
+ * all show "Future enemy", matching the design doc.
+ */
 export class BestiaryState {
-  constructor(app) { this.app = app; }
+  constructor(app) {
+    this.app = app;
+    this.arcIndex = 0;
+    this.openEnemyId = null;
+  }
 
   enter(root) {
     this.root = root;
+    this.arcIndex = 0;
+    this.openEnemyId = null;
+    this.tooltip = new TooltipManager();
     root.innerHTML = `
       <div class="bestiary-screen">
         <button class="back-btn">RETURN HOME</button>
         <h1>BESTIARY</h1>
-        <div class="bestiary-list"></div>
+        <div class="bestiary-panel">
+          <div class="bestiary-arc-header"></div>
+          <div class="bestiary-grid"></div>
+          <div class="bestiary-detail hidden"></div>
+        </div>
+        <div class="bestiary-nav">
+          <button class="arc-nav-btn" data-nav="prev">&larr; PREVIOUS</button>
+          <button class="arc-nav-btn" data-nav="next">NEXT &rarr;</button>
+        </div>
       </div>`;
     root.querySelector('.back-btn').addEventListener('click', () => this.app.setState(GAME_STATES.HOME));
-    this.list = root.querySelector('.bestiary-list');
+    this.els = {
+      arcHeader: root.querySelector('.bestiary-arc-header'),
+      grid: root.querySelector('.bestiary-grid'),
+      detail: root.querySelector('.bestiary-detail'),
+      prevBtn: root.querySelector('[data-nav="prev"]'),
+      nextBtn: root.querySelector('[data-nav="next"]'),
+    };
+    this.els.prevBtn.addEventListener('click', () => {
+      this.arcIndex = Math.max(0, this.arcIndex - 1);
+      this.openEnemyId = null;
+      this.renderAll();
+    });
+    this.els.nextBtn.addEventListener('click', () => {
+      this.arcIndex = Math.min(MAX_ARC_INDEX, this.arcIndex + 1);
+      this.openEnemyId = null;
+      this.renderAll();
+    });
     this.renderAll();
   }
 
-  exit() {}
+  exit() {
+    this.tooltip?.destroy();
+  }
 
   renderAll() {
-    const entries = this.app.bestiary.getEntries();
-    if (!entries.length) {
-      this.list.innerHTML = '<div class="bestiary-empty">No enemies discovered yet.</div>';
+    const arc = getArcConfig(this.arcIndex);
+    this.els.arcHeader.textContent = `ARC ${arc.index}`;
+    this.els.prevBtn.disabled = this.arcIndex <= 0;
+    this.els.nextBtn.disabled = this.arcIndex >= MAX_ARC_INDEX;
+
+    const poolIds = [...(arc.enemyPool ?? [])];
+    if (arc.bossId) poolIds.push(arc.bossId);
+    const slots = Array.from({ length: SLOTS_PER_ARC }).map((_, i) => poolIds[i] ?? null);
+
+    this.els.grid.innerHTML = slots.map((enemyId) => {
+      const entry = enemyId ? this.app.bestiary.getEntry(enemyId) : null;
+      if (!entry) {
+        return `<div class="bestiary-tile locked">${enemyId ? '???' : 'Future enemy'}</div>`;
+      }
+      return `<button class="bestiary-tile discovered" data-enemy="${enemyId}">${entry.name}</button>`;
+    }).join('');
+
+    this.els.grid.querySelectorAll('[data-enemy]').forEach((tile) => {
+      const enemyId = tile.dataset.enemy;
+      const entry = this.app.bestiary.getEntry(enemyId);
+      this.tooltip.bind(tile, () => `<h4>${entry.name}</h4>${statsListHTML(entry.stats)}`);
+      tile.addEventListener('click', () => {
+        this.openEnemyId = enemyId;
+        this.renderDetail();
+      });
+    });
+
+    if (this.openEnemyId) this.renderDetail();
+    else this.els.detail.classList.add('hidden');
+  }
+
+  renderDetail() {
+    const entry = this.app.bestiary.getEntry(this.openEnemyId);
+    if (!entry) {
+      this.openEnemyId = null;
+      this.els.detail.classList.add('hidden');
       return;
     }
-    this.list.innerHTML = entries.map((e) => `
-      <div class="bestiary-card">
-        <div class="bestiary-name">${e.name} (defeated x${e.kills})</div>
-        <div class="bestiary-stats">
-          Con:${e.stats.con} Dex:${e.stats.dex} Str:${e.stats.str}
-          Spd:${e.stats.spd} Def:${e.stats.def} Int:${e.stats.int}
-          Crit:${e.stats.critChance}%
-        </div>
-      </div>`).join('');
+
+    this.els.detail.classList.remove('hidden');
+    this.els.detail.innerHTML = `
+      <button class="detail-close" data-a="close">&times;</button>
+      <div class="detail-left">
+        <div class="detail-name">${entry.name}</div>
+        <div class="detail-image">NO IMAGE YET</div>
+        <div class="detail-stats">${statsListHTML(entry.stats)}</div>
+      </div>
+      <div class="detail-moves">
+        ${entry.moveIds.map((id) => {
+          const move = getMoveTemplate(id);
+          if (!move) return '';
+          return `
+            <button class="detail-move-row" data-move="${id}">
+              <span>${move.name}</span><span>${(move.properties ?? []).join(', ')}</span>
+            </button>`;
+        }).join('')}
+      </div>
+      <div class="detail-move-info"></div>`;
+
+    this.els.detail.querySelector('[data-a="close"]').addEventListener('click', () => {
+      this.openEnemyId = null;
+      this.els.detail.classList.add('hidden');
+    });
+
+    const infoPanel = this.els.detail.querySelector('.detail-move-info');
+    this.els.detail.querySelectorAll('[data-move]').forEach((row) => {
+      const move = getMoveTemplate(row.dataset.move);
+      row.addEventListener('mouseenter', () => { infoPanel.innerHTML = abilityDetailHTML(move); });
+      row.addEventListener('mouseleave', () => { infoPanel.innerHTML = ''; });
+    });
   }
 }

@@ -1,5 +1,12 @@
 import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { getItemConfig } from '../data/items.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { itemTooltipHTML } from '../ui/InfoFormatters.js';
+
+// Same 8 stats shown everywhere else (Shop/Bestiary/Locker/Inn tooltips) —
+// keeps internal-only stats (energy, dodge, accuracy) out of this display.
+const CORE_STAT_KEYS = ['con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage'];
 
 /**
  * PauseOverlay — reusable pause-menu component mounted/unmounted by
@@ -20,12 +27,15 @@ export class PauseOverlay {
     this.el = document.createElement('div');
     this.el.className = 'pause-overlay';
     root.appendChild(this.el);
+    this.tooltip = new TooltipManager();
     this.render();
   }
 
   unmount() {
     this.el?.remove();
     this.el = null;
+    this.tooltip?.destroy();
+    this.tooltip = null;
   }
 
   render() {
@@ -110,15 +120,57 @@ export class PauseOverlay {
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 
+  /** Same per-slot hover-tooltip behavior as LockerState's equipment tab. */
   renderLoadout() {
     const { app } = this;
+    const equipped = app.inventory.getEquippedItems();
     const totals = app.inventory.getEquippedStatTotals();
+
+    const slotTile = (label, id) => `
+      <div class="loadout-slot" ${id ? `data-item-id="${id}"` : ''}>
+        <div class="loadout-slot-label">${label}</div>
+        ${id ? `<div class="loadout-slot-item">${getItemConfig(id)?.name ?? id}</div>` : ''}
+      </div>`;
+
+    const leftCol = [
+      slotTile('ACCESSORY', equipped.accessory?.[0]),
+      slotTile('WEAPON', equipped.mainWeapon),
+      slotTile('GLOVES', equipped.glove?.[0]),
+      slotTile('RING', equipped.ring?.[0]),
+    ].join('');
+    const midCol = ['head', 'arms', 'chest', 'legs', 'boots']
+      .map((slot) => slotTile(slot.toUpperCase(), equipped[slot]))
+      .join('');
+    const rightCol = [
+      slotTile('ACCESSORY', equipped.accessory?.[1]),
+      slotTile('OFFHAND', equipped.offHand),
+      slotTile('GLOVES', equipped.glove?.[1]),
+      slotTile('RING', equipped.ring?.[1]),
+    ].join('');
+
     this.el.innerHTML = `
-      <div class="pause-box">
+      <div class="pause-box loadout-box">
         <h2>LOADOUT</h2>
-        ${Object.entries(totals).map(([k, v]) => `<div class="pause-row">${k}: +${v}</div>`).join('')}
+        <div class="loadout-grid">
+          <div class="loadout-col">${leftCol}</div>
+          <div class="loadout-col">${midCol}</div>
+          <div class="loadout-col">${rightCol}</div>
+        </div>
+        <div class="loadout-totals">
+          <h3>Total Stats:</h3>
+          <div class="loadout-totals-grid">
+            ${CORE_STAT_KEYS.map((k) => `<div class="tt-row"><span>${k}:</span><span>+${totals[k] ?? 0}</span></div>`).join('')}
+          </div>
+        </div>
         <button data-a="back">&larr; BACK</button>
       </div>`;
+
+    this.el.querySelectorAll('[data-item-id]').forEach((tile) => {
+      this.tooltip.bind(tile, () => {
+        const config = getItemConfig(tile.dataset.itemId);
+        return config ? itemTooltipHTML(config) : '';
+      });
+    });
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 }

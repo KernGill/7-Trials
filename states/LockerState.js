@@ -1,6 +1,8 @@
 import { GAME_STATES, SINGLE_EQUIPMENT_SLOTS, MULTI_EQUIPMENT_SLOTS } from '../utils/Constants.js';
-import { getMaterialConfig } from '../data/items.js';
+import { getMaterialConfig, getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { itemTooltipHTML } from '../ui/InfoFormatters.js';
 
 export class LockerState {
   constructor(app) { this.app = app; }
@@ -24,10 +26,13 @@ export class LockerState {
       btn.addEventListener('click', () => { this.tab = btn.dataset.tab; this.renderAll(); });
     });
     this.body = root.querySelector('.locker-body');
+    this.tooltip = new TooltipManager();
     this.renderAll();
   }
 
-  exit() {}
+  exit() {
+    this.tooltip?.destroy();
+  }
 
   renderAll() {
     this.root.querySelectorAll('[data-tab]').forEach((btn) => {
@@ -45,7 +50,7 @@ export class LockerState {
     const singleRows = SINGLE_EQUIPMENT_SLOTS.map((slot) => {
       const id = equipped[slot];
       return `
-        <div class="locker-row">
+        <div class="locker-row" ${id ? `data-item-id="${id}"` : ''}>
           <span>${slot}: ${id ?? '(empty)'}</span>
           ${id ? `<button data-unequip="${slot}">Unequip</button>` : ''}
         </div>`;
@@ -55,7 +60,7 @@ export class LockerState {
       const max = MULTI_EQUIPMENT_SLOTS[category];
       const items = equipped[category] ?? [];
       const filled = items.map((id, i) => `
-        <div class="locker-row">
+        <div class="locker-row" data-item-id="${id}">
           <span>${category} ${i + 1}: ${id}</span>
           <button data-unequip="${category}" data-item="${id}">Unequip</button>
         </div>`).join('');
@@ -70,7 +75,7 @@ export class LockerState {
       const equippedCount = app.inventory.countEquippedInstances(item.id);
       const canEquipMore = equippedCount < item.ownedCount;
       return `
-        <div class="locker-row">
+        <div class="locker-row" data-item-id="${item.id}">
           <span>${item.name} (${item.type}) — Owned: ${item.ownedCount}, Equipped: ${equippedCount}</span>
           <button data-equip="${item.id}" ${canEquipMore ? '' : 'disabled'}>Equip</button>
         </div>`;
@@ -82,6 +87,12 @@ export class LockerState {
         <div class="locker-owned"><h3>Owned</h3>${ownedList || '<div class="locker-empty">Nothing yet.</div>'}</div>
       </div>`;
 
+    this.body.querySelectorAll('[data-item-id]').forEach((row) => {
+      this.tooltip.bind(row, () => {
+        const config = getItemConfig(row.dataset.itemId);
+        return config ? itemTooltipHTML(config) : '';
+      });
+    });
     this.body.querySelectorAll('[data-unequip]').forEach((btn) => {
       btn.addEventListener('click', () => {
         app.inventory.unequipSlot(btn.dataset.unequip, btn.dataset.item ?? null);

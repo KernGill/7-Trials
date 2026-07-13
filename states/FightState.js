@@ -3,6 +3,7 @@ import { COMBAT_PHASE } from '../combat/CombatManager.js';
 import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
+import { getCharacterSprite } from '../data/sprites.js';
 
 function isAttack(m) { return m.properties.includes(MOVE_PROPERTIES.PHYSICAL) || m.properties.includes(MOVE_PROPERTIES.MAGIC); }
 function isSustain(m) { return m.properties.includes(MOVE_PROPERTIES.DEFENCE) || m.properties.includes(MOVE_PROPERTIES.HEALING); }
@@ -219,9 +220,13 @@ export class FightState {
 
   combatantHTML(c, label) {
     const color = c.visual?.color ?? '#555';
+    const sprite = getCharacterSprite(c.isPlayer ? c.characterId : c.enemyId);
+    const avatar = sprite
+      ? `<img class="avatar-box avatar-sprite" src="${sprite}" alt="${c.name}">`
+      : `<div class="avatar-box" style="background:${color}"></div>`;
     return `
       <div class="label">${label}</div>
-      <div class="avatar-box" style="background:${color}"></div>
+      ${avatar}
       <div class="status-icons">${this.statusIconsHTML(c)}</div>
       <div class="stat-line">${c.currentHealth} / ${c.getMaxHealth()}</div>
       <div class="stat-line">${c.energy} / ${c.getMaxEnergy()}</div>`;
