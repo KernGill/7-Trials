@@ -12,11 +12,25 @@ button {
 }
 button:hover:not(:disabled) { background: #e94560; color: #fff; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+select {
+  font-family: inherit; cursor: pointer; font-size: 13px;
+  background: #16213e; color: #eee; border: 1px solid #e94560;
+  border-radius: 4px; padding: 6px 10px;
+}
 
 .back-btn {
   position: fixed; top: 16px; left: 16px;
   padding: 10px 18px; font-size: 13px; z-index: 20;
 }
+
+.flash-message {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: #e74c3c; font-size: 32px; font-weight: bold; letter-spacing: 3px;
+  text-shadow: 0 0 12px rgba(231, 76, 60, 0.6);
+  pointer-events: none; z-index: 999; opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.flash-message.visible { opacity: 1; }
 
 /* ---------------- HOME ---------------- */
 .home-screen {
@@ -115,18 +129,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 8px; line-height: 1.2;
 }
 
-@keyframes bump-up {
+/* Attack: travels all the way to the opposing character and back (0.75s each way, 1.5s total). --attack-travel is set in JS from the actual on-screen gap between the two avatar boxes. */
+@keyframes anim-attack {
   0% { transform: translateY(0); }
-  50% { transform: translateY(-16px); }
+  50% { transform: translateY(var(--attack-travel, -40px)); }
   100% { transform: translateY(0); }
 }
-@keyframes bump-down {
-  0% { transform: translateY(0); }
-  50% { transform: translateY(16px); }
-  100% { transform: translateY(0); }
+.avatar-box.anim-attack { animation: anim-attack 1.5s ease-in-out; }
+
+/* Defence: grow to 2x over 0.35s, shrink back over 0.15s (0.5s total), then hold for the rest of the beat. */
+@keyframes anim-defence {
+  0% { transform: scale(1); }
+  70% { transform: scale(2); }
+  100% { transform: scale(1); }
 }
-.avatar-box.bump-up { animation: bump-up 0.3s ease; }
-.avatar-box.bump-down { animation: bump-down 0.3s ease; }
+.avatar-box.anim-defence { animation: anim-defence 0.5s ease-in-out; }
+
+/* Special: a single 720deg spin over 0.5s, then holds for the rest of the beat. */
+@keyframes anim-special {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(720deg); }
+}
+.avatar-box.anim-special { animation: anim-special 0.5s linear; }
 
 .fight-sidebar { flex: 0 0 280px; display: flex; flex-direction: column; gap: 16px; }
 .move-order { font-size: 12px; color: #ccc; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px; }

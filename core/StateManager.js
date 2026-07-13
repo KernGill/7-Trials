@@ -73,15 +73,26 @@ export class StateManager {
     this.bindEvents();
     this.bindInput();
     this.saveSystem.load();
+    this.applyBrightness();
     this.setState(GAME_STATES.HOME);
+  }
+
+  /** settings.brightness is stored/edited from two places (SettingsState, PauseOverlay) — this is the one place it actually takes visual effect. */
+  applyBrightness() {
+    document.body.style.filter = `brightness(${this.gameState.settings.brightness})`;
+  }
+
+  setFPS(fps) {
+    this.gameState.settings.fps = fps;
+    this.loop?.setFPS(fps);
   }
 
   bindEvents() {
     this.eventBus.on('combat:enemy_move_flash', ({ move }) => {
       this.currentStateHandler.onEnemyMoveFlash?.(move);
     });
-    this.eventBus.on('combat:victory', () => this.onCombatVictory());
-    this.eventBus.on('combat:defeat', () => this.onCombatDefeat());
+    this.eventBus.on('combat:victory', () => this.deferCombatEnd(() => this.onCombatVictory()));
+    this.eventBus.on('combat:defeat', () => this.deferCombatEnd(() => this.onCombatDefeat()));
     this.eventBus.on('combat:abandoned', () => this.onCombatDefeat());
     this.eventBus.on('combat:player_turn', () => this.currentStateHandler.onCombatUpdate?.());
     this.eventBus.on('combat:move_resolved', (payload) => {
@@ -90,6 +101,20 @@ export class StateManager {
       this.currentStateHandler.onMoveResolved?.(payload);
     });
     this.eventBus.on('combat:log', () => this.currentStateHandler.onCombatUpdate?.());
+  }
+
+  /**
+   * The killing blow's own animation is still queued/playing in
+   * FightState when combat:victory/defeat fires (CombatManager resolves
+   * everything synchronously). Route through FightState so the screen
+   * doesn't get torn down mid-animation; anything else just runs now.
+   */
+  deferCombatEnd(fn) {
+    if (this.currentStateHandler?.deferUntilAnimationsDone) {
+      this.currentStateHandler.deferUntilAnimationsDone(fn);
+    } else {
+      fn();
+    }
   }
 
   /**
@@ -327,7 +352,7 @@ export class StateManager {
   }
 
   start() {
-    this.loop = new GameLoop((dt) => this.update(dt), () => {});
+    this.loop = new GameLoop((dt) => this.update(dt), () => {}, this.gameState.settings.fps);
     this.loop.start();
   }
 }

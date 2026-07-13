@@ -49,7 +49,7 @@ export class GameState {
     this.run = deepClone(DEFAULT_RUN);
     this.bestiary = {};
     this.combat = null;
-    this.settings = { brightness: 1, sound: true };
+    this.settings = { brightness: 1, sound: true, fps: 60 };
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;
@@ -86,6 +86,8 @@ export class GameState {
     if (meta) this.meta = meta;
     if (player) this.player = player;
     if (bestiary) this.bestiary = bestiary;
-    if (settings) this.settings = settings;
+    // Merge rather than replace: an older save made before `fps` existed
+    // would otherwise wipe it out, leaving GameLoop dividing by undefined.
+    if (settings) this.settings = { ...this.settings, ...settings };
   }
 }
