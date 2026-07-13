@@ -41,16 +41,16 @@ export class ShopSystem {
     }
     const price = listing.price ?? {};
     if ((this.gameState.player.gold ?? 0) < (price.gold ?? 0)) {
-      return { ok: false, reason: 'Not Enough Gold.' };
+      return { ok: false, reason: 'Not enough gold.' };
     }
     if (!this.inventory.canAffordMaterials(price.materials ?? {})) {
-      return { ok: false, reason: 'Not Enough Materials.' };
+      return { ok: false, reason: 'Not enough materials.' };
     }
     if (price.consumables) {
       const missing = Object.entries(price.consumables).some(
         ([id, amt]) => this.inventory.getConsumableCount(id, false) < amt,
       );
-      if (missing) return { ok: false, reason: 'Not Enough Materials.' };
+      if (missing) return { ok: false, reason: 'Not enough materials.' };
     }
     return { ok: true };
   }
