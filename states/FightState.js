@@ -19,7 +19,12 @@ function moveAnimationCategory(move) {
 // Pacing "beat" every queued move animation occupies before the next one
 // starts / input re-enables, regardless of how long its own CSS keyframes
 // run for (defence and special finish well under this and just hold).
-const ANIMATION_STEP_MS = 3000;
+const ANIMATION_STEP_MS = 1500;
+
+// How much of the actual on-screen gap between the two avatar boxes the
+// attack animation crosses — short of 100% so the boxes don't fully
+// overlap at the peak of the swing.
+const ATTACK_TRAVEL_RATIO = 0.85;
 
 const FILTERS = {
   [MOVE_CATEGORIES.ATTACKS]: isAttack,
@@ -170,13 +175,25 @@ export class FightState {
     if (!box) return;
 
     const category = moveAnimationCategory(move);
-    const animClass = category === 'attack' ? (attacker.isPlayer ? 'anim-attack-up' : 'anim-attack-down')
-      : category === 'defence' ? 'anim-defence'
-      : 'anim-special';
+    const animClass = category === 'attack' ? 'anim-attack' : category === 'defence' ? 'anim-defence' : 'anim-special';
 
-    box.classList.remove('anim-attack-up', 'anim-attack-down', 'anim-defence', 'anim-special');
+    if (category === 'attack') box.style.setProperty('--attack-travel', `${this.attackTravelPx(attacker, box)}px`);
+    box.classList.remove('anim-attack', 'anim-defence', 'anim-special');
     void box.offsetWidth; // restart the animation if it's still mid-flight
     box.classList.add(animClass);
+  }
+
+  /** Signed on-screen distance from the attacker's box to the defender's, so the attack lands on the opponent instead of a small nudge. */
+  attackTravelPx(attacker, attackerBox) {
+    const defenderSlot = attacker.isPlayer ? this.els.enemy : this.els.player;
+    const defenderBox = defenderSlot?.querySelector('.avatar-box');
+    if (!defenderBox) return attacker.isPlayer ? -40 : 40;
+
+    const attackerRect = attackerBox.getBoundingClientRect();
+    const defenderRect = defenderBox.getBoundingClientRect();
+    const attackerCenterY = attackerRect.top + attackerRect.height / 2;
+    const defenderCenterY = defenderRect.top + defenderRect.height / 2;
+    return (defenderCenterY - attackerCenterY) * ATTACK_TRAVEL_RATIO;
   }
 
   renderAll() {

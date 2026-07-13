@@ -129,34 +129,28 @@ select {
   font-size: 8px; line-height: 1.2;
 }
 
-/* Attack: 1.5s moving toward the target, 1.5s moving back (3s total). */
-@keyframes anim-attack-up {
+/* Attack: travels all the way to the opposing character and back (0.75s each way, 1.5s total). --attack-travel is set in JS from the actual on-screen gap between the two avatar boxes. */
+@keyframes anim-attack {
   0% { transform: translateY(0); }
-  50% { transform: translateY(-40px); }
+  50% { transform: translateY(var(--attack-travel, -40px)); }
   100% { transform: translateY(0); }
 }
-@keyframes anim-attack-down {
-  0% { transform: translateY(0); }
-  50% { transform: translateY(40px); }
-  100% { transform: translateY(0); }
-}
-.avatar-box.anim-attack-up { animation: anim-attack-up 3s ease-in-out; }
-.avatar-box.anim-attack-down { animation: anim-attack-down 3s ease-in-out; }
+.avatar-box.anim-attack { animation: anim-attack 1.5s ease-in-out; }
 
-/* Defence: grow to 2x over 0.7s, shrink back over 0.3s (1s total), then hold for the rest of the beat. */
+/* Defence: grow to 2x over 0.35s, shrink back over 0.15s (0.5s total), then hold for the rest of the beat. */
 @keyframes anim-defence {
   0% { transform: scale(1); }
   70% { transform: scale(2); }
   100% { transform: scale(1); }
 }
-.avatar-box.anim-defence { animation: anim-defence 1s ease-in-out; }
+.avatar-box.anim-defence { animation: anim-defence 0.5s ease-in-out; }
 
-/* Special: a single 720deg spin over 1s, then holds for the rest of the beat. */
+/* Special: a single 720deg spin over 0.5s, then holds for the rest of the beat. */
 @keyframes anim-special {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(720deg); }
 }
-.avatar-box.anim-special { animation: anim-special 1s linear; }
+.avatar-box.anim-special { animation: anim-special 0.5s linear; }
 
 .fight-sidebar { flex: 0 0 280px; display: flex; flex-direction: column; gap: 16px; }
 .move-order { font-size: 12px; color: #ccc; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px; }
