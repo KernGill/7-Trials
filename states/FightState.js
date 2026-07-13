@@ -9,6 +9,18 @@ function isSustain(m) { return m.properties.includes(MOVE_PROPERTIES.DEFENCE) ||
 function isConsumable(m) { return m.properties.includes(MOVE_PROPERTIES.CONSUMABLE); }
 function isSpecial(m) { return !isAttack(m) && !isSustain(m) && !isConsumable(m); }
 
+/** Every move animates as exactly one of these 3, priority Attack > Defence > Special. */
+function moveAnimationCategory(move) {
+  if (move.properties?.includes(MOVE_PROPERTIES.PHYSICAL) || move.properties?.includes(MOVE_PROPERTIES.MAGIC)) return 'attack';
+  if (move.properties?.includes(MOVE_PROPERTIES.DEFENCE)) return 'defence';
+  return 'special';
+}
+
+// Pacing "beat" every queued move animation occupies before the next one
+// starts / input re-enables, regardless of how long its own CSS keyframes
+// run for (defence and special finish well under this and just hold).
+const ANIMATION_STEP_MS = 3000;
+
 const FILTERS = {
   [MOVE_CATEGORIES.ATTACKS]: isAttack,
   [MOVE_CATEGORIES.SUSTAIN]: isSustain,
@@ -39,11 +51,20 @@ export class FightState {
     this.app = app;
     this.openCategory = null;
     this.pause = new PauseOverlay(app);
+    this.animQueue = [];
+    this.animating = false;
+    this.pendingEndCallback = null;
+    this.animTimers = [];
   }
 
   enter(root) {
     this.root = root;
     this.openCategory = null;
+    this.animQueue = [];
+    this.animating = false;
+    this.pendingEndCallback = null;
+    this.animTimers.forEach((id) => clearTimeout(id));
+    this.animTimers = [];
     root.innerHTML = `
       <div class="fight-screen">
         <div class="fight-turn"></div>
@@ -71,6 +92,8 @@ export class FightState {
 
   exit() {
     this.pause.unmount();
+    this.animTimers.forEach((id) => clearTimeout(id));
+    this.animTimers = [];
   }
 
   onPauseToggled() {
@@ -82,26 +105,78 @@ export class FightState {
   onCombatUpdate() { this.renderAll(); }
 
   /**
-   * Fires after onCombatUpdate() has already rebuilt the arena DOM for
-   * this event, so the .avatar-box we grab here is the fresh one — a
-   * class added before that rebuild would just get thrown away with the
-   * old innerHTML. Only attacks (physical/magic) that actually landed
-   * get the bump; misses and non-attack moves (guard, heals, buffs) don't.
+   * Every resolved move (including Bone Zone's queued follow-up hits)
+   * becomes one animated "beat". CombatManager itself runs fully
+   * synchronously — a player move can cascade straight through an
+   * enemy counter-move within the same call stack — so beats are
+   * buffered here and played out one at a time on a real timer instead
+   * of all flashing at once. Health/energy/log still update live via
+   * onCombatUpdate(); only the avatar animation and (via the panel
+   * guard in renderCategoryPanel) player input are paced by the queue.
    */
   onMoveResolved({ attacker, move, result } = {}) {
-    if (!this.els || !attacker || !move) return;
-    const isAttack = move.properties?.includes(MOVE_PROPERTIES.PHYSICAL) ||
-      move.properties?.includes(MOVE_PROPERTIES.MAGIC);
-    if (!isAttack || (result && !result.hit)) return;
+    if (!attacker || !move || (result && !result.hit)) return;
+    this.animQueue.push({ attacker, move });
+    this.drainAnimQueue();
+  }
 
+  /**
+   * CombatManager can cascade several moves through one synchronous call
+   * stack (player move -> immediate enemy counter-move), and every log
+   * line along the way triggers its own renderAll() that rebuilds the
+   * avatar-box. Adding the animation class inline here would just get
+   * wiped by the next renderAll() a moment later, before the browser
+   * ever paints it. Waiting a tick (setTimeout 0) lets that synchronous
+   * burst finish and the DOM settle before the class actually goes on.
+   */
+  drainAnimQueue() {
+    if (this.animating || !this.animQueue.length) return;
+    this.animating = true;
+    this.animTimers.push(setTimeout(() => {
+      const { attacker, move } = this.animQueue.shift();
+      this.playMoveAnimation(attacker, move);
+      this.animTimers.push(setTimeout(() => {
+        this.animating = false;
+        if (this.animQueue.length) this.drainAnimQueue();
+        else this.onAnimQueueDrained();
+      }, ANIMATION_STEP_MS));
+    }, 0));
+  }
+
+  onAnimQueueDrained() {
+    if (this.pendingEndCallback) {
+      const cb = this.pendingEndCallback;
+      this.pendingEndCallback = null;
+      cb();
+      return;
+    }
+    this.renderAll(); // re-show the move panel now that the beat is over
+  }
+
+  /**
+   * Called by StateManager instead of jumping straight to the
+   * victory/defeat screen, so the killing blow's own animation gets to
+   * finish playing before the arena is torn down.
+   */
+  deferUntilAnimationsDone(fn) {
+    if (!this.animating && !this.animQueue.length) fn();
+    else this.pendingEndCallback = fn;
+  }
+
+  playMoveAnimation(attacker, move) {
+    if (!this.els) return;
     const slot = attacker.isPlayer ? this.els.player : this.els.enemy;
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 
-    const bumpClass = attacker.isPlayer ? 'bump-up' : 'bump-down';
-    box.classList.remove('bump-up', 'bump-down');
+    const category = moveAnimationCategory(move);
+    const animClass = category === 'attack' ? (attacker.isPlayer ? 'anim-attack-up' : 'anim-attack-down')
+      : category === 'defence' ? 'anim-defence'
+      : 'anim-special';
+
+    box.classList.remove('anim-attack-up', 'anim-attack-down', 'anim-defence', 'anim-special');
     void box.offsetWidth; // restart the animation if it's still mid-flight
-    box.classList.add(bumpClass);
+    box.classList.add(animClass);
   }
 
   renderAll() {
@@ -203,7 +278,8 @@ export class FightState {
     const combat = app.combatManager;
     const panel = this.els.panel;
 
-    if (app.gameState.paused || combat.phase !== COMBAT_PHASE.PLAYER_TURN) {
+    if (app.gameState.paused || combat.phase !== COMBAT_PHASE.PLAYER_TURN ||
+        this.animating || this.animQueue.length) {
       panel.innerHTML = '';
       return;
     }

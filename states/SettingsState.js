@@ -1,6 +1,8 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { clamp } from '../utils/MathUtils.js';
 
+const FPS_OPTIONS = [30, 60, 90, 120, 144];
+
 export class SettingsState {
   constructor(app) { this.app = app; }
 
@@ -23,8 +25,14 @@ export class SettingsState {
     const s = this.app.gameState.settings;
     this.body.innerHTML = `
       <div class="settings-row">
-        <span>Brightness: ${Math.round(s.brightness * 100)}%</span>
+        <span class="brightness-label">Brightness: ${Math.round(s.brightness * 100)}%</span>
         <input type="range" min="30" max="150" value="${Math.round(s.brightness * 100)}" class="brightness-slider">
+      </div>
+      <div class="settings-row">
+        <span>FPS (simulation rate)</span>
+        <select class="fps-select">
+          ${FPS_OPTIONS.map((fps) => `<option value="${fps}" ${fps === s.fps ? 'selected' : ''}>${fps}</option>`).join('')}
+        </select>
       </div>
       <div class="settings-row">
         <span>Sound: (no audio implemented yet)</span>
@@ -33,6 +41,12 @@ export class SettingsState {
     this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
       s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
+      this.app.applyBrightness();
+      this.body.querySelector('.brightness-label').textContent = `Brightness: ${Math.round(s.brightness * 100)}%`;
+    });
+    this.body.querySelector('.fps-select').addEventListener('change', (e) => {
+      this.app.setFPS(Number(e.target.value));
+      this.app.saveSystem.save();
     });
     this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; this.app.saveSystem.save(); this.renderAll(); });
   }

@@ -26,13 +26,32 @@ export class ShopState {
         <h1>SHOP</h1>
         <div class="shop-gold"></div>
         <div class="shop-list"></div>
+        <div class="flash-message"></div>
       </div>`;
     root.querySelector('.back-btn').addEventListener('click', () => this.app.setState(GAME_STATES.HOME));
-    this.els = { gold: root.querySelector('.shop-gold'), list: root.querySelector('.shop-list') };
+    this.els = {
+      gold: root.querySelector('.shop-gold'),
+      list: root.querySelector('.shop-list'),
+      flash: root.querySelector('.flash-message'),
+    };
     this.renderAll();
   }
 
-  exit() {}
+  exit() {
+    clearTimeout(this.flashTimeout);
+  }
+
+  /** Prioritizes gold over materials — canBuy() already checks gold first and short-circuits, so the reason string tells us which one to flash. */
+  flashBuyFailure(reason) {
+    const text = reason === 'Not enough gold.' ? 'NOT ENOUGH GOLD'
+      : reason === 'Not enough materials.' ? 'NOT ENOUGH MATERIALS'
+      : null;
+    if (!text || !this.els.flash) return;
+    clearTimeout(this.flashTimeout);
+    this.els.flash.textContent = text;
+    this.els.flash.classList.add('visible');
+    this.flashTimeout = setTimeout(() => this.els.flash.classList.remove('visible'), 2000);
+  }
 
   renderAll() {
     const { app } = this;
@@ -54,6 +73,7 @@ export class ShopState {
         const result = app.shop.buy(btn.dataset.id);
         app.gameState.addLog(result.ok ? 'Purchased.' : result.reason);
         if (result.ok) app.saveSystem.save();
+        else this.flashBuyFailure(result.reason);
         this.renderAll();
       });
     });
