@@ -255,6 +255,10 @@ export class CombatManager {
       });
     }
 
+    if (attacker.isPlayer && result?.hit && !result.split) {
+      defender.playerHitCount = (defender.playerHitCount ?? 0) + 1;
+    }
+
     this.eventBus.emit('combat:move_resolved', { attacker, defender, move, result });
   }
 

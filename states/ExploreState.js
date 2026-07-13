@@ -74,6 +74,7 @@ export class ExploreState {
     }
 
     this.app.inventory.useConsumable(id, 1);
+    this.app.trackConsumableUsed(id);
     this.app.gameState.run.savedHealth = this.player.currentHealth;
     this.renderAll();
   }

@@ -17,6 +17,7 @@ import { TrapSystem } from '../exploration/TrapSystem.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
+import { getEnemyConfig } from '../data/enemies.js';
 import { HomeState } from '../states/HomeState.js';
 import { ExploreState } from '../states/ExploreState.js';
 import { FightState } from '../states/FightState.js';
@@ -71,7 +72,6 @@ export class StateManager {
 
     this.bindEvents();
     this.bindInput();
-    this.saveSystem.clear();
     this.saveSystem.load();
     this.setState(GAME_STATES.HOME);
   }
@@ -157,11 +157,28 @@ export class StateManager {
       if (hits >= target) this.achievements.setComplete('survive_final_rites');
     }
 
+    // These two don't require surviving — just doing the thing within one run.
+    const ifKills = this.gameState.run?.achievementProgress?.indebtedFallenKillsThisRun ?? 0;
+    const ifTarget = getAchievementConfig('beat_4_indebted_fallen_in_run')?.target ?? 4;
+    if (ifKills >= ifTarget) this.achievements.setComplete('beat_4_indebted_fallen_in_run');
+
+    const potions = this.gameState.run?.achievementProgress?.potionsUsedThisRun ?? 0;
+    const potionTarget = getAchievementConfig('use_10_potions_in_run')?.target ?? 10;
+    if (potions >= potionTarget) this.achievements.setComplete('use_10_potions_in_run');
+
     this.combatManager.reset();
     this.gameState.combat = null;
     this.gameState.paused = false;
     this.setState(GAME_STATES.HOME);
     this.saveSystem.save();
+  }
+
+  /** Called by ExploreState/FightState right after a consumable is used, for per-run achievement tracking. */
+  trackConsumableUsed(id) {
+    if (id !== 'minor_potion') return;
+    this.gameState.run.achievementProgress = this.gameState.run.achievementProgress ?? {};
+    this.gameState.run.achievementProgress.potionsUsedThisRun =
+      (this.gameState.run.achievementProgress.potionsUsedThisRun ?? 0) + 1;
   }
 
   togglePause() {
@@ -244,6 +261,27 @@ export class StateManager {
       this.progression.recordKill(enemy.enemyId);
       this.progression.recordRunKill(enemy.enemyId);
       this.bestiary.recordEncounter(enemy);
+
+      this.gameState.run.achievementProgress = this.gameState.run.achievementProgress ?? {};
+      const progress = this.gameState.run.achievementProgress;
+      const config = getEnemyConfig(enemy.enemyId);
+      const oneHitKill = enemy.playerHitCount === 1;
+
+      if (config?.species === 'skeleton') {
+        this.achievements.recordProgress('kill_one_skeleton', 1);
+        if (oneHitKill) progress.oneHitSkeleton = true;
+      }
+      if (config?.species === 'zombie') {
+        this.achievements.recordProgress('kill_one_zombie', 1);
+        progress.beatHollowedThisRun = true; // for Ossifying Chokehold's "die to IF after beating a Hollowed"
+        if (oneHitKill) progress.oneHitZombie = true;
+      }
+      if (progress.oneHitSkeleton && progress.oneHitZombie) {
+        this.achievements.setComplete('beat_both_in_one_hit_each');
+      }
+      if (enemy.enemyId === 'indebted_fallen' || enemy.enemyId === 'indebted_fallen_boss') {
+        progress.indebtedFallenKillsThisRun = (progress.indebtedFallenKillsThisRun ?? 0) + 1;
+      }
     });
 
     this.gameState.run.savedHealth = this.combatManager.player.currentHealth;
@@ -268,6 +306,16 @@ export class StateManager {
     this.gameState.run.active = false;
     this.gameState.run.savedHealth = null;
     this.gameState.addLog('You were defeated.');
+
+    // Check before combatManager.reset() (called inside goHome) wipes `enemies`.
+    const diedToSkeleton = this.combatManager.enemies.some(
+      (e) => getEnemyConfig(e.enemyId)?.species === 'skeleton',
+    );
+    const beatHollowedThisRun = this.gameState.run.achievementProgress?.beatHollowedThisRun;
+    if (diedToSkeleton && beatHollowedThisRun) {
+      this.achievements.setComplete('die_to_indebted_fallen_after_hollowed');
+    }
+
     this.goHome({ died: true });
   }
 

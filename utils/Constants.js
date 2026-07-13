@@ -23,21 +23,18 @@ export const CHEST_SUCCESS_BASE = 50; // % + 0.25*dex
 export const LOCKED_ROOM_SUCCESS_BASE = 75; // % + 0.25*dex
 export const LOCKED_ROOM_GOLD_REWARD = 80;
 
-export const EQUIPMENT_SLOTS = [
-  'mainWeapon',
-  'offHand',
-  'chest',
-  'head',
-  'ring1',
-  'ring2',
-  'boots',
-  'arms',
-  'glove1',
-  'glove2',
-  'legs',
-  'accessory1',
-  'accessory2',
+export const SINGLE_EQUIPMENT_SLOTS = [
+  'mainWeapon', 'offHand', 'chest', 'head', 'boots', 'arms', 'legs',
 ];
+
+/** category -> max simultaneously equipped. Replaces the old ring1/ring2 (etc) numbered-slot scheme. */
+export const MULTI_EQUIPMENT_SLOTS = {
+  ring: 2,
+  glove: 2,
+  accessory: 2,
+};
+
+export const EQUIPMENT_SLOTS = [...SINGLE_EQUIPMENT_SLOTS, ...Object.keys(MULTI_EQUIPMENT_SLOTS)];
 
 export const STAT_KEYS = [
   'con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage',

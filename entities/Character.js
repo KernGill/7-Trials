@@ -56,9 +56,9 @@ export class Character {
     const temp = this.temporaryStatModifiers[stat] ?? 0;
     let value = base + equip + battle + temp;
 
-    if (stat === 'critChance' && stat !== 'fromDex') {
-      const dexBonus = Math.floor((this.getStat('dex')) * DEX_CRIT_RATIO);
-      if (stat === 'critChance') value += dexBonus;
+    if (stat === 'critChance') {
+      const dexBonus = Math.floor(this.getStat('dex') * DEX_CRIT_RATIO);
+      value += dexBonus;
     }
 
     this.statusEffects.forEach((effect) => {
@@ -78,9 +78,14 @@ export class Character {
     return Math.max(0, value);
   }
 
+  /**
+   * NOTE: getStat('critChance') already folds in the dex bonus (see the
+   * critChance branch in getStat above) — this method used to add it a
+   * SECOND time on top, silently inflating crit chance for every
+   * character with any dex at all. Just return getStat directly now.
+   */
   getEffectiveCritChance() {
-    const dexBonus = Math.floor(this.getStat('dex') * DEX_CRIT_RATIO);
-    return this.getStat('critChance') + dexBonus;
+    return this.getStat('critChance');
   }
 
   getMaxHealth() {

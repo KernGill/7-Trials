@@ -100,6 +100,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .avatar-box { width: 80px; height: 80px; border: 2px solid #fff; border-radius: 4px; }
 .stat-line { font-size: 14px; }
 .arena-spacer { min-height: 24px; }
+.status-icons { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; min-height: 20px; }
+.status-icon {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.4);
+  font-size: 10px; font-weight: bold; color: #fff; cursor: default;
+}
+.status-icon.debuff { border-color: #e74c3c; }
+.status-icon.buff { border-color: #2ecc71; }
+.status-stacks {
+  position: absolute; bottom: -4px; right: -4px;
+  background: #0b0c10; border-radius: 50%; padding: 0 2px;
+  font-size: 8px; line-height: 1.2;
+}
 
 .fight-sidebar { flex: 0 0 280px; display: flex; flex-direction: column; gap: 16px; }
 .move-order { font-size: 12px; color: #ccc; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px; }
@@ -137,6 +150,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .inn-card { cursor: pointer; flex-direction: column; align-items: flex-start; }
 .shop-item-flavour { color: #777; font-size: 11px; flex: 1; }
+.shop-owned { color: #f1c40f; font-size: 11px; white-space: nowrap; }
 .shop-buy-btn { padding: 8px 14px; font-size: 12px; max-width: 220px; text-align: center; white-space: normal; }
 .bestiary-stats { color: #888; font-size: 11px; }
 .inn-locked, .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }

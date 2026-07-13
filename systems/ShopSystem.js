@@ -17,8 +17,8 @@ export class ShopSystem {
 
   buildListing(config, type) {
     const unlocked = this.progression.meetsUnlockCondition(config.unlock);
-    let state = unlocked ? ITEM_STATES.FOR_SALE : ITEM_STATES.LOCKED;
-    if (type === 'item' && this.inventory.ownsItem(config.id)) state = ITEM_STATES.BOUGHT;
+    const state = unlocked ? ITEM_STATES.FOR_SALE : ITEM_STATES.LOCKED;
+    const ownedCount = type === 'item' ? this.inventory.getOwnedCount(config.id) : 0;
 
     return {
       id: config.id,
@@ -27,6 +27,7 @@ export class ShopSystem {
       flavour: config.flavour,
       price: config.price,
       state,
+      ownedCount,
       stats: config.stats,
       unlock: config.unlock,
       sortOrder: config.price?.gold ?? 9999,
@@ -37,9 +38,6 @@ export class ShopSystem {
   canBuy(listing) {
     if (listing.state === ITEM_STATES.LOCKED) {
       return { ok: false, reason: 'You do not meet the requirements to purchase this item.' };
-    }
-    if (listing.state === ITEM_STATES.BOUGHT) {
-      return { ok: false, reason: 'Already owned.' };
     }
     const price = listing.price ?? {};
     if ((this.gameState.player.gold ?? 0) < (price.gold ?? 0)) {

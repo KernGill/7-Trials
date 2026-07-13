@@ -71,6 +71,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 4,
     cooldown: 2,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'fire', stacks: 2 }],
     buffs: [{ type: 'energyGainBonus', amount: 1, durationFightTurns: 2 }],
   },
   guard: {

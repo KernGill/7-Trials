@@ -3,6 +3,7 @@ import { MOVE_TEMPLATES } from './moves.js';
 export const ENEMIES = {
   indebted_fallen: {
     id: 'indebted_fallen',
+    species: 'skeleton',
     name: 'Indebted Fallen',
     description: 'Corpses of the fallen who owed a great debt to the Great Witch of Boons.',
     arcs: ['arc0'],
@@ -16,13 +17,13 @@ export const ENEMIES = {
     },
     baseStats: {
       con: 450,
-      dex: 13,
-      str: 20,
-      spd: 15,
-      def: 40,
+      dex: 14,
+      str: 24,
+      spd: 16,
+      def: 52,
       int: 0,
       critChance: 4,
-      critDamage: 0,
+      critDamage: 43,
     },
     moveIds: [
       'shard_stab',
@@ -45,6 +46,7 @@ export const ENEMIES = {
   },
   indebted_fallen_boss: {
     id: 'indebted_fallen_boss',
+    species: 'skeleton',
     name: 'Indebted Fallen — Warden',
     description: 'A towering skeleton bound by ancient debt.',
     arcs: ['arc0'],
@@ -60,12 +62,12 @@ export const ENEMIES = {
     baseStats: {
       con: 2000,
       dex: 300,
-      str: 60,
-      spd: 200,
-      def: 80,
+      str: 36,
+      spd: 300,
+      def: 60,
       int: 0,
-      critChance: 0,
-      critDamage: 10,
+      critChance: 6,
+      critDamage: 50,
     },
     moveIds: [
       'shard_stab',
@@ -88,6 +90,7 @@ export const ENEMIES = {
   },
   the_hollowed: {
     id: 'the_hollowed',
+    species: 'zombie',
     name: 'The Hollowed',
     description: 'Corpses without a will, controlled by fungal disease.',
     arcs: ['arc0', 'arc1'],
@@ -101,13 +104,13 @@ export const ENEMIES = {
     },
     baseStats: {
       con: 660,
-      dex: 24,
-      str: 13,
-      spd: 28,
-      def: 0,
+      dex: 20,
+      str: 18,
+      spd: 20,
+      def: 10,
       int: 0,
       critChance: 5,
-      critDamage: 50,
+      critDamage: 54,
     },
     moveIds: [
       'spore_assault',

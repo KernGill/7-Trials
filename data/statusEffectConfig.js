@@ -6,7 +6,7 @@ export const STATUS_EFFECTS = {
     icon: 'B',
     color: '#c0392b',
     tickOn: 'character_turn_start',
-    formula: (stacks, target) => Math.max(1, Math.ceil(target.maxHealth * 0.01 * stacks)),
+    formula: (stacks, target) => Math.max(1, Math.ceil(target.getMaxHealth() * 0.01 * stacks)),
     stacksDecrease: false,
   },
   poison: {

@@ -39,14 +39,14 @@ export class ShopState {
     this.els.gold.textContent = `Gold: ${app.gameState.player.gold}`;
     const listings = app.shop.getListings();
     this.els.list.innerHTML = listings.map((l) => {
-      const label = l.state === ITEM_STATES.BOUGHT ? 'OWNED'
-        : l.state === ITEM_STATES.LOCKED ? 'LOCKED'
-        : formatPrice(l.price);
+      const label = l.state === ITEM_STATES.LOCKED ? 'LOCKED' : formatPrice(l.price);
+      const ownedTag = l.type === 'item' ? `<div class="shop-owned">Owned: ${l.ownedCount}</div>` : '';
       return `
         <div class="shop-row">
           <div class="shop-item-name">${l.name}</div>
           <div class="shop-item-flavour">${l.flavour ?? ''}</div>
-          <button class="shop-buy-btn" data-id="${l.id}" ${l.state === ITEM_STATES.FOR_SALE ? '' : 'disabled'}>${label}</button>
+          ${ownedTag}
+          <button class="shop-buy-btn" data-id="${l.id}" ${l.state === ITEM_STATES.LOCKED ? 'disabled' : ''}>${label}</button>
         </div>`;
     }).join('');
     this.els.list.querySelectorAll('[data-id]').forEach((btn) => {

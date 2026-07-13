@@ -2,6 +2,7 @@ import { MOVE_CATEGORIES, MOVE_PROPERTIES } from '../utils/Constants.js';
 import { COMBAT_PHASE } from '../combat/CombatManager.js';
 import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 
 function isAttack(m) { return m.properties.includes(MOVE_PROPERTIES.PHYSICAL) || m.properties.includes(MOVE_PROPERTIES.MAGIC); }
 function isSustain(m) { return m.properties.includes(MOVE_PROPERTIES.DEFENCE) || m.properties.includes(MOVE_PROPERTIES.HEALING); }
@@ -106,8 +107,20 @@ export class FightState {
     return `
       <div class="label">${label}</div>
       <div class="avatar-box" style="background:${color}"></div>
+      <div class="status-icons">${this.statusIconsHTML(c)}</div>
       <div class="stat-line">${c.currentHealth} / ${c.getMaxHealth()}</div>
       <div class="stat-line">${c.energy} / ${c.getMaxEnergy()}</div>`;
+  }
+
+  statusIconsHTML(character) {
+    return character.statusEffects.map((effect) => {
+      const cfg = STATUS_EFFECTS[effect.id];
+      if (!cfg) return '';
+      return `
+        <span class="status-icon ${cfg.type}" style="background:${cfg.color}" title="${cfg.name} x${effect.stacks}">
+          ${cfg.icon}<sub class="status-stacks">${effect.stacks}</sub>
+        </span>`;
+    }).join('');
   }
 
   getAvailableMoves(category) {
@@ -204,7 +217,7 @@ export class FightState {
         const cfg = getConsumableConfig(id);
         if (!cfg) return;
         const result = combat.playerUseConsumable(cfg.name, cfg.combatEffect ?? {});
-        if (result.ok) app.inventory.useConsumable(id, 1);
+        if (result.ok) { app.inventory.useConsumable(id, 1); app.trackConsumableUsed(id); }
         else app.gameState.addLog(result.reason);
         this.openCategory = null;
         this.renderAll();

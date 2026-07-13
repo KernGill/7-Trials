@@ -1,4 +1,4 @@
-import { GAME_STATES } from '../utils/Constants.js';
+import { GAME_STATES, SINGLE_EQUIPMENT_SLOTS, MULTI_EQUIPMENT_SLOTS } from '../utils/Constants.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
 
@@ -41,31 +41,61 @@ export class LockerState {
   renderEquipment() {
     const { app } = this;
     const equipped = app.inventory.getEquippedItems();
-    const equippedList = Object.entries(equipped).map(([slot, id]) => `
-      <div class="locker-row">
-        <span>${slot}: ${id ?? '(empty)'}</span>
-        ${id ? `<button data-unequip="${slot}">Unequip</button>` : ''}
-      </div>`).join('');
-    const ownedList = app.inventory.getOwnedItems().map((item) => {
-      const isEquipped = Object.values(equipped).includes(item.id);
+
+    const singleRows = SINGLE_EQUIPMENT_SLOTS.map((slot) => {
+      const id = equipped[slot];
       return `
         <div class="locker-row">
-          <span>${item.name} (${item.type})</span>
-          <button data-equip="${item.id}" ${isEquipped ? 'disabled' : ''}>${isEquipped ? 'Equipped' : 'Equip'}</button>
+          <span>${slot}: ${id ?? '(empty)'}</span>
+          ${id ? `<button data-unequip="${slot}">Unequip</button>` : ''}
+        </div>`;
+    }).join('');
+
+    const multiRows = Object.keys(MULTI_EQUIPMENT_SLOTS).map((category) => {
+      const max = MULTI_EQUIPMENT_SLOTS[category];
+      const items = equipped[category] ?? [];
+      const filled = items.map((id, i) => `
+        <div class="locker-row">
+          <span>${category} ${i + 1}: ${id}</span>
+          <button data-unequip="${category}" data-item="${id}">Unequip</button>
+        </div>`).join('');
+      const empty = Array.from({ length: max - items.length }).map((_, i) => `
+        <div class="locker-row">
+          <span>${category} ${items.length + i + 1}: (empty)</span>
+        </div>`).join('');
+      return filled + empty;
+    }).join('');
+
+    const ownedList = app.inventory.getOwnedItems().map((item) => {
+      const equippedCount = app.inventory.countEquippedInstances(item.id);
+      const canEquipMore = equippedCount < item.ownedCount;
+      return `
+        <div class="locker-row">
+          <span>${item.name} (${item.type}) — Owned: ${item.ownedCount}, Equipped: ${equippedCount}</span>
+          <button data-equip="${item.id}" ${canEquipMore ? '' : 'disabled'}>Equip</button>
         </div>`;
     }).join('');
 
     this.body.innerHTML = `
       <div class="locker-columns">
-        <div class="locker-equipped"><h3>Equipped</h3>${equippedList}</div>
+        <div class="locker-equipped"><h3>Equipped</h3>${singleRows}${multiRows}</div>
         <div class="locker-owned"><h3>Owned</h3>${ownedList || '<div class="locker-empty">Nothing yet.</div>'}</div>
       </div>`;
 
     this.body.querySelectorAll('[data-unequip]').forEach((btn) => {
-      btn.addEventListener('click', () => { app.inventory.unequipSlot(btn.dataset.unequip); app.saveSystem.save(); this.renderAll(); });
+      btn.addEventListener('click', () => {
+        app.inventory.unequipSlot(btn.dataset.unequip, btn.dataset.item ?? null);
+        app.saveSystem.save();
+        this.renderAll();
+      });
     });
     this.body.querySelectorAll('[data-equip]').forEach((btn) => {
-      btn.addEventListener('click', () => { app.inventory.equipItem(btn.dataset.equip); app.saveSystem.save(); this.renderAll(); });
+      btn.addEventListener('click', () => {
+        const result = app.inventory.equipItem(btn.dataset.equip);
+        if (!result.ok) app.gameState.addLog(result.reason);
+        app.saveSystem.save();
+        this.renderAll();
+      });
     });
   }
 

@@ -23,20 +23,22 @@ export class EnemyAI {
         return locked;
       }
       const freeMoves = enemy.moves.filter(
-        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown(),
+        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
       );
       if (freeMoves.length) return pickRandom(freeMoves);
       return null;
     }
 
-    const available = enemy.moves.filter((m) => m.isAvailable(enemy.energy) && !m.isOnCooldown());
+    const available = enemy.moves.filter(
+      (m) => m.isAvailable(enemy.energy) && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
+    );
     if (!available.length) return null;
 
     const chosen = pickRandom(available);
     if (chosen.energyCost > enemy.energy) {
       this.lockMove(chosen.id, 3);
       const freeMoves = enemy.moves.filter(
-        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0,
+        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.template.usePriorityBelowHealthPercent,
       );
       return freeMoves.length ? pickRandom(freeMoves) : null;
     }

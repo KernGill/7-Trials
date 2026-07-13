@@ -29,7 +29,7 @@ const DEFAULT_RUN = {
 
 const DEFAULT_PLAYER = {
   gold: 200,
-  ownedEquipment: [],
+  ownedEquipment: {},
   equipped: {},
   backpackMaterials: {},
   consumables: { minor_potion: 2 },
