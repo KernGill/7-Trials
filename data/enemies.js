@@ -23,7 +23,7 @@ export const ENEMIES = {
       def: 52,
       int: 0,
       critChance: 4,
-      critDamage: 43,
+      critDamage: 0,
       dodge: 100,
       accuracy: 100,
       energy: 6,
@@ -85,7 +85,7 @@ export const ENEMIES = {
     ],
     drops: {
       materials: [
-        { id: 'bones', chance: 100, quantity: [8, 12] },
+        { id: 'bones', chance: 100, quantity: [13, 19] },
         { id: 'mana_stone', chance: 100, quantity: [2, 3] },
       ],
       items: [
@@ -109,14 +109,14 @@ export const ENEMIES = {
       spriteId: 'the_hollowed',
     },
     baseStats: {
-      con: 540,
+      con: 630,
       dex: 20,
       str: 18,
       spd: 20,
       def: 10,
       int: 0,
       critChance: 5,
-      critDamage: 54,
+      critDamage: 60,
       dodge: 100,
       accuracy: 100,
       energy: 6,
