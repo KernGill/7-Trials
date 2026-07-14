@@ -40,6 +40,7 @@ export class Character {
     this.pendingDamageReduction = null;
     this.guardState = null;
     this.reflectSplitPercent = 0;
+    this.reflectSplitTurnsRemaining = 0;
     this.moveIds = [...(config.moveIds ?? [])];
     this.moves = [];
     this.combatLogTag = config.combatLogTag ?? this.name;
@@ -189,6 +190,7 @@ export class Character {
     this.pendingDamageReduction = null;
     this.guardState = null;
     this.reflectSplitPercent = 0;
+    this.reflectSplitTurnsRemaining = 0;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];

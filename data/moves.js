@@ -105,10 +105,14 @@ export const MOVE_TEMPLATES = {
     damage: 0,
     scaling: SCALING_TYPES.NONE,
     critChance: 0,
-    energyCost: 4,
+    energyCost: 5,
     cooldown: 2,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     reflectSplitPercent: 50,
+    // Present for the rest of the cast turn plus 2 more full fight turns
+    // (matches the decayBuffDurations countdown convention used
+    // elsewhere: N turns of presence needs a starting value of N+1).
+    reflectSplitDurationFightTurns: 3,
   },
   shard_stab: {
     id: 'shard_stab',
@@ -128,13 +132,13 @@ export const MOVE_TEMPLATES = {
     damage: 5,
     scaling: SCALING_TYPES.STR,
     critChance: 0,
-    energyCost: 5,
+    energyCost: 6,
     cooldown: 8,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    // 3 total damage instances: the immediate hit below, plus one more
-    // at the start of each of the next 2 fight turns (repeatInstances).
+    // 5 total damage instances: the immediate hit below, plus one more
+    // at the start of each of the next 4 fight turns (repeatInstances).
     // Each landed instance — including this one — applies 3 frost stacks.
-    debuffs: [{ effect: 'frost', stacks: 4 }],
+    debuffs: [{ effect: 'frost', stacks: 3 }],
     repeatInstances: 4,
   },
   undead_fury: {

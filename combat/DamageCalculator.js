@@ -124,6 +124,7 @@ export class DamageCalculator {
       const taken = Math.round(damage * split);
       const returned = damage - taken;
       defender.reflectSplitPercent = 0;
+      defender.reflectSplitTurnsRemaining = 0;
       defender.takeDamage(this.applyDefense(taken, defender));
       attacker.takeDamage(this.applyDefense(returned, attacker));
       return { hit: true, damage: taken, healed: 0, reflected: returned, isCrit: crit.isCrit, split: true };
@@ -154,8 +155,8 @@ export class EnergyCalculator {
 
     let gain = 1 + (character.energyGainBonus ?? 0);
     const dex = character.getStat('dex');
-    if (rollChance(dex)) gain += 1;
-    if (dex > DEX_ENERGY_THRESHOLD && rollChance(dex - DEX_ENERGY_THRESHOLD)) gain += 1;
+    if (rollChance(dex / 2)) gain += 1;
+    if (dex > DEX_ENERGY_THRESHOLD && rollChance((dex - DEX_ENERGY_THRESHOLD) / 2)) gain += 1;
 
     return gain;
   }

@@ -272,6 +272,7 @@ export class CombatManager {
     }
     if (move.template.reflectSplitPercent) {
       attacker.reflectSplitPercent = move.template.reflectSplitPercent;
+      attacker.reflectSplitTurnsRemaining = move.template.reflectSplitDurationFightTurns ?? 1;
     }
 
     if (move.template.repeatInstances) {

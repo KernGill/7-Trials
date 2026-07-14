@@ -127,5 +127,10 @@ export class StatusEffectSystem {
       character.energyGainBonusTurns -= 1;
       if (character.energyGainBonusTurns <= 0) character.energyGainBonus = 0;
     }
+
+    if (character.reflectSplitTurnsRemaining > 0) {
+      character.reflectSplitTurnsRemaining -= 1;
+      if (character.reflectSplitTurnsRemaining <= 0) character.reflectSplitPercent = 0;
+    }
   }
 }
