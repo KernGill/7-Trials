@@ -12,7 +12,11 @@ export const MOVE_TEMPLATES = {
     cooldown: 2,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     buffs: [{ type: 'stat', stat: 'str', amount: 3, duration: 1 }],
-    trigger: 'every_other_character_turn',
+    // Fires on every 2nd of its own owner's character turns (not every
+    // single one) — was previously wired to a trigger string CombatManager
+    // never actually called, so this never fired at all.
+    trigger: 'character_turn_start',
+    triggerInterval: 2,
   },
   golden_calling: {
     id: 'golden_calling',
@@ -314,7 +318,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 1,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
-    buffs: [{ type: 'stat', stat: 'str', amount: 5, durationFightTurns: 1 }],
+    buffs: [{ type: 'stat', stat: 'str', amount: 3, durationFightTurns: 1 }],
     trigger: 'fight_turn_start',
   },
   gluttonous_maw: {
@@ -326,9 +330,12 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 0,
     cooldown: 1,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
     buffs: [{ effect: 'lifesteal', stacksMin: 1, stacksMax: 2 }],
-    trigger: 'character_turn_start',
+    // Every 4th fight turn (globally), not every one of the owner's own
+    // character turns — was granting lifesteal far too often.
+    trigger: 'fight_turn_start',
+    triggerInterval: 4,
   },
   potion_maniac: {
     id: 'potion_maniac',

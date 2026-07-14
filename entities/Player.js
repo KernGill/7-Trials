@@ -1,5 +1,7 @@
 import { Character } from './Character.js';
 import { getCharacterConfig } from '../data/chracters.js';
+import { getMoveTemplate } from '../data/moves.js';
+import { MOVE_PROPERTIES } from '../utils/Constants.js';
 import { Move } from './Move.js';
 
 export class Player extends Character {
@@ -24,10 +26,21 @@ export class Player extends Character {
 
   static create(characterId, inventorySystem, currentHealth) {
     const equipmentStats = inventorySystem.getEquippedStatTotals();
-    const moveIds = [...getCharacterConfig(characterId).moveIds];
-    const equipmentMoves = inventorySystem.getEquippedMoveIds();
+    const baseMoveIds = [...new Set(getCharacterConfig(characterId).moveIds)];
+    const equipmentMoveIds = inventorySystem.getEquippedMoveIds();
     const player = new Player(characterId, equipmentStats, { currentHealth });
-    player.moveIds = [...new Set([...moveIds, ...equipmentMoves])];
+
+    // Passive moves granted by equipment stack: one independently-firing
+    // Move per equipped copy (2x Flesh Eater's Palm = 2 separate
+    // Gluttonous Maw rolls). Active moves never stack — duplicates just
+    // collapse to the one already present, same as before.
+    const finalMoveIds = [...baseMoveIds];
+    equipmentMoveIds.forEach((id) => {
+      const isPassive = getMoveTemplate(id)?.properties?.includes(MOVE_PROPERTIES.PASSIVE);
+      if (isPassive || !finalMoveIds.includes(id)) finalMoveIds.push(id);
+    });
+
+    player.moveIds = finalMoveIds;
     player.initializeMoves((id) => Move.fromId(id, player));
     return player;
   }

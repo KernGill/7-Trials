@@ -318,9 +318,13 @@ export class CombatManager {
     actors.forEach((character) => {
       character.moves.forEach((move) => {
         if (move.template.trigger !== trigger) return;
-        if (trigger === 'every_other_character_turn') {
+        // triggerInterval lets a passive fire only every Nth time its
+        // trigger event happens (e.g. Challenger's Mettle: every 2nd of
+        // its owner's own character_turn_start; Gluttonous Maw: every
+        // 4th fight_turn_start) instead of every single occurrence.
+        if (move.template.triggerInterval) {
           move.passiveCounter += 1;
-          if (move.passiveCounter % 2 !== 0) return;
+          if (move.passiveCounter % move.template.triggerInterval !== 0) return;
         }
         if (move.template.buffs) {
           this.statusSystem.applyBuffs(character, move.template.buffs, character);
