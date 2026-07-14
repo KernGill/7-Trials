@@ -21,4 +21,12 @@ export class Tile {
   isWalkable() {
     return this.type !== TILE_TYPES.WALL;
   }
+
+  /** Rehydrates a plain object (e.g. round-tripped through JSON via SaveSystem) back into a real Tile so isWalkable() etc. work again. */
+  static fromJSON(obj) {
+    const tile = new Tile(obj.x, obj.y, obj.type, obj.meta ?? {});
+    tile.explored = !!obj.explored;
+    tile.visible = !!obj.visible;
+    return tile;
+  }
 }

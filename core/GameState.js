@@ -1,5 +1,6 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { deepClone } from '../utils/MathUtils.js';
+import { Tile } from '../exploration/Tile.js';
 
 const DEFAULT_META = {
   currentArc: 0,
@@ -66,28 +67,31 @@ export class GameState {
   }
 
   getSnapshot() {
-    // Deliberately NOT persisting `run` or `currentState`: an in-progress
-    // dungeon run contains Tile class instances that would lose their
-    // methods across a JSON round-trip, and resuming mid-fight isn't
-    // meaningfully reconstructable anyway. A refresh always drops you
-    // back to Home with everything you've already banked there (gold,
-    // equipment, bestiary, arc progress) intact — same rule the game
-    // already uses for dying mid-run.
+    // `run` is only ever persisted while active, and only up through safe
+    // exploration checkpoints (see ExploreState) — never mid-fight, since
+    // live Combat/Player/Enemy instances aren't reconstructable. Tile
+    // instances inside run.dungeon lose their class (and isWalkable())
+    // across the JSON round-trip; loadSnapshot() rehydrates them below.
     return {
       meta: deepClone(this.meta),
       player: deepClone(this.player),
       bestiary: deepClone(this.bestiary),
       settings: deepClone(this.settings),
+      run: this.run?.active ? deepClone(this.run) : null,
     };
   }
 
   loadSnapshot(snapshot) {
-    const { meta, player, bestiary, settings } = deepClone(snapshot);
+    const { meta, player, bestiary, settings, run } = deepClone(snapshot);
     if (meta) this.meta = meta;
     if (player) this.player = player;
     if (bestiary) this.bestiary = bestiary;
     // Merge rather than replace: an older save made before `fps` existed
     // would otherwise wipe it out, leaving GameLoop dividing by undefined.
     if (settings) this.settings = { ...this.settings, ...settings };
+    if (run?.active) {
+      if (run.dungeon?.tiles) run.dungeon.tiles = run.dungeon.tiles.map((t) => Tile.fromJSON(t));
+      this.run = run;
+    }
   }
 }

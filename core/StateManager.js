@@ -74,7 +74,9 @@ export class StateManager {
     this.bindInput();
     this.saveSystem.load();
     this.applyBrightness();
-    this.setState(GAME_STATES.HOME);
+    // A persisted active run (see ExploreState's autosave checkpoints)
+    // resumes straight into exploration instead of bouncing to Home.
+    this.setState(this.gameState.run?.active ? GAME_STATES.EXPLORE : GAME_STATES.HOME);
   }
 
   /** settings.brightness is stored/edited from two places (SettingsState, PauseOverlay) — this is the one place it actually takes visual effect. */
@@ -233,6 +235,7 @@ export class StateManager {
       floorMessage: null,
     };
     this.generateFloor();
+    this.saveSystem.save();
     this.setState(GAME_STATES.EXPLORE);
   }
 
@@ -325,6 +328,11 @@ export class StateManager {
     }
 
     this.combatManager.reset();
+    // Checkpoint here too — otherwise a refresh in the gap between
+    // winning and your next move would resurrect the enemy tile and
+    // undo this fight's rewards (see the matching skip in ExploreState
+    // .movePlayer for why entering combat itself isn't a checkpoint).
+    this.saveSystem.save();
     this.setState(GAME_STATES.EXPLORE);
   }
 

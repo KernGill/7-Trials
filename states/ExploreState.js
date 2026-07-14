@@ -76,6 +76,7 @@ export class ExploreState {
     this.app.inventory.useConsumable(id, 1);
     this.app.trackConsumableUsed(id);
     this.app.gameState.run.savedHealth = this.player.currentHealth;
+    this.app.saveSystem.save();
     this.renderAll();
   }
 
@@ -121,7 +122,19 @@ export class ExploreState {
 
     run.playerPosition = { x: nx, y: ny };
     if (!tile.explored) { tile.explored = true; run.tilesExplored += 1; }
+
+    // Enemy tiles hand off to FightState immediately — nothing left on
+    // this screen to render or save. Autosaving here would also let a
+    // refresh-mid-fight consume the enemy tile for free (it's already
+    // flipped to FLOOR by handleTileEffect before combat even starts),
+    // so a fight in progress is deliberately the one checkpoint we skip.
+    if (tile.type === TILE_TYPES.ENEMY) {
+      this.handleTileEffect(tile);
+      return;
+    }
+
     this.handleTileEffect(tile);
+    this.app.saveSystem.save();
     this.renderAll();
   }
 

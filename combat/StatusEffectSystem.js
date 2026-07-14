@@ -82,9 +82,9 @@ export class StatusEffectSystem {
   applyBuffs(target, buffs, attacker) {
     buffs?.forEach((buff) => {
       if (buff.effect) {
-        const stacks = buff.stacks ?? buff.stacksMin
-          ? Math.floor(Math.random() * ((buff.stacksMax ?? 1) - (buff.stacksMin ?? 1) + 1)) + (buff.stacksMin ?? 1)
-          : 1;
+        const stacks = buff.stacks ?? (buff.stacksMin
+          ? Math.floor(Math.random() * ((buff.stacksMax ?? buff.stacksMin) - buff.stacksMin + 1)) + buff.stacksMin
+          : 1);
         target.addStatusEffect(buff.effect, stacks, {
           durationFightTurns: buff.durationFightTurns ?? -1,
         });
