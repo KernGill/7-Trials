@@ -1,4 +1,10 @@
 import { pickRandom } from '../utils/RandomUtils.js';
+import { MOVE_PROPERTIES } from '../utils/Constants.js';
+
+/** Passive moves only ever fire via CombatManager.triggerPassives (trigger-based, e.g. every fight_turn_start) — never as something the AI actively picks for its own character turn. */
+function isActiveMove(move) {
+  return !move.properties.includes(MOVE_PROPERTIES.PASSIVE);
+}
 
 export class EnemyAI {
   constructor() {
@@ -13,7 +19,7 @@ export class EnemyAI {
 
   chooseMove(enemy, player) {
     if (enemy.currentHealth / enemy.getMaxHealth() <= 0.1) {
-      const priority = enemy.moves.find((m) => m.template.usePriorityBelowHealthPercent);
+      const priority = enemy.moves.find((m) => isActiveMove(m) && m.template.usePriorityBelowHealthPercent);
       if (priority?.isAvailable(enemy.energy)) return priority;
     }
 
@@ -23,14 +29,14 @@ export class EnemyAI {
         return locked;
       }
       const freeMoves = enemy.moves.filter(
-        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
+        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
       );
       if (freeMoves.length) return pickRandom(freeMoves);
       return null;
     }
 
     const available = enemy.moves.filter(
-      (m) => m.isAvailable(enemy.energy) && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
+      (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
     );
     if (!available.length) return null;
 
@@ -38,7 +44,7 @@ export class EnemyAI {
     if (chosen.energyCost > enemy.energy) {
       this.lockMove(chosen.id, 3);
       const freeMoves = enemy.moves.filter(
-        (m) => m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.template.usePriorityBelowHealthPercent,
+        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.template.usePriorityBelowHealthPercent,
       );
       return freeMoves.length ? pickRandom(freeMoves) : null;
     }

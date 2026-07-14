@@ -57,7 +57,9 @@ export class StatusEffectSystem {
 
   applyDebuffs(target, debuffs, attacker) {
     debuffs?.forEach((debuff) => {
-      let stacks = debuff.stacks ?? 1;
+      let stacks = debuff.stacks ?? (debuff.stacksMin
+        ? Math.floor(Math.random() * ((debuff.stacksMax ?? debuff.stacksMin) - debuff.stacksMin + 1)) + debuff.stacksMin
+        : 1);
       if (debuff.bonusPerDex && attacker) {
         stacks += Math.floor(attacker.getStat('dex') * debuff.bonusPerDex);
       }
