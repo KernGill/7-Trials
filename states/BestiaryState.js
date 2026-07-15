@@ -1,6 +1,7 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { getArcConfig, ARCS } from '../data/arcs.js';
 import { getMoveTemplate } from '../data/moves.js';
+import { getEnemySprite } from '../data/sprites.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { statsListHTML, abilityDetailHTML } from '../ui/InfoFormatters.js';
 
@@ -107,12 +108,13 @@ export class BestiaryState {
       return;
     }
 
+    const sprite = getEnemySprite(this.openEnemyId);
     this.els.detail.classList.remove('hidden');
     this.els.detail.innerHTML = `
       <button class="detail-close" data-a="close">&times;</button>
       <div class="detail-left">
         <div class="detail-name">${entry.name}</div>
-        <div class="detail-image">NO IMAGE YET</div>
+        <div class="detail-image">${sprite ? `<img src="${sprite}" alt="${entry.name}">` : 'NO IMAGE YET'}</div>
         <div class="detail-stats">${statsListHTML(entry.stats)}</div>
       </div>
       <div class="detail-moves">
