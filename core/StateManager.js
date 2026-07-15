@@ -26,6 +26,7 @@ import { InnState } from '../states/InnState.js';
 import { LockerState } from '../states/LockerState.js';
 import { SettingsState } from '../states/SettingsState.js';
 import { BestiaryState } from '../states/BestiaryState.js';
+import { setLanguage, t } from '../ui/i18n.js';
 
 /**
  * StateManager — owns every system and the top-level state machine.
@@ -74,6 +75,7 @@ export class StateManager {
     this.bindInput();
     this.saveSystem.load();
     this.applyBrightness();
+    this.applyLanguage();
     // A persisted active run (see ExploreState's autosave checkpoints)
     // resumes straight into exploration instead of bouncing to Home.
     this.setState(this.gameState.run?.active ? GAME_STATES.EXPLORE : GAME_STATES.HOME);
@@ -87,6 +89,16 @@ export class StateManager {
   setFPS(fps) {
     this.gameState.settings.fps = fps;
     this.loop?.setFPS(fps);
+  }
+
+  /** ui/i18n.js keeps the active language in a module-level singleton (read by every t()/tData() call) so states don't need gameState threaded through every render call — this is the one place that singleton gets synced from settings. */
+  applyLanguage() {
+    setLanguage(this.gameState.settings.language);
+  }
+
+  setLanguage(lang) {
+    this.gameState.settings.language = lang;
+    this.applyLanguage();
   }
 
   bindEvents() {
@@ -316,7 +328,7 @@ export class StateManager {
     this.gameState.run.savedHealth = this.combatManager.player.currentHealth;
     this.gameState.run.enemiesRemaining -= 1;
     this.gameState.run.explorationBuffs = [];
-    this.gameState.addLog('Battle won.');
+    this.gameState.addLog(t('log.battle_won'));
 
     if (this.progression.isBossFloor(this.gameState.run.floor) &&
         enemies.some((e) => e.isBoss)) {
@@ -339,7 +351,7 @@ export class StateManager {
   onCombatDefeat() {
     this.gameState.run.active = false;
     this.gameState.run.savedHealth = null;
-    this.gameState.addLog('You were defeated.');
+    this.gameState.addLog(t('log.defeated'));
 
     // Check before combatManager.reset() (called inside goHome) wipes `enemies`.
     const diedToSkeleton = this.combatManager.enemies.some(

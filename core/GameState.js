@@ -50,7 +50,7 @@ export class GameState {
     this.run = deepClone(DEFAULT_RUN);
     this.bestiary = {};
     this.combat = null;
-    this.settings = { brightness: 1, sound: true, fps: 60 };
+    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en' };
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;

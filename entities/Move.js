@@ -1,5 +1,6 @@
 import { deepClone } from '../utils/MathUtils.js';
 import { getMoveTemplate } from '../data/moves.js';
+import { tData } from '../ui/i18n.js';
 
 export class Move {
   constructor(template, owner = null) {
@@ -10,7 +11,7 @@ export class Move {
   }
 
   get id() { return this.template.id; }
-  get name() { return this.template.name; }
+  get name() { return tData('move', this.template.id, this.template.name); }
   get properties() { return this.template.properties ?? []; }
   get damage() { return this.template.damage ?? 0; }
   get scaling() { return this.template.scaling ?? 'none'; }

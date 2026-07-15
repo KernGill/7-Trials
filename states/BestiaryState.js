@@ -4,6 +4,7 @@ import { getMoveTemplate } from '../data/moves.js';
 import { getEnemySprite } from '../data/sprites.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { statsListHTML, abilityDetailHTML } from '../ui/InfoFormatters.js';
+import { t, tData } from '../ui/i18n.js';
 
 const SLOTS_PER_ARC = 12;
 const MAX_ARC_INDEX = Math.max(...Object.values(ARCS).map((a) => a.index));
@@ -31,16 +32,16 @@ export class BestiaryState {
     this.tooltip = new TooltipManager();
     root.innerHTML = `
       <div class="bestiary-screen">
-        <button class="back-btn">RETURN HOME</button>
-        <h1>BESTIARY</h1>
+        <button class="back-btn">${t('common.return_home')}</button>
+        <h1>${t('bestiary.title')}</h1>
         <div class="bestiary-panel">
           <div class="bestiary-arc-header"></div>
           <div class="bestiary-grid"></div>
           <div class="bestiary-detail hidden"></div>
         </div>
         <div class="bestiary-nav">
-          <button class="arc-nav-btn" data-nav="prev">&larr; PREVIOUS</button>
-          <button class="arc-nav-btn" data-nav="next">NEXT &rarr;</button>
+          <button class="arc-nav-btn" data-nav="prev">${t('bestiary.previous')}</button>
+          <button class="arc-nav-btn" data-nav="next">${t('bestiary.next')}</button>
         </div>
       </div>`;
     root.querySelector('.back-btn').addEventListener('click', () => this.app.setState(GAME_STATES.HOME));
@@ -70,7 +71,7 @@ export class BestiaryState {
 
   renderAll() {
     const arc = getArcConfig(this.arcIndex);
-    this.els.arcHeader.textContent = `ARC ${arc.index}`;
+    this.els.arcHeader.textContent = t('bestiary.arc', { n: arc.index });
     this.els.prevBtn.disabled = this.arcIndex <= 0;
     this.els.nextBtn.disabled = this.arcIndex >= MAX_ARC_INDEX;
 
@@ -81,15 +82,15 @@ export class BestiaryState {
     this.els.grid.innerHTML = slots.map((enemyId) => {
       const entry = enemyId ? this.app.bestiary.getEntry(enemyId) : null;
       if (!entry) {
-        return `<div class="bestiary-tile locked">${enemyId ? '???' : 'Future enemy'}</div>`;
+        return `<div class="bestiary-tile locked">${enemyId ? t('bestiary.unknown') : t('bestiary.future_enemy')}</div>`;
       }
-      return `<button class="bestiary-tile discovered" data-enemy="${enemyId}">${entry.name}</button>`;
+      return `<button class="bestiary-tile discovered" data-enemy="${enemyId}">${tData('enemy', enemyId, entry.name)}</button>`;
     }).join('');
 
     this.els.grid.querySelectorAll('[data-enemy]').forEach((tile) => {
       const enemyId = tile.dataset.enemy;
       const entry = this.app.bestiary.getEntry(enemyId);
-      this.tooltip.bind(tile, () => `<h4>${entry.name}</h4>${statsListHTML(entry.stats)}`);
+      this.tooltip.bind(tile, () => `<h4>${tData('enemy', enemyId, entry.name)}</h4>${statsListHTML(entry.stats)}`);
       tile.addEventListener('click', () => {
         this.openEnemyId = enemyId;
         this.renderDetail();
@@ -109,12 +110,13 @@ export class BestiaryState {
     }
 
     const sprite = getEnemySprite(this.openEnemyId);
+    const enemyName = tData('enemy', this.openEnemyId, entry.name);
     this.els.detail.classList.remove('hidden');
     this.els.detail.innerHTML = `
       <button class="detail-close" data-a="close">&times;</button>
       <div class="detail-left">
-        <div class="detail-name">${entry.name}</div>
-        <div class="detail-image">${sprite ? `<img src="${sprite}" alt="${entry.name}">` : 'NO IMAGE YET'}</div>
+        <div class="detail-name">${enemyName}</div>
+        <div class="detail-image">${sprite ? `<img src="${sprite}" alt="${enemyName}">` : t('bestiary.no_image')}</div>
         <div class="detail-stats">${statsListHTML(entry.stats)}</div>
       </div>
       <div class="detail-moves">
@@ -123,7 +125,7 @@ export class BestiaryState {
           if (!move) return '';
           return `
             <button class="detail-move-row" data-move="${id}">
-              <span>${move.name}</span><span>${(move.properties ?? []).join(', ')}</span>
+              <span>${tData('move', id, move.name)}</span><span>${(move.properties ?? []).map((w) => t(`property.${w}`)).join(', ')}</span>
             </button>`;
         }).join('')}
       </div>

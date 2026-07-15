@@ -4,6 +4,10 @@ import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 import { getCharacterSprite, getEnemySprite, CHARACTER_BORDER } from '../data/sprites.js';
+import { t, tData, tReason } from '../ui/i18n.js';
+
+const STAT_KEY_TO_TKEY = { con: 'tooltip.con', dex: 'tooltip.dex', str: 'tooltip.str', spd: 'tooltip.spd', def: 'tooltip.def', int: 'tooltip.int' };
+function statLabel(key) { return t(STAT_KEY_TO_TKEY[key] ?? key); }
 
 function isAttack(m) { return m.properties.includes(MOVE_PROPERTIES.PHYSICAL) || m.properties.includes(MOVE_PROPERTIES.MAGIC); }
 function isSustain(m) { return m.properties.includes(MOVE_PROPERTIES.DEFENCE) || m.properties.includes(MOVE_PROPERTIES.HEALING); }
@@ -33,11 +37,11 @@ const FILTERS = {
   [MOVE_CATEGORIES.SPECIALS]: isSpecial,
   [MOVE_CATEGORIES.CONSUMABLES]: isConsumable,
 };
-const CATEGORY_LABELS = {
-  [MOVE_CATEGORIES.ATTACKS]: 'ATTACKS',
-  [MOVE_CATEGORIES.SUSTAIN]: 'SUSTAIN (DEFENCE / HEALING)',
-  [MOVE_CATEGORIES.SPECIALS]: 'SPECIALS',
-  [MOVE_CATEGORIES.CONSUMABLES]: 'CONSUMABLES',
+const CATEGORY_LABEL_KEYS = {
+  [MOVE_CATEGORIES.ATTACKS]: 'fight.category_attacks',
+  [MOVE_CATEGORIES.SUSTAIN]: 'fight.category_sustain',
+  [MOVE_CATEGORIES.SPECIALS]: 'fight.category_specials',
+  [MOVE_CATEGORIES.CONSUMABLES]: 'fight.category_consumables',
 };
 
 /**
@@ -202,15 +206,15 @@ export class FightState {
     const combat = app.combatManager;
     if (!combat.player) return;
 
-    this.els.turn.textContent = `FIGHT TURN: ${combat.turnOrder.fightTurn}`;
-    this.els.player.innerHTML = this.combatantHTML(combat.player, 'PLAYER');
-    combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, 'ENEMY'); });
+    this.els.turn.textContent = t('fight.turn', { n: combat.turnOrder.fightTurn });
+    this.els.player.innerHTML = this.combatantHTML(combat.player, t('fight.player'));
+    combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy')); });
 
     // Newest message on top.
     this.els.log.innerHTML = combat.log.map((line) => `<div class="log-line">${line}</div>`).join('');
 
     const order = [...combat.combatants].sort((a, b) => b.battleSpeed - a.battleSpeed);
-    this.els.order.innerHTML = '<div class="order-title">Move Order:</div>' +
+    this.els.order.innerHTML = `<div class="order-title">${t('fight.move_order')}</div>` +
       order.map((c) => `<div>${c.name}: ${Math.round(c.battleSpeed)}</div>`).join('');
 
     this.renderCategoryPanel();
@@ -247,8 +251,9 @@ export class FightState {
     const icons = character.statusEffects.map((effect) => {
       const cfg = STATUS_EFFECTS[effect.id];
       if (!cfg) return '';
+      const name = tData('status', effect.id, cfg.name);
       return `
-        <span class="status-icon ${cfg.type}" style="background:${cfg.color}" title="${cfg.name} x${effect.stacks}">
+        <span class="status-icon ${cfg.type}" style="background:${cfg.color}" title="${name} x${effect.stacks}">
           ${cfg.icon}<sub class="status-stacks">${effect.stacks}</sub>
         </span>`;
     });
@@ -259,24 +264,25 @@ export class FightState {
     });
     Object.entries(buffTotals).forEach(([stat, amount]) => {
       if (amount === 0) return;
-      const label = stat.slice(0, 3).toUpperCase();
+      const fullLabel = statLabel(stat).toUpperCase();
+      const label = fullLabel.slice(0, 3);
       icons.push(`
-        <span class="status-icon buff" style="background:#2ecc71" title="${stat.toUpperCase()} +${amount}">
+        <span class="status-icon buff" style="background:#2ecc71" title="${fullLabel} +${amount}">
           +${label}<sub class="status-stacks">${amount}</sub>
         </span>`);
     });
 
     if (character.guardState) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="Guarding: ${character.guardState.percent}% damage reduction">
+        <span class="status-icon defence" style="background:#3498db" title="${t('fight.guarding', { percent: character.guardState.percent })}">
           GD
         </span>`);
     }
     if (character.pendingDamageReduction) {
       const dr = character.pendingDamageReduction;
       const label = dr.percent
-        ? `Defended: ${dr.percent}% reduction${dr.hits ? ` (${dr.hits} hit${dr.hits === 1 ? '' : 's'} left)` : ''}`
-        : `Defended: -${dr.flat} damage`;
+        ? `${t('fight.defended_percent', { percent: dr.percent })}${dr.hits ? t('fight.hits_left', { n: dr.hits }) : ''}`
+        : t('fight.defended_flat', { amount: dr.flat });
       icons.push(`
         <span class="status-icon defence" style="background:#3498db" title="${label}">
           DEF
@@ -284,7 +290,7 @@ export class FightState {
     }
     if (character.reflectSplitPercent > 0) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="Reflecting ${character.reflectSplitPercent}% of the next hit">
+        <span class="status-icon defence" style="background:#3498db" title="${t('fight.reflecting', { percent: character.reflectSplitPercent })}">
           RS
         </span>`);
     }
@@ -311,7 +317,7 @@ export class FightState {
 
     if (!this.openCategory) {
       panel.innerHTML = Object.values(MOVE_CATEGORIES)
-        .map((cat) => `<button class="cat-btn" data-cat="${cat}">${CATEGORY_LABELS[cat]}</button>`)
+        .map((cat) => `<button class="cat-btn" data-cat="${cat}">${t(CATEGORY_LABEL_KEYS[cat])}</button>`)
         .join('');
       panel.querySelectorAll('[data-cat]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -331,15 +337,15 @@ export class FightState {
     const moves = this.getAvailableMoves(this.openCategory);
     const moveButtons = moves.map((move) => {
       const affordable = move.isAvailable(player.energy);
-      const cdTag = move.isOnCooldown() ? ` (CD ${move.currentCooldown})` : '';
+      const cdTag = move.isOnCooldown() ? t('fight.cd', { n: move.currentCooldown }) : '';
       return `
         <button class="move-btn" data-move="${move.id}" ${affordable ? '' : 'disabled'}>
           <strong>${move.name}</strong><br>
-          <small>${move.properties.join(', ')}</small><br>
-          <small>Cost: ${move.energyCost}${cdTag}</small>
+          <small>${move.properties.map((w) => t(`property.${w}`)).join(', ')}</small><br>
+          <small>${t('fight.cost', { amount: move.energyCost })}${cdTag}</small>
         </button>`;
     }).join('');
-    panel.innerHTML = `<button class="cat-btn back-btn">&larr; BACK</button>${moveButtons || '<div class="empty-note">No moves in this category.</div>'}`;
+    panel.innerHTML = `<button class="cat-btn back-btn">${t('common.back')}</button>${moveButtons || `<div class="empty-note">${t('fight.no_moves')}</div>`}`;
 
     panel.querySelector('.back-btn').addEventListener('click', () => {
       this.openCategory = null;
@@ -348,7 +354,7 @@ export class FightState {
     panel.querySelectorAll('[data-move]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const result = combat.playerUseMove(btn.dataset.move);
-        if (!result.ok) app.gameState.addLog(result.reason);
+        if (!result.ok) app.gameState.addLog(tReason(result.reason));
         this.openCategory = null;
         this.renderAll();
       });
@@ -371,11 +377,11 @@ export class FightState {
       const cfg = getConsumableConfig(id);
       return `
         <button class="move-btn" data-consumable="${id}">
-          <strong>${cfg?.name ?? id}</strong> x${amt}<br>
-          <small>${cfg?.flavour ?? ''}</small>
+          <strong>${tData('consumable', id, cfg?.name ?? id)}</strong> x${amt}<br>
+          <small>${tData('consumableFlavour', id, cfg?.flavour ?? '')}</small>
         </button>`;
     }).join('');
-    panel.innerHTML = `<button class="cat-btn back-btn">&larr; BACK</button>${itemButtons || '<div class="empty-note">No consumables carried this run.</div>'}`;
+    panel.innerHTML = `<button class="cat-btn back-btn">${t('common.back')}</button>${itemButtons || `<div class="empty-note">${t('fight.no_consumables')}</div>`}`;
 
     panel.querySelector('.back-btn').addEventListener('click', () => {
       this.openCategory = null;
@@ -386,9 +392,9 @@ export class FightState {
         const id = btn.dataset.consumable;
         const cfg = getConsumableConfig(id);
         if (!cfg) return;
-        const result = combat.playerUseConsumable(cfg.name, cfg.combatEffect ?? {});
+        const result = combat.playerUseConsumable(tData('consumable', id, cfg.name), cfg.combatEffect ?? {});
         if (result.ok) { app.inventory.useConsumable(id, 1); app.trackConsumableUsed(id); }
-        else app.gameState.addLog(result.reason);
+        else app.gameState.addLog(tReason(result.reason));
         this.openCategory = null;
         this.renderAll();
       });

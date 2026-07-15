@@ -1,6 +1,7 @@
 import { ITEM_STATES } from '../utils/Constants.js';
 import { getShopItems, getItemConfig } from '../data/items.js';
 import { getShopConsumables, getConsumableConfig } from '../data/consumables.js';
+import { t, tData } from '../ui/i18n.js';
 
 export class ShopSystem {
   constructor(gameState, inventorySystem, progressionSystem) {
@@ -77,7 +78,8 @@ export class ShopSystem {
       this.inventory.addConsumable(listing.id, 1, false);
     }
 
-    this.gameState.addLog(`Purchased ${listing.name}.`);
+    const name = tData(listing.type === 'item' ? 'item' : 'consumable', listing.id, listing.name);
+    this.gameState.addLog(t('log.purchased_item', { name }));
     return { ok: true };
   }
 }

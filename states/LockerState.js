@@ -3,6 +3,7 @@ import { getMaterialConfig, getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { itemTooltipHTML } from '../ui/InfoFormatters.js';
+import { t, tData, tReason } from '../ui/i18n.js';
 
 export class LockerState {
   constructor(app) { this.app = app; }
@@ -12,12 +13,12 @@ export class LockerState {
     this.tab = 'equipment'; // 'equipment' | 'materials' | 'consumables'
     root.innerHTML = `
       <div class="locker-screen">
-        <button class="back-btn">RETURN HOME</button>
-        <h1>LOCKER</h1>
+        <button class="back-btn">${t('common.return_home')}</button>
+        <h1>${t('locker.title')}</h1>
         <div class="locker-tabs">
-          <button class="tab-btn" data-tab="equipment">EQUIPMENT</button>
-          <button class="tab-btn" data-tab="materials">MATERIALS</button>
-          <button class="tab-btn" data-tab="consumables">CONSUMABLES</button>
+          <button class="tab-btn" data-tab="equipment">${t('locker.tab_equipment')}</button>
+          <button class="tab-btn" data-tab="materials">${t('locker.tab_materials')}</button>
+          <button class="tab-btn" data-tab="consumables">${t('locker.tab_consumables')}</button>
         </div>
         <div class="locker-body"></div>
       </div>`;
@@ -49,10 +50,11 @@ export class LockerState {
 
     const singleRows = SINGLE_EQUIPMENT_SLOTS.map((slot) => {
       const id = equipped[slot];
+      const itemName = id ? tData('item', id, getItemConfig(id)?.name ?? id) : t('locker.empty');
       return `
         <div class="locker-row" ${id ? `data-item-id="${id}"` : ''}>
-          <span>${slot}: ${id ?? '(empty)'}</span>
-          ${id ? `<button data-unequip="${slot}">Unequip</button>` : ''}
+          <span>${t(`locker.slot.${slot}`)}: ${itemName}</span>
+          ${id ? `<button data-unequip="${slot}">${t('locker.unequip')}</button>` : ''}
         </div>`;
     }).join('');
 
@@ -61,12 +63,12 @@ export class LockerState {
       const items = equipped[category] ?? [];
       const filled = items.map((id, i) => `
         <div class="locker-row" data-item-id="${id}">
-          <span>${category} ${i + 1}: ${id}</span>
-          <button data-unequip="${category}" data-item="${id}">Unequip</button>
+          <span>${t(`locker.slot.${category}`)} ${i + 1}: ${tData('item', id, getItemConfig(id)?.name ?? id)}</span>
+          <button data-unequip="${category}" data-item="${id}">${t('locker.unequip')}</button>
         </div>`).join('');
       const empty = Array.from({ length: max - items.length }).map((_, i) => `
         <div class="locker-row">
-          <span>${category} ${items.length + i + 1}: (empty)</span>
+          <span>${t(`locker.slot.${category}`)} ${items.length + i + 1}: ${t('locker.empty')}</span>
         </div>`).join('');
       return filled + empty;
     }).join('');
@@ -74,17 +76,19 @@ export class LockerState {
     const ownedList = app.inventory.getOwnedItems().map((item) => {
       const equippedCount = app.inventory.countEquippedInstances(item.id);
       const canEquipMore = equippedCount < item.ownedCount;
+      const itemName = tData('item', item.id, item.name);
+      const slotName = t(`locker.slot.${item.type}`);
       return `
         <div class="locker-row" data-item-id="${item.id}">
-          <span>${item.name} (${item.type}) — Owned: ${item.ownedCount}, Equipped: ${equippedCount}</span>
-          <button data-equip="${item.id}" ${canEquipMore ? '' : 'disabled'}>Equip</button>
+          <span>${itemName} (${slotName})${t('locker.owned_equipped', { owned: item.ownedCount, equipped: equippedCount })}</span>
+          <button data-equip="${item.id}" ${canEquipMore ? '' : 'disabled'}>${t('locker.equip')}</button>
         </div>`;
     }).join('');
 
     this.body.innerHTML = `
       <div class="locker-columns">
-        <div class="locker-equipped"><h3>Equipped</h3>${singleRows}${multiRows}</div>
-        <div class="locker-owned"><h3>Owned</h3>${ownedList || '<div class="locker-empty">Nothing yet.</div>'}</div>
+        <div class="locker-equipped"><h3>${t('locker.equipped')}</h3>${singleRows}${multiRows}</div>
+        <div class="locker-owned"><h3>${t('locker.owned')}</h3>${ownedList || `<div class="locker-empty">${t('locker.nothing_yet')}</div>`}</div>
       </div>`;
 
     this.body.querySelectorAll('[data-item-id]').forEach((row) => {
@@ -103,7 +107,7 @@ export class LockerState {
     this.body.querySelectorAll('[data-equip]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const result = app.inventory.equipItem(btn.dataset.equip);
-        if (!result.ok) app.gameState.addLog(result.reason);
+        if (!result.ok) app.gameState.addLog(tReason(result.reason));
         app.saveSystem.save();
         this.renderAll();
       });
@@ -116,18 +120,18 @@ export class LockerState {
     this.body.innerHTML = `
       <div class="materials-grid">
         <div class="material-card gold-card">
-          <div class="material-name">Gold</div>
+          <div class="material-name">${t('locker.gold')}</div>
           <div class="material-amount">${app.gameState.player.gold}</div>
         </div>
         ${entries.map(([id, amt]) => {
           const cfg = getMaterialConfig(id);
           return `
             <div class="material-card">
-              <div class="material-name">${cfg?.name ?? id}</div>
+              <div class="material-name">${tData('material', id, cfg?.name ?? id)}</div>
               <div class="material-amount">${amt}</div>
             </div>`;
         }).join('')}
-        ${entries.length === 0 ? '<div class="locker-empty">No materials yet — fight enemies or open locked rooms to find some.</div>' : ''}
+        ${entries.length === 0 ? `<div class="locker-empty">${t('locker.no_materials')}</div>` : ''}
       </div>`;
   }
 
@@ -135,7 +139,7 @@ export class LockerState {
     const { app } = this;
     const entries = Object.entries(app.gameState.player.consumables ?? {}).filter(([, amt]) => amt > 0);
     if (entries.length === 0) {
-      this.body.innerHTML = '<div class="locker-empty">No consumables yet — buy some from the Shop.</div>';
+      this.body.innerHTML = `<div class="locker-empty">${t('locker.no_consumables')}</div>`;
       return;
     }
     this.body.innerHTML = `
@@ -144,7 +148,7 @@ export class LockerState {
           const cfg = getConsumableConfig(id);
           return `
             <div class="material-card">
-              <div class="material-name">${cfg?.name ?? id}</div>
+              <div class="material-name">${tData('consumable', id, cfg?.name ?? id)}</div>
               <div class="material-amount">${amt}</div>
             </div>`;
         }).join('')}

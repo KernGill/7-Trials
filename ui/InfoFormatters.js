@@ -2,80 +2,92 @@
  * Pure display-only helpers for hover tooltips (Shop/Bestiary/Locker/Inn).
  * These only read data configs and format HTML strings — no gameplay
  * logic, no mutation, safe to reuse anywhere a stat block or ability
- * description needs to be shown.
+ * description needs to be shown. Fully localized via t()/tData().
  */
 import { getMoveTemplate } from '../data/moves.js';
+import { t, tData } from './i18n.js';
 
 const STAT_DISPLAY_ORDER = ['con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage'];
-const STAT_LABELS = {
-  con: 'Con', dex: 'Dex', str: 'Str', spd: 'Spd',
-  def: 'Def', int: 'Int', critChance: 'CritChance', critDamage: 'CritDamage',
+const STAT_KEY_TO_TKEY = {
+  con: 'tooltip.con', dex: 'tooltip.dex', str: 'tooltip.str', spd: 'tooltip.spd',
+  def: 'tooltip.def', int: 'tooltip.int', critChance: 'tooltip.critchance', critDamage: 'tooltip.critdamage',
 };
 const PERCENT_STATS = new Set(['critChance', 'critDamage']);
-const SCALING_LABELS = { str: 'Strength', dex: 'Dexterity', int: 'Intelligence', none: '' };
-const COOLDOWN_LABELS = { character_turn: 'character_turn', fight_turn: 'fight_turn' };
+const SCALING_TKEYS = { str: 'scaling.str', dex: 'scaling.dex', int: 'scaling.int' };
 
-function capitalize(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1);
+function statLabel(key) {
+  return t(STAT_KEY_TO_TKEY[key] ?? key);
+}
+
+function propertyLabel(word) {
+  return t(`property.${word}`);
+}
+
+function statusLabel(id) {
+  return tData('status', id, id.charAt(0).toUpperCase() + id.slice(1));
 }
 
 export function statsListHTML(stats = {}) {
   return STAT_DISPLAY_ORDER
     .filter((key) => stats[key] !== undefined)
-    .map((key) => `<div class="tt-row"><span>${STAT_LABELS[key]}:</span><span>${stats[key]}${PERCENT_STATS.has(key) ? '%' : ''}</span></div>`)
+    .map((key) => `<div class="tt-row"><span>${statLabel(key)}:</span><span>${stats[key]}${PERCENT_STATS.has(key) ? '%' : ''}</span></div>`)
     .join('');
 }
 
 function debuffsText(move) {
-  if (!move.debuffs?.length) return 'None.';
-  return `${move.debuffs.map((d) => `${capitalize(d.effect)} x${d.stacks ?? 1}`).join(', ')}.`;
+  if (!move.debuffs?.length) return t('tooltip.none');
+  return `${move.debuffs.map((d) => `${statusLabel(d.effect)} x${d.stacks ?? 1}`).join(', ')}.`;
 }
 
 function buffsText(move) {
-  if (!move.buffs?.length) return 'None.';
-  return `${move.buffs.map((b) => (b.type === 'stat' ? `+${b.amount} ${capitalize(b.stat)}` : capitalize(b.effect ?? b.type))).join(', ')}.`;
+  if (!move.buffs?.length) return t('tooltip.none');
+  return `${move.buffs.map((b) => (b.type === 'stat' ? `+${b.amount} ${statLabel(b.stat)}` : statusLabel(b.effect ?? b.type))).join(', ')}.`;
 }
 
 function healingDefenceText(move) {
   const parts = [];
-  if (move.healMaxPercent) parts.push(`Heals ${move.healMaxPercent}% of missing health.`);
-  if (move.guardPercent) parts.push(`Guards ${move.guardPercent}% of the next hit.`);
+  if (move.healMaxPercent) parts.push(t('ability.heals_missing', { n: move.healMaxPercent }));
+  if (move.guardPercent) parts.push(t('ability.guards_next', { n: move.guardPercent }));
   if (move.damageReductionPercent) {
-    parts.push(`Reduces damage taken by ${move.damageReductionPercent}%${move.damageReductionHits ? ` for ${move.damageReductionHits} hits` : ''}.`);
+    parts.push(move.damageReductionHits
+      ? t('ability.reduces_damage_taken_hits', { n: move.damageReductionPercent, hits: move.damageReductionHits })
+      : t('ability.reduces_damage_taken', { n: move.damageReductionPercent }));
   }
-  if (move.damageReductionNext) parts.push(`Reduces the next hit by ${move.damageReductionNext} flat damage.`);
-  if (move.reflectSplitPercent) parts.push(`Splits ${move.reflectSplitPercent}% of incoming damage back to the attacker.`);
-  return parts.length ? parts.join(' ') : 'None.';
+  if (move.damageReductionNext) parts.push(t('ability.reduces_next_flat', { n: move.damageReductionNext }));
+  if (move.reflectSplitPercent) parts.push(t('ability.splits_incoming', { n: move.reflectSplitPercent }));
+  return parts.length ? parts.join(' ') : t('tooltip.none');
 }
 
 function specialEffectsText(move) {
   const parts = [];
-  if (move.repeatInstances) parts.push(`Repeats ${move.repeatInstances} more time(s) at the start of following fight turns.`);
+  if (move.repeatInstances) parts.push(t('ability.repeats', { n: move.repeatInstances }));
   if (move.trigger) {
-    const everyNth = move.triggerInterval > 1 ? ` (every ${move.triggerInterval}${move.triggerInterval === 2 ? 'nd' : move.triggerInterval === 3 ? 'rd' : 'th'} time)` : '';
-    parts.push(`Triggers automatically on ${move.trigger.replace(/_/g, ' ')}${everyNth}.`);
+    const suffix = move.triggerInterval === 2 ? 'nd' : move.triggerInterval === 3 ? 'rd' : 'th';
+    const interval = move.triggerInterval > 1 ? t('ability.every_nth', { n: move.triggerInterval, suffix }) : '';
+    parts.push(t('ability.triggers_on', { trigger: move.trigger.replace(/_/g, ' '), interval }));
   }
-  if (move.usePriorityBelowHealthPercent) parts.push(`Prioritized below ${move.usePriorityBelowHealthPercent}% health.`);
-  return parts.length ? parts.join(' ') : 'None.';
+  if (move.usePriorityBelowHealthPercent) parts.push(t('ability.prioritized_below', { n: move.usePriorityBelowHealthPercent }));
+  return parts.length ? parts.join(' ') : t('tooltip.none');
 }
 
 /** Full ability breakdown — used for the Bestiary move-hover and Inn ability-hover panels. */
 export function abilityDetailHTML(move) {
   if (!move) return '';
-  const scalingLabel = move.scaling && move.scaling !== 'none' ? ` + ${SCALING_LABELS[move.scaling] ?? move.scaling} Scaling` : '';
-  const damageText = move.damage > 0 || (move.scaling && move.scaling !== 'none') ? `${move.damage || 0}${scalingLabel}` : 'None.';
-  const cooldownUnit = COOLDOWN_LABELS[move.cooldownType] ?? move.cooldownType;
+  const scalingLabel = move.scaling && move.scaling !== 'none' ? ` + ${t(SCALING_TKEYS[move.scaling] ?? move.scaling)}` : '';
+  const damageText = move.damage > 0 || (move.scaling && move.scaling !== 'none') ? `${move.damage || 0}${scalingLabel}` : t('tooltip.none');
+  const cooldownUnit = t(move.cooldownType === 'fight_turn' ? 'tooltip.fight_turn' : 'tooltip.character_turn');
+  const properties = (move.properties ?? []).map(propertyLabel).join(', ') || t('tooltip.none');
   return `
-    <h4>${move.name}</h4>
-    <div class="tt-row"><span>Properties:</span><span>${(move.properties ?? []).map(capitalize).join(', ') || 'None'}</span></div>
-    <div class="tt-row"><span>Damage:</span><span>${damageText}</span></div>
-    <div class="tt-row"><span>CritChance:</span><span>${move.critChance ?? 0}% + CritChance from stats%</span></div>
-    <div class="tt-row"><span>EnergyCost:</span><span>${move.energyCost ?? 0}</span></div>
-    <div class="tt-row"><span>Cooldown:</span><span>${move.cooldown ?? 0} ${cooldownUnit}${move.cooldown === 1 ? '' : 's'}</span></div>
-    <div class="tt-row"><span>Debuffs:</span><span>${debuffsText(move)}</span></div>
-    <div class="tt-row"><span>Buffs:</span><span>${buffsText(move)}</span></div>
-    <div class="tt-row"><span>Healing/Defence:</span><span>${healingDefenceText(move)}</span></div>
-    <div class="tt-row"><span>SpecialEffects:</span><span>${specialEffectsText(move)}</span></div>
+    <h4>${tData('move', move.id, move.name)}</h4>
+    <div class="tt-row"><span>${t('tooltip.properties')}</span><span>${properties}</span></div>
+    <div class="tt-row"><span>${t('tooltip.damage')}</span><span>${damageText}</span></div>
+    <div class="tt-row"><span>${t('tooltip.critchance_label')}</span><span>${move.critChance ?? 0}${t('tooltip.critchance_from_stats')}</span></div>
+    <div class="tt-row"><span>${t('tooltip.energycost')}</span><span>${move.energyCost ?? 0}</span></div>
+    <div class="tt-row"><span>${t('tooltip.cooldown')}</span><span>${move.cooldown ?? 0} ${cooldownUnit}${move.cooldown === 1 ? '' : 's'}</span></div>
+    <div class="tt-row"><span>${t('tooltip.debuffs')}</span><span>${debuffsText(move)}</span></div>
+    <div class="tt-row"><span>${t('tooltip.buffs')}</span><span>${buffsText(move)}</span></div>
+    <div class="tt-row"><span>${t('tooltip.healing_defence')}</span><span>${healingDefenceText(move)}</span></div>
+    <div class="tt-row"><span>${t('tooltip.specialeffects')}</span><span>${specialEffectsText(move)}</span></div>
   `;
 }
 
@@ -83,16 +95,17 @@ export function abilityDetailHTML(move) {
 export function abilitySummaryLine(moveId) {
   const move = getMoveTemplate(moveId);
   if (!move) return '';
-  return `<div class="tt-ability"><span class="tt-ability-name">${move.name}:</span> ${(move.properties ?? []).map(capitalize).join(', ')}</div>`;
+  const properties = (move.properties ?? []).map(propertyLabel).join(', ');
+  return `<div class="tt-ability"><span class="tt-ability-name">${tData('move', move.id, move.name)}:</span> ${properties}</div>`;
 }
 
 /** Stat block + abilities list for an equipment item (Shop/Locker/PauseOverlay loadout). */
 export function itemTooltipHTML(config) {
   const abilities = (config.moveIds ?? []).map((id) => abilitySummaryLine(id)).join('');
   return `
-    <h4>${config.name}</h4>
+    <h4>${tData('item', config.id, config.name)}</h4>
     ${statsListHTML(config.stats)}
-    ${abilities ? `<div class="tt-row tt-section-label"><strong>Abilities:</strong></div>${abilities}` : ''}
+    ${abilities ? `<div class="tt-row tt-section-label"><strong>${t('tooltip.abilities')}</strong></div>${abilities}` : ''}
   `;
 }
 
@@ -100,8 +113,8 @@ export function itemTooltipHTML(config) {
 export function characterTooltipHTML(config) {
   const abilities = (config.moveIds ?? []).map((id) => abilitySummaryLine(id)).join('');
   return `
-    <h4>${config.name}</h4>
+    <h4>${tData('character', config.id, config.name)}</h4>
     ${statsListHTML(config.baseStats ?? config.stats)}
-    ${abilities ? `<div class="tt-row tt-section-label"><strong>Abilities:</strong></div>${abilities}` : ''}
+    ${abilities ? `<div class="tt-row tt-section-label"><strong>${t('tooltip.abilities')}</strong></div>${abilities}` : ''}
   `;
 }

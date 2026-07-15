@@ -8,6 +8,7 @@ import { EnemyAI } from './EnemyAI.js';
 import { rollDrop } from '../utils/RandomUtils.js';
 import { getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { t, tData } from '../ui/i18n.js';
 
 export const COMBAT_PHASE = {
   WAITING: 'waiting',
@@ -130,11 +131,12 @@ export class CombatManager {
         if (!attacker.isAlive() || !dot.target.isAlive()) return false;
 
         const result = DamageCalculator.resolveAttack({ attacker, defender: dot.target, move: dot.move });
+        const dotMoveName = tData('move', dot.move.id, dot.move.name);
         if (!result.hit) {
-          this.logMessage(`${dot.move.name}'s follow-up on ${dot.target.name} missed!`);
+          this.logMessage(t('log.follow_up_missed', { move: dotMoveName, target: dot.target.name }));
         } else {
-          const critText = result.isCrit ? ' CRIT!' : '';
-          this.logMessage(`${dot.move.name} deals ${result.damage} follow-up damage to ${dot.target.name}${critText}.`);
+          const critText = result.isCrit ? t('log.crit_suffix') : '';
+          this.logMessage(t('log.follow_up_damage', { move: dotMoveName, n: result.damage, target: dot.target.name, crit: critText }));
           if (dot.move.debuffs) this.statusSystem.applyDebuffs(dot.target, dot.move.debuffs, attacker);
           this.eventBus.emit('combat:move_resolved', { attacker, defender: dot.target, move: dot.move, result });
         }
@@ -168,7 +170,7 @@ export class CombatManager {
     this.currentActor = actor;
     const skip = this.turnOrder.onCharacterTurnStart(actor);
     if (skip.skipped) {
-      this.logMessage(`${actor.name} is stunned and skips their turn.`);
+      this.logMessage(t('log.stunned_skip', { name: actor.name }));
       this.endActorTurn(actor);
       return;
     }
@@ -177,7 +179,7 @@ export class CombatManager {
     if (this.checkFightEnd()) return;
     this.triggerPassives('character_turn_start', actor);
     const gained = this.energySystem.gainEnergy(actor);
-    if (gained > 0) this.logMessage(`${actor.name} gains ${gained} energy.`);
+    if (gained > 0) this.logMessage(t('log.gains_energy', { name: actor.name, n: gained }));
 
     if (actor.isPlayer) {
       this.phase = COMBAT_PHASE.PLAYER_TURN;
@@ -198,7 +200,7 @@ export class CombatManager {
   resolveEnemyTurn(enemy) {
     const move = this.enemyAI.chooseMove(enemy, this.player);
     if (!move) {
-      this.logMessage(`${enemy.name} cannot act.`);
+      this.logMessage(t('log.cannot_act', { name: enemy.name }));
       this.endActorTurn(enemy);
       return;
     }
@@ -223,30 +225,30 @@ export class CombatManager {
 
   executeMove(attacker, defender, move) {
     if (!this.energySystem.spendEnergy(attacker, move.energyCost)) {
-      this.logMessage(`${attacker.name} lacks energy for ${move.name}.`);
+      this.logMessage(t('log.lacks_energy', { name: attacker.name, move: move.name }));
       return;
     }
 
     const reduction = attacker.getCooldownReduction();
     move.startCooldown(reduction);
-    this.logMessage(`${attacker.name} uses ${move.name}.`);
+    this.logMessage(t('log.uses_move', { name: attacker.name, move: move.name }));
 
     if (move.template.healMaxPercent) {
       const healed = attacker.healMissingPercent(move.template.healMaxPercent);
-      this.logMessage(`${attacker.name} heals ${healed} HP.`);
+      this.logMessage(t('log.heals', { name: attacker.name, n: healed }));
     }
 
     let result = null;
     if (move.template.damage > 0 || move.scaling !== 'none') {
       result = DamageCalculator.resolveAttack({ attacker, defender, move });
       if (!result.hit) {
-        this.logMessage(`${attacker.name}'s ${move.name} missed!`);
+        this.logMessage(t('log.missed', { name: attacker.name, move: move.name }));
       } else if (result.split) {
-        this.logMessage(`${move.name} splits damage between combatants.`);
+        this.logMessage(t('log.splits_damage', { move: move.name }));
       } else {
-        const critText = result.isCrit ? ' CRIT!' : '';
-        this.logMessage(`${move.name} deals ${result.damage} damage${critText}.`);
-        if (result.healed > 0) this.logMessage(`${attacker.name} lifesteals ${result.healed} HP.`);
+        const critText = result.isCrit ? t('log.crit_suffix') : '';
+        this.logMessage(t('log.deals_damage', { move: move.name, n: result.damage, crit: critText }));
+        if (result.healed > 0) this.logMessage(t('log.lifesteals', { name: attacker.name, n: result.healed }));
       }
     }
 
@@ -300,10 +302,10 @@ export class CombatManager {
   playerUseConsumable(name, effect = {}) {
     if (this.phase !== COMBAT_PHASE.PLAYER_TURN) return { ok: false, reason: 'Not your turn.' };
 
-    this.logMessage(`${this.player.name} uses ${name}.`);
+    this.logMessage(t('log.uses_move', { name: this.player.name, move: name }));
     if (effect.healMaxPercent) {
       const healed = this.player.healMissingPercent(effect.healMaxPercent);
-      this.logMessage(`${this.player.name} heals ${healed} HP.`);
+      this.logMessage(t('log.heals', { name: this.player.name, n: healed }));
     }
     if (effect.buff) {
       this.statusSystem.applyBuffs(this.player, [effect.buff], this.player);
@@ -365,7 +367,7 @@ export class CombatManager {
     });
 
     this.rewards = { gold, drops };
-    this.logMessage(`Victory! Earned ${gold} gold.`);
+    this.logMessage(t('log.victory', { n: gold }));
     this.eventBus.emit('combat:victory', this.getState());
   }
 

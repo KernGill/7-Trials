@@ -8,11 +8,12 @@ import { clamp, roundDown, roundUp } from '../utils/MathUtils.js';
 import { StatusEffect } from './SatusEffect.js';
 import { Move } from './Move.js';
 import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
+import { tData } from '../ui/i18n.js';
 
 export class Character {
   constructor(config) {
     this.id = config.id;
-    this.name = config.name ?? config.id;
+    this._name = config.name ?? config.id;
     this.isPlayer = config.isPlayer ?? false;
     this.isEnemy = config.isEnemy ?? false;
     this.visual = config.visual ?? {
@@ -49,6 +50,21 @@ export class Character {
     this.passiveTriggers = [];
     this.energyGainBonus = 0;
     this.energyGainBonusTurns = 0;
+  }
+
+  /**
+   * Translated at read time (not baked in at construction) so every
+   * existing call site that reads character.name — arena labels,
+   * combat log messages, tooltips — automatically shows the current
+   * language without needing to be touched individually. characterId/
+   * enemyId aren't set yet during the base constructor (Player/Enemy
+   * set them after calling super()), so this falls back to the raw
+   * name until then; harmless since nothing reads .name that early.
+   */
+  get name() {
+    const lookupId = this.isPlayer ? this.characterId : (this.isEnemy ? this.enemyId : null);
+    if (!lookupId) return this._name;
+    return tData(this.isPlayer ? 'character' : 'enemy', lookupId, this._name);
   }
 
   getStat(stat) {

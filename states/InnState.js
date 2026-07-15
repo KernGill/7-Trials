@@ -3,6 +3,7 @@ import { getMoveTemplate } from '../data/moves.js';
 import { getCharacterSprite, CHARACTER_BORDER } from '../data/sprites.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { statsListHTML, abilityDetailHTML } from '../ui/InfoFormatters.js';
+import { t, tData } from '../ui/i18n.js';
 
 /**
  * InnState — roster (currently just Artius, framed with the same
@@ -20,8 +21,8 @@ export class InnState {
     this.tooltip = new TooltipManager();
     root.innerHTML = `
       <div class="inn-screen">
-        <button class="back-btn">RETURN HOME</button>
-        <h1>INN</h1>
+        <button class="back-btn">${t('common.return_home')}</button>
+        <h1>${t('inn.title')}</h1>
         <div class="inn-body">
           <div class="inn-roster"></div>
           <div class="inn-detail hidden"></div>
@@ -42,8 +43,9 @@ export class InnState {
     this.roster.innerHTML = app.inn.getCharacters().map((c) => {
       const selected = app.gameState.meta.selectedCharacterId === c.id;
       const sprite = getCharacterSprite(c.id);
+      const name = tData('character', c.id, c.name);
       const inner = sprite
-        ? `<img class="avatar-inner avatar-sprite" src="${sprite}" alt="${c.name}">`
+        ? `<img class="avatar-inner avatar-sprite" src="${sprite}" alt="${name}">`
         : `<div class="avatar-inner" style="background:${c.visual?.color ?? '#555'}"></div>`;
       return `
         <div class="inn-roster-item" data-id="${c.id}">
@@ -51,7 +53,7 @@ export class InnState {
             ${inner}
             <img class="avatar-border" src="${CHARACTER_BORDER}" alt="">
           </div>
-          <div class="inn-roster-name">${c.name.toUpperCase()}${selected ? ' ✓' : ''}</div>
+          <div class="inn-roster-name">${name.toUpperCase()}${selected ? ' ✓' : ''}</div>
         </div>`;
     }).join('');
     this.roster.querySelectorAll('[data-id]').forEach((el) => {
@@ -77,15 +79,19 @@ export class InnState {
     }
 
     const sprite = getCharacterSprite(config.id);
+    const name = tData('character', config.id, config.name);
+    const lore = config.lore
+      ? tData('characterLore', config.id, config.lore)
+      : (config.description ? tData('characterDesc', config.id, config.description) : '');
     this.detail.classList.remove('hidden');
     this.detail.innerHTML = `
       <div class="detail-name-bar">
-        <span>${config.name.toUpperCase()}</span>
+        <span>${name.toUpperCase()}</span>
         <button class="detail-close" data-a="close">&times;</button>
       </div>
       <div class="inn-detail-body">
-        <div class="inn-detail-image">${sprite ? `<img src="${sprite}" alt="${config.name}">` : 'IMAGE'}</div>
-        <div class="inn-detail-desc">${config.lore ?? config.description ?? ''}</div>
+        <div class="inn-detail-image">${sprite ? `<img src="${sprite}" alt="${name}">` : t('inn.image')}</div>
+        <div class="inn-detail-desc">${lore}</div>
         <div class="inn-detail-stats">${statsListHTML(config.baseStats)}</div>
         <div class="inn-detail-abilities">
           ${config.moveIds.map((id) => {
@@ -93,7 +99,7 @@ export class InnState {
             if (!move) return '';
             return `
               <button class="detail-move-row" data-move="${id}">
-                <span>${move.name}</span><span>${(move.properties ?? []).join(', ')}</span>
+                <span>${tData('move', id, move.name)}</span><span>${(move.properties ?? []).map((w) => t(`property.${w}`)).join(', ')}</span>
               </button>`;
           }).join('')}
         </div>

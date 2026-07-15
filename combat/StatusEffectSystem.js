@@ -1,5 +1,6 @@
 import { FROST_MAX_STACKS } from '../utils/Constants.js';
 import { STATUS_EFFECTS as CONFIG } from '../data/statusEffectConfig.js';
+import { t, tData } from '../ui/i18n.js';
 
 export class StatusEffectSystem {
   tickCharacterTurnStart(character, log) {
@@ -9,7 +10,7 @@ export class StatusEffectSystem {
       const damage = template.formula(effect.stacks, character);
       if (damage > 0) {
         character.takeDamage(damage, { source: effect.id });
-        log?.(`${character.name} takes ${damage} ${template.name} damage.`);
+        log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
       }
     });
   }
@@ -22,7 +23,7 @@ export class StatusEffectSystem {
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
           character.takeDamage(damage, { source: effect.id });
-          log?.(`${character.name} takes ${damage} ${template.name} damage.`);
+          log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
         }
       });
     });
@@ -41,7 +42,7 @@ export class StatusEffectSystem {
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
           character.takeDamage(damage, { source: effect.id });
-          log?.(`${character.name} takes ${damage} ${template.name} damage.`);
+          log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
         }
       });
 

@@ -4,6 +4,7 @@ import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
+import { t, tData } from '../ui/i18n.js';
 
 const VIEW_W = 9;
 const VIEW_H = 7;
@@ -63,14 +64,15 @@ export class ExploreState {
     if (!cfg) return;
     const effect = cfg.explorationEffect ?? {};
 
+    const name = tData('consumable', id, cfg.name);
     if (effect.healMaxPercent) {
       const healed = this.player.heal(Math.ceil(this.player.getMaxHealth() * (effect.healMaxPercent / 100)));
-      this.app.gameState.addLog(`Used ${cfg.name}, healed ${healed} HP.`);
+      this.app.gameState.addLog(t('log.used_consumable_heal', { name, n: healed }));
     }
     if (effect.buff) {
       this.app.gameState.run.explorationBuffs = this.app.gameState.run.explorationBuffs ?? [];
       this.app.gameState.run.explorationBuffs.push(effect.buff);
-      this.app.gameState.addLog(`Used ${cfg.name}. Its effect will apply at the start of your next fight.`);
+      this.app.gameState.addLog(t('log.used_consumable_buff', { name }));
     }
 
     this.app.inventory.useConsumable(id, 1);
@@ -151,13 +153,13 @@ export class ExploreState {
       }
       case TILE_TYPES.STAIRS: {
         if (run.enemiesRemaining > 0) {
-          run.floorMessage = { text: 'Enemies still wander about', timer: 2 };
+          run.floorMessage = { text: t('explore.enemies_wander'), timer: 2 };
           break;
         }
         run.floor += 1;
         run.savedHealth = this.player.currentHealth;
         app.generateFloor();
-        app.gameState.addLog(`Descended to floor ${run.floor}.`);
+        app.gameState.addLog(t('log.descended', { n: run.floor }));
         this.player = app.createPlayer();
         break;
       }
@@ -167,14 +169,14 @@ export class ExploreState {
         tile.meta.resolved = true;
         if (result.success) {
           app.gameState.player.gold += result.reward.amount;
-          this.showResult('LOCKED ROOM — OPENED', [
-            `Success chance was ${Math.round(result.chance)}%.`,
-            `Reward: +${result.reward.amount} gold.`,
+          this.showResult(t('explore.locked_room_opened'), [
+            t('explore.success_chance', { n: Math.round(result.chance) }),
+            t('explore.reward_gold', { n: result.reward.amount }),
           ]);
         } else {
-          this.showResult('LOCKED ROOM — FAILED', [
-            `Success chance was ${Math.round(result.chance)}%.`,
-            'The lock held. No harm done.',
+          this.showResult(t('explore.locked_room_failed'), [
+            t('explore.success_chance', { n: Math.round(result.chance) }),
+            t('explore.lock_held'),
           ]);
         }
         break;
@@ -186,18 +188,19 @@ export class ExploreState {
         tile.meta.resolved = true;
         if (result.success) {
           app.inventory.addMaterial(result.reward.id, result.reward.amount, true);
-          this.showResult('CHEST — OPENED', [
-            `Success chance was ${Math.round(result.chance)}%.`,
-            `Reward: ${result.reward.amount}x ${getMaterialConfig(result.reward.id)?.name ?? result.reward.id}.`,
+          const materialName = tData('material', result.reward.id, getMaterialConfig(result.reward.id)?.name ?? result.reward.id);
+          this.showResult(t('explore.chest_opened'), [
+            t('explore.success_chance', { n: Math.round(result.chance) }),
+            t('explore.reward_material', { n: result.reward.amount, material: materialName }),
           ]);
         } else {
           const before = this.player.currentHealth;
           this.player.currentHealth = Math.max(1, this.player.currentHealth - result.damage);
           const dealt = before - this.player.currentHealth;
           run.savedHealth = this.player.currentHealth;
-          this.showResult('CHEST — TRAPPED', [
-            `Success chance was ${Math.round(result.chance)}%.`,
-            `The chest was trapped! Took ${dealt} damage.`,
+          this.showResult(t('explore.chest_trapped_title'), [
+            t('explore.success_chance', { n: Math.round(result.chance) }),
+            t('explore.chest_trapped_line', { n: dealt }),
           ]);
         }
         break;
@@ -220,7 +223,7 @@ export class ExploreState {
       <div class="result-box">
         <h2>${title}</h2>
         ${lines.map((l) => `<div class="result-line">${l}</div>`).join('')}
-        <button class="result-close">CLOSE</button>
+        <button class="result-close">${t('explore.close')}</button>
       </div>`;
     this.root.appendChild(modal);
     modal.querySelector('.result-close').addEventListener('click', () => {
@@ -235,10 +238,10 @@ export class ExploreState {
     const dungeon = run.dungeon;
 
     this.els.hud.innerHTML = `
-      <span>Floor ${run.floor}</span>
-      <span>Explored: ${run.tilesExplored}/${dungeon?.tilesTotal ?? 0}</span>
-      <span>Enemies remaining: ${run.enemiesRemaining}</span>
-      <span>HP: ${this.player.currentHealth}/${this.player.getMaxHealth()}</span>`;
+      <span>${t('explore.floor', { n: run.floor })}</span>
+      <span>${t('explore.explored', { explored: run.tilesExplored, total: dungeon?.tilesTotal ?? 0 })}</span>
+      <span>${t('explore.enemies_remaining', { n: run.enemiesRemaining })}</span>
+      <span>${t('explore.hp', { current: this.player.currentHealth, max: this.player.getMaxHealth() })}</span>`;
     this.els.msg.textContent = run.floorMessage?.text ?? '';
 
     if (!dungeon) return;
@@ -263,15 +266,15 @@ export class ExploreState {
     let label = '';
     let cls = 'dtile';
     if (tile.explored) {
-      if (tile.type === TILE_TYPES.ENEMY) { cls += ' t-enemy'; label = 'ENEMY'; }
-      else if (tile.type === TILE_TYPES.STAIRS) { cls += ' t-stairs'; label = 'STAIRS'; }
-      else if (tile.type === TILE_TYPES.LOCKED_DOOR) { cls += ' t-locked'; label = 'LOCKED ROOM'; }
-      else if (tile.type === TILE_TYPES.TREASURE) { cls += ' t-treasure'; label = 'CHEST'; }
+      if (tile.type === TILE_TYPES.ENEMY) { cls += ' t-enemy'; label = t('tile.enemy'); }
+      else if (tile.type === TILE_TYPES.STAIRS) { cls += ' t-stairs'; label = t('tile.stairs'); }
+      else if (tile.type === TILE_TYPES.LOCKED_DOOR) { cls += ' t-locked'; label = t('tile.locked_room'); }
+      else if (tile.type === TILE_TYPES.TREASURE) { cls += ' t-treasure'; label = t('tile.chest'); }
       else cls += ' t-floor';
     } else {
       cls += ' t-unseen';
     }
-    if (isPlayer) { cls += ' t-player'; label = 'PLAYER'; }
+    if (isPlayer) { cls += ' t-player'; label = t('tile.player'); }
     return `<div class="${cls}">${label}</div>`;
   }
 }

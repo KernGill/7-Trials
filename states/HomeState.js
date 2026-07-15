@@ -1,4 +1,5 @@
 import { GAME_STATES } from '../utils/Constants.js';
+import { t } from '../ui/i18n.js';
 
 /** HomeState — the only hub. Every other state can only return here. */
 export class HomeState {
@@ -10,16 +11,16 @@ export class HomeState {
     this.root = root;
     root.innerHTML = `
       <div class="home-screen">
-        <h1 class="home-title">7 TRIALS</h1>
+        <h1 class="home-title">${t('home.title')}</h1>
         <div class="home-grid">
-          <button class="home-tile" data-a="shop">SHOP</button>
-          <button class="home-tile" data-a="bestiary">BESTIARY</button>
-          <button class="home-tile" data-a="inn">INN</button>
-          <button class="home-tile home-tile-battle" data-a="battle">BATTLE</button>
-          <button class="home-tile" data-a="settings">SETTINGS</button>
-          <button class="home-tile" data-a="locker">LOCKER</button>
+          <button class="home-tile" data-a="shop">${t('home.shop')}</button>
+          <button class="home-tile" data-a="bestiary">${t('home.bestiary')}</button>
+          <button class="home-tile" data-a="inn">${t('home.inn')}</button>
+          <button class="home-tile home-tile-battle" data-a="battle">${t('home.battle')}</button>
+          <button class="home-tile" data-a="settings">${t('home.settings')}</button>
+          <button class="home-tile" data-a="locker">${t('home.locker')}</button>
         </div>
-        <button class="save-btn" data-a="save">Save Game</button>
+        <button class="save-btn" data-a="save">${t('home.save')}</button>
       </div>`;
 
     const actions = {
@@ -40,7 +41,7 @@ export class HomeState {
     const btn = this.root?.querySelector('.save-btn');
     if (!btn) return;
     const original = btn.textContent;
-    btn.textContent = 'Saved!';
+    btn.textContent = t('home.saved');
     setTimeout(() => { if (btn.isConnected) btn.textContent = original; }, 900);
   }
 
