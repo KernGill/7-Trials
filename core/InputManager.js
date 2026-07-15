@@ -29,6 +29,7 @@ export class InputManager {
       e: 'navigate_locker',
       b: 'navigate_bestiary',
       o: 'navigate_settings',
+      l: 'navigate_saves',
       p: 'toggle_pause',
     };
     if (map[key]) this.emit(map[key], { key });

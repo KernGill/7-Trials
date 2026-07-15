@@ -20,7 +20,10 @@ export class HomeState {
           <button class="home-tile" data-a="settings">${t('home.settings')}</button>
           <button class="home-tile" data-a="locker">${t('home.locker')}</button>
         </div>
-        <button class="save-btn" data-a="save">${t('home.save')}</button>
+        <div class="home-save-row">
+          <button class="save-btn" data-a="save">${t('home.save')}</button>
+          <button class="save-btn" data-a="load">${t('home.load')}</button>
+        </div>
       </div>`;
 
     const actions = {
@@ -31,6 +34,7 @@ export class HomeState {
       locker: () => this.app.setState(GAME_STATES.LOCKER),
       settings: () => this.app.setState(GAME_STATES.SETTINGS),
       save: () => { this.app.saveSystem.save(); this.flashSaved(); },
+      load: () => this.app.setState(GAME_STATES.SAVES),
     };
     root.querySelectorAll('[data-a]').forEach((btn) => {
       btn.addEventListener('click', () => actions[btn.dataset.a]());
@@ -38,7 +42,7 @@ export class HomeState {
   }
 
   flashSaved() {
-    const btn = this.root?.querySelector('.save-btn');
+    const btn = this.root?.querySelector('[data-a="save"]');
     if (!btn) return;
     const original = btn.textContent;
     btn.textContent = t('home.saved');

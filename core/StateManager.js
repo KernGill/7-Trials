@@ -26,6 +26,7 @@ import { InnState } from '../states/InnState.js';
 import { LockerState } from '../states/LockerState.js';
 import { SettingsState } from '../states/SettingsState.js';
 import { BestiaryState } from '../states/BestiaryState.js';
+import { SaveSlotsState } from '../states/SaveSlotsState.js';
 import { setLanguage, t } from '../ui/i18n.js';
 
 /**
@@ -69,6 +70,7 @@ export class StateManager {
       [GAME_STATES.LOCKER]: new LockerState(this),
       [GAME_STATES.SETTINGS]: new SettingsState(this),
       [GAME_STATES.BESTIARY]: new BestiaryState(this),
+      [GAME_STATES.SAVES]: new SaveSlotsState(this),
     };
 
     this.bindEvents();
@@ -99,6 +101,31 @@ export class StateManager {
   setLanguage(lang) {
     this.gameState.settings.language = lang;
     this.applyLanguage();
+  }
+
+  // --- Save slots ----------------------------------------------------------
+
+  /** Replaces live gameState with `slot`'s data and makes it the slot future autosaves target. */
+  loadFromSlot(slot) {
+    if (!this.saveSystem.load(slot)) return false;
+    this.saveSystem.setActiveSlot(slot);
+    this.applyBrightness();
+    this.applyLanguage();
+    this.combatManager.reset();
+    this.gameState.combat = null;
+    this.gameState.paused = false;
+    this.setState(this.gameState.run?.active ? GAME_STATES.EXPLORE : GAME_STATES.HOME);
+    return true;
+  }
+
+  /** Writes the current live gameState into `slot` and makes it the slot future autosaves target. */
+  saveToSlot(slot) {
+    this.saveSystem.setActiveSlot(slot);
+    this.saveSystem.save(slot);
+  }
+
+  deleteSlot(slot) {
+    this.saveSystem.clearSlot(slot);
   }
 
   bindEvents() {
@@ -153,6 +180,7 @@ export class StateManager {
       navigate_locker: () => this.setState(GAME_STATES.LOCKER),
       navigate_bestiary: () => this.setState(GAME_STATES.BESTIARY),
       navigate_settings: () => this.setState(GAME_STATES.SETTINGS),
+      navigate_saves: () => this.setState(GAME_STATES.SAVES),
     };
     Object.entries(homeOnlyNav).forEach(([event, handler]) => {
       this.input.on(event, () => {

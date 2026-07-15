@@ -2,16 +2,9 @@ import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getItemConfig } from '../data/items.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
-import { itemTooltipHTML } from '../ui/InfoFormatters.js';
+import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
 
-// Same 8 stats shown everywhere else (Shop/Bestiary/Locker/Inn tooltips) —
-// keeps internal-only stats (energy, dodge, accuracy) out of this display.
-const CORE_STAT_KEYS = ['con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage'];
-const STAT_KEY_TO_TKEY = {
-  con: 'tooltip.con', dex: 'tooltip.dex', str: 'tooltip.str', spd: 'tooltip.spd',
-  def: 'tooltip.def', int: 'tooltip.int', critChance: 'tooltip.critchance', critDamage: 'tooltip.critdamage',
-};
 const LANGUAGE_OPTIONS = ['en', 'es'];
 
 /**
@@ -143,41 +136,13 @@ export class PauseOverlay {
     const equipped = app.inventory.getEquippedItems();
     const totals = app.inventory.getEquippedStatTotals();
 
-    const slotTile = (slotKey, id) => `
-      <div class="loadout-slot" ${id ? `data-item-id="${id}"` : ''}>
-        <div class="loadout-slot-label">${t(`locker.slot.${slotKey}`)}</div>
-        ${id ? `<div class="loadout-slot-item">${tData('item', id, getItemConfig(id)?.name ?? id)}</div>` : ''}
-      </div>`;
-
-    const leftCol = [
-      slotTile('accessory', equipped.accessory?.[0]),
-      slotTile('mainWeapon', equipped.mainWeapon),
-      slotTile('glove', equipped.glove?.[0]),
-      slotTile('ring', equipped.ring?.[0]),
-    ].join('');
-    const midCol = ['head', 'arms', 'chest', 'legs', 'boots']
-      .map((slot) => slotTile(slot, equipped[slot]))
-      .join('');
-    const rightCol = [
-      slotTile('accessory', equipped.accessory?.[1]),
-      slotTile('offHand', equipped.offHand),
-      slotTile('glove', equipped.glove?.[1]),
-      slotTile('ring', equipped.ring?.[1]),
-    ].join('');
-
     this.el.innerHTML = `
       <div class="pause-box loadout-box">
         <h2>${t('pause.loadout_title')}</h2>
-        <div class="loadout-grid">
-          <div class="loadout-col">${leftCol}</div>
-          <div class="loadout-col">${midCol}</div>
-          <div class="loadout-col">${rightCol}</div>
-        </div>
+        ${equipmentGridHTML(equipped)}
         <div class="loadout-totals">
           <h3>${t('pause.total_stats')}</h3>
-          <div class="loadout-totals-grid">
-            ${CORE_STAT_KEYS.map((k) => `<div class="tt-row"><span>${t(STAT_KEY_TO_TKEY[k])}:</span><span>+${totals[k] ?? 0}</span></div>`).join('')}
-          </div>
+          ${equipmentTotalsHTML(totals)}
         </div>
         <button data-a="back">${t('common.back')}</button>
       </div>`;

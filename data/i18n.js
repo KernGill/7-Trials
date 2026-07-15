@@ -22,10 +22,22 @@ export const TRANSLATIONS = {
     'home.locker': 'LOCKER',
     'home.save': 'Save Game',
     'home.saved': 'Saved!',
+    'home.load': 'Load',
 
     // Common
     'common.return_home': 'RETURN HOME',
     'common.back': '← BACK',
+
+    // Save slots
+    'saves.title': 'SAVE SLOTS',
+    'saves.slot': 'Slot {n}',
+    'saves.active_tag': '(Active)',
+    'saves.empty': 'Empty',
+    'saves.gold_arc': '{gold} Gold · Arc {arc}',
+    'saves.load': 'Load',
+    'saves.save': 'Save',
+    'saves.delete': 'Delete',
+    'saves.confirm_delete': 'Confirm Delete?',
 
     // Settings
     'settings.title': 'SETTINGS',
@@ -250,10 +262,22 @@ export const TRANSLATIONS = {
     'home.locker': 'ARMARIO',
     'home.save': 'Guardar Partida',
     'home.saved': '¡Guardado!',
+    'home.load': 'Cargar',
 
     // Common
     'common.return_home': 'VOLVER AL INICIO',
     'common.back': '← ATRÁS',
+
+    // Save slots
+    'saves.title': 'RANURAS DE GUARDADO',
+    'saves.slot': 'Ranura {n}',
+    'saves.active_tag': '(Activa)',
+    'saves.empty': 'Vacía',
+    'saves.gold_arc': '{gold} de Oro · Arco {arc}',
+    'saves.load': 'Cargar',
+    'saves.save': 'Guardar',
+    'saves.delete': 'Eliminar',
+    'saves.confirm_delete': '¿Confirmar Eliminación?',
 
     // Settings
     'settings.title': 'AJUSTES',

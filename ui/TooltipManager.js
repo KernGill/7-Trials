@@ -11,9 +11,9 @@ export class TooltipManager {
     document.body.appendChild(this.el);
   }
 
-  show(html, x, y) {
+  show(html, x, y, className = null) {
     this.el.innerHTML = html;
-    this.el.classList.remove('hidden');
+    this.el.className = `hover-tooltip${className ? ` ${className}` : ''}`;
     this.reposition(x, y);
   }
 
@@ -37,12 +37,14 @@ export class TooltipManager {
   /**
    * Wires hover show/hide of `contentFn()`'s HTML onto `el`. contentFn
    * is called fresh on every mouseenter so it can reflect current state;
-   * returning a falsy value skips showing the tooltip entirely.
+   * returning a falsy value skips showing the tooltip entirely. Pass
+   * `className` for content wider than the default 300px card (e.g. the
+   * 3-column equipment loadout grid).
    */
-  bind(el, contentFn) {
+  bind(el, contentFn, className = null) {
     el.addEventListener('mouseenter', (e) => {
       const html = contentFn();
-      if (html) this.show(html, e.clientX, e.clientY);
+      if (html) this.show(html, e.clientX, e.clientY, className);
     });
     el.addEventListener('mousemove', (e) => {
       if (!this.el.classList.contains('hidden')) this.reposition(e.clientX, e.clientY);

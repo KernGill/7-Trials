@@ -5,6 +5,7 @@
  * description needs to be shown. Fully localized via t()/tData().
  */
 import { getMoveTemplate } from '../data/moves.js';
+import { getItemConfig } from '../data/items.js';
 import { t, tData } from './i18n.js';
 
 const STAT_DISPLAY_ORDER = ['con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage'];
@@ -129,4 +130,51 @@ export function characterTooltipHTML(config) {
     ${statsListHTML(config.baseStats ?? config.stats)}
     ${abilities ? `<div class="tt-row tt-section-label"><strong>${t('tooltip.abilities')}</strong></div>${abilities}` : ''}
   `;
+}
+
+/**
+ * Three-column equipment grid (accessory/weapon/glove/ring down each
+ * side, armour pieces down the middle) — shared by PauseOverlay's "View
+ * Loadout" panel and the save-slot picker's hover preview, since both
+ * just need to render an `equipped` object (single-slot ids + multi-slot
+ * arrays) with hoverable `data-item-id` tiles. Callers bind their own
+ * TooltipManager against those tiles.
+ */
+export function equipmentGridHTML(equipped = {}) {
+  const slotTile = (slotKey, id) => `
+    <div class="loadout-slot" ${id ? `data-item-id="${id}"` : ''}>
+      <div class="loadout-slot-label">${t(`locker.slot.${slotKey}`)}</div>
+      ${id ? `<div class="loadout-slot-item">${tData('item', id, getItemConfig(id)?.name ?? id)}</div>` : ''}
+    </div>`;
+
+  const leftCol = [
+    slotTile('accessory', equipped.accessory?.[0]),
+    slotTile('mainWeapon', equipped.mainWeapon),
+    slotTile('glove', equipped.glove?.[0]),
+    slotTile('ring', equipped.ring?.[0]),
+  ].join('');
+  const midCol = ['head', 'arms', 'chest', 'legs', 'boots']
+    .map((slot) => slotTile(slot, equipped[slot]))
+    .join('');
+  const rightCol = [
+    slotTile('accessory', equipped.accessory?.[1]),
+    slotTile('offHand', equipped.offHand),
+    slotTile('glove', equipped.glove?.[1]),
+    slotTile('ring', equipped.ring?.[1]),
+  ].join('');
+
+  return `
+    <div class="loadout-grid">
+      <div class="loadout-col">${leftCol}</div>
+      <div class="loadout-col">${midCol}</div>
+      <div class="loadout-col">${rightCol}</div>
+    </div>`;
+}
+
+/** Stat totals grid (+N per stat) shown below the equipment grid. */
+export function equipmentTotalsHTML(totals = {}) {
+  return `
+    <div class="loadout-totals-grid">
+      ${STAT_DISPLAY_ORDER.map((k) => `<div class="tt-row"><span>${statLabel(k)}:</span><span>+${totals[k] ?? 0}</span></div>`).join('')}
+    </div>`;
 }

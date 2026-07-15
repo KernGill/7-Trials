@@ -9,6 +9,7 @@ export const GAME_STATES = {
   LOCKER: 'locker',
   SETTINGS: 'settings',
   BESTIARY: 'bestiary',
+  SAVES: 'saves',
 };
 
 export const MOVE_CATEGORIES = {
