@@ -44,6 +44,7 @@ export class Character {
     this.reflectSplitTurnsRemaining = 0;
     this.guaranteedDodgeTurnsRemaining = 0;
     this.pendingReactiveHeal = null;
+    this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
     this.moveIds = [...(config.moveIds ?? [])];
@@ -233,6 +234,7 @@ export class Character {
     this.reflectSplitTurnsRemaining = 0;
     this.guaranteedDodgeTurnsRemaining = 0;
     this.pendingReactiveHeal = null;
+    this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
     this.statusEffects = [];

@@ -160,7 +160,7 @@ export const ENEMIES = {
       str: 0,
       spd: 10,
       def: 0,
-      int: 10,
+      int: 20,
       critChance: 5,
       critDamage: 20,
       dodge: 100,

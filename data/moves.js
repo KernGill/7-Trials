@@ -380,7 +380,7 @@ export const MOVE_TEMPLATES = {
     id: 'echo_memory',
     name: 'Echo Memory',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC],
-    damage: 10,
+    damage: 15,
     scaling: SCALING_TYPES.INT,
     critChance: 0,
     energyCost: 2,
@@ -426,6 +426,12 @@ export const MOVE_TEMPLATES = {
     cooldown: 2,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     reactiveHealMultiplier: 2,
+    // Present for the rest of the cast turn plus 2 more full fight turns
+    // (matches the decayBuffDurations N+1 convention used elsewhere: N
+    // turns of presence needs a starting value of N+1) — expires unused
+    // rather than lingering indefinitely, so the opponent can just not
+    // attack for those 2 turns instead of feeding it a heal.
+    reactiveHealDurationFightTurns: 3,
   },
   mind_erosion: {
     id: 'mind_erosion',

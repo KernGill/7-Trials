@@ -137,5 +137,10 @@ export class StatusEffectSystem {
     if (character.guaranteedDodgeTurnsRemaining > 0) {
       character.guaranteedDodgeTurnsRemaining -= 1;
     }
+
+    if (character.pendingReactiveHealTurnsRemaining > 0) {
+      character.pendingReactiveHealTurnsRemaining -= 1;
+      if (character.pendingReactiveHealTurnsRemaining <= 0) character.pendingReactiveHeal = null;
+    }
   }
 }

@@ -281,6 +281,7 @@ export class CombatManager {
     }
     if (move.template.reactiveHealMultiplier) {
       attacker.pendingReactiveHeal = { multiplier: move.template.reactiveHealMultiplier };
+      attacker.pendingReactiveHealTurnsRemaining = move.template.reactiveHealDurationFightTurns ?? -1;
     }
 
     if (move.template.repeatInstances) {

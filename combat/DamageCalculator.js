@@ -127,6 +127,7 @@ export class DamageCalculator {
     if (!defender.pendingReactiveHeal || damageTaken <= 0) return;
     const heal = Math.round(damageTaken * defender.pendingReactiveHeal.multiplier);
     defender.pendingReactiveHeal = null;
+    defender.pendingReactiveHealTurnsRemaining = 0;
     defender.heal(heal);
   }
 
