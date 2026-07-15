@@ -133,16 +133,16 @@ export const MOVE_TEMPLATES = {
     id: 'bone_zone',
     name: 'Bone Zone',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.AOE, MOVE_PROPERTIES.DEBUFF],
-    damage: 5,
+    damage: 0,
     scaling: SCALING_TYPES.STR,
     critChance: 0,
     energyCost: 6,
-    cooldown: 8,
+    cooldown: 12,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     // 5 total damage instances: the immediate hit below, plus one more
     // at the start of each of the next 4 fight turns (repeatInstances).
     // Each landed instance — including this one — applies 3 frost stacks.
-    debuffs: [{ effect: 'frost', stacks: 3 }],
+    debuffs: [{ effect: 'frost', stacks: 2 }],
     repeatInstances: 4,
   },
   undead_fury: {
