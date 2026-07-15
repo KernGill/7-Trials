@@ -317,6 +317,7 @@ select {
 
 .locker-columns { display: flex; gap: 24px; flex-wrap: wrap; }
 .locker-equipped, .locker-owned { flex: 1 1 320px; }
+.locker-owned-list { max-height: 60vh; overflow-y: auto; padding-right: 6px; }
 .locker-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1c1d29; font-size: 13px; }
 .locker-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }
 .tab-btn { padding: 8px 20px; font-size: 12px; letter-spacing: 1px; }

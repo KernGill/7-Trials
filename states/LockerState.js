@@ -88,7 +88,10 @@ export class LockerState {
     this.body.innerHTML = `
       <div class="locker-columns">
         <div class="locker-equipped"><h3>${t('locker.equipped')}</h3>${singleRows}${multiRows}</div>
-        <div class="locker-owned"><h3>${t('locker.owned')}</h3>${ownedList || `<div class="locker-empty">${t('locker.nothing_yet')}</div>`}</div>
+        <div class="locker-owned">
+          <h3>${t('locker.owned')}</h3>
+          <div class="locker-owned-list">${ownedList || `<div class="locker-empty">${t('locker.nothing_yet')}</div>`}</div>
+        </div>
       </div>`;
 
     this.body.querySelectorAll('[data-item-id]').forEach((row) => {
