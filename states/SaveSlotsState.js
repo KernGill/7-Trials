@@ -61,7 +61,7 @@ export class SaveSlotsState {
             ${meta}
           </div>
           <div class="save-slot-actions">
-            <button data-a="load" ${snapshot ? '' : 'disabled'}>${t('saves.load')}</button>
+            <button data-a="load">${t('saves.load')}</button>
             <button data-a="save">${t('saves.save')}</button>
             <button data-a="delete" ${snapshot ? '' : 'disabled'} class="${deleting ? 'confirming' : ''}">${deleting ? t('saves.confirm_delete') : t('saves.delete')}</button>
           </div>

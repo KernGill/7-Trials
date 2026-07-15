@@ -105,10 +105,23 @@ export class StateManager {
 
   // --- Save slots ----------------------------------------------------------
 
-  /** Replaces live gameState with `slot`'s data and makes it the slot future autosaves target. */
+  /**
+   * Replaces live gameState with `slot`'s data and makes it the slot
+   * future autosaves target. An empty/deleted slot is a valid target
+   * too — it "loads" a brand new game (current brightness/language
+   * preferences carry over since those aren't really game progress),
+   * immediately saved into the slot so it's a real save from this point
+   * on rather than reverting to whatever was live before on refresh.
+   */
   loadFromSlot(slot) {
-    if (!this.saveSystem.load(slot)) return false;
+    const loaded = this.saveSystem.load(slot);
+    if (!loaded) {
+      const settings = { ...this.gameState.settings };
+      this.gameState.reset();
+      this.gameState.settings = settings;
+    }
     this.saveSystem.setActiveSlot(slot);
+    if (!loaded) this.saveSystem.save(slot);
     this.applyBrightness();
     this.applyLanguage();
     this.combatManager.reset();
