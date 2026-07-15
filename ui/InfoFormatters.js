@@ -51,7 +51,10 @@ function healingDefenceText(move) {
 function specialEffectsText(move) {
   const parts = [];
   if (move.repeatInstances) parts.push(`Repeats ${move.repeatInstances} more time(s) at the start of following fight turns.`);
-  if (move.trigger) parts.push(`Triggers automatically on ${move.trigger.replace(/_/g, ' ')}.`);
+  if (move.trigger) {
+    const everyNth = move.triggerInterval > 1 ? ` (every ${move.triggerInterval}${move.triggerInterval === 2 ? 'nd' : move.triggerInterval === 3 ? 'rd' : 'th'} time)` : '';
+    parts.push(`Triggers automatically on ${move.trigger.replace(/_/g, ' ')}${everyNth}.`);
+  }
   if (move.usePriorityBelowHealthPercent) parts.push(`Prioritized below ${move.usePriorityBelowHealthPercent}% health.`);
   return parts.length ? parts.join(' ') : 'None.';
 }

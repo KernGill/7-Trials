@@ -210,24 +210,28 @@ select {
 .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen {
   min-height: 100vh; padding: 80px 40px 40px; max-width: 900px; margin: 0 auto;
 }
+.inn-screen { max-width: 1040px; }
 .shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1 {
   color: #e94560; letter-spacing: 3px; text-align: center;
 }
 .shop-gold { text-align: center; color: #f1c40f; margin-bottom: 16px; }
-.shop-list, .inn-list, .bestiary-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
-.shop-row, .inn-card, .bestiary-card {
+.shop-list, .bestiary-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
+.shop-row, .bestiary-card {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 12px 16px;
 }
-.inn-card { cursor: pointer; align-items: center; justify-content: flex-start; gap: 14px; }
-.inn-card-avatar { width: 48px; height: 48px; border-radius: 4px; border: 2px solid #fff; object-fit: contain; background: #1a1a22; flex-shrink: 0; }
-.inn-card-avatar-placeholder { background: #333; }
-.inn-card-text { display: flex; flex-direction: column; gap: 2px; }
 .shop-item-flavour { color: #777; font-size: 11px; flex: 1; }
 .shop-owned { color: #f1c40f; font-size: 11px; white-space: nowrap; }
 .shop-buy-btn { padding: 8px 14px; font-size: 12px; max-width: 220px; text-align: center; white-space: normal; }
 .bestiary-stats { color: #888; font-size: 11px; }
-.inn-locked, .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }
+.bestiary-empty { text-align: center; color: #666; margin-top: 40px; }
+
+/* ---------------- Inn (roster + detail panel) ---------------- */
+.inn-body { display: flex; align-items: flex-start; gap: 32px; margin-top: 24px; }
+.inn-roster { display: flex; flex-wrap: wrap; gap: 24px; flex: 0 0 auto; }
+.inn-roster-item { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; }
+.avatar-box-lg { width: 140px; height: 140px; }
+.inn-roster-name { color: #eee; font-size: 13px; letter-spacing: 1px; }
 
 /* ---------------- Bestiary (arc grid + detail panel) ---------------- */
 .bestiary-panel {
@@ -281,7 +285,7 @@ select {
 
 /* ---------------- Inn detail panel ---------------- */
 .inn-detail {
-  margin-top: 20px; background: #5c2e15; border-radius: 10px; padding: 16px;
+  flex: 1 1 500px; background: #5c2e15; border-radius: 10px; padding: 16px;
   position: relative;
 }
 .inn-detail.hidden { display: none; }

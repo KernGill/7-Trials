@@ -1,14 +1,15 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { getMoveTemplate } from '../data/moves.js';
-import { getCharacterSprite } from '../data/sprites.js';
+import { getCharacterSprite, CHARACTER_BORDER } from '../data/sprites.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { statsListHTML, abilityDetailHTML } from '../ui/InfoFormatters.js';
 
 /**
- * InnState — roster list (click still calls selectMainCharacter, same
- * as before) plus a detail panel that opens alongside it showing image,
- * description, stats and a hoverable abilities list. Hovering a roster
- * card itself does nothing, per the design doc.
+ * InnState — roster (currently just Artius, framed with the same
+ * avatar-box/border treatment as battle) sits on the left; clicking a
+ * card opens a detail panel beside it with image, description, stats
+ * and a hoverable abilities list. Always shown — no locked/"unlocks
+ * later" gate, even with only one character unlocked so far.
  */
 export class InnState {
   constructor(app) { this.app = app; }
@@ -21,11 +22,13 @@ export class InnState {
       <div class="inn-screen">
         <button class="back-btn">RETURN HOME</button>
         <h1>INN</h1>
-        <div class="inn-list"></div>
-        <div class="inn-detail hidden"></div>
+        <div class="inn-body">
+          <div class="inn-roster"></div>
+          <div class="inn-detail hidden"></div>
+        </div>
       </div>`;
     root.querySelector('.back-btn').addEventListener('click', () => this.app.setState(GAME_STATES.HOME));
-    this.list = root.querySelector('.inn-list');
+    this.roster = root.querySelector('.inn-roster');
     this.detail = root.querySelector('.inn-detail');
     this.renderAll();
   }
@@ -36,25 +39,22 @@ export class InnState {
 
   renderAll() {
     const { app } = this;
-    if (!app.inn.isUnlocked()) {
-      this.list.innerHTML = '<div class="inn-locked">The Inn unlocks after clearing Arc 2.</div>';
-      this.detail.classList.add('hidden');
-      return;
-    }
-    this.list.innerHTML = app.inn.getCharacters().map((c) => {
+    this.roster.innerHTML = app.inn.getCharacters().map((c) => {
       const selected = app.gameState.meta.selectedCharacterId === c.id;
       const sprite = getCharacterSprite(c.id);
-      const avatar = sprite ? `<img class="inn-card-avatar" src="${sprite}" alt="${c.name}">` : '<div class="inn-card-avatar inn-card-avatar-placeholder"></div>';
+      const inner = sprite
+        ? `<img class="avatar-inner avatar-sprite" src="${sprite}" alt="${c.name}">`
+        : `<div class="avatar-inner" style="background:${c.visual?.color ?? '#555'}"></div>`;
       return `
-        <div class="inn-card" data-id="${c.id}">
-          ${avatar}
-          <div class="inn-card-text">
-            <div class="inn-name">${c.name}${selected ? ' ✓' : ''}</div>
-            <div class="inn-desc">${c.description ?? ''}</div>
+        <div class="inn-roster-item" data-id="${c.id}">
+          <div class="avatar-box avatar-box-lg">
+            ${inner}
+            <img class="avatar-border" src="${CHARACTER_BORDER}" alt="">
           </div>
+          <div class="inn-roster-name">${c.name.toUpperCase()}${selected ? ' ✓' : ''}</div>
         </div>`;
     }).join('');
-    this.list.querySelectorAll('[data-id]').forEach((el) => {
+    this.roster.querySelectorAll('[data-id]').forEach((el) => {
       el.addEventListener('click', () => {
         app.inn.selectMainCharacter(el.dataset.id);
         app.saveSystem.save();

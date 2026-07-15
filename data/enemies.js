@@ -64,16 +64,16 @@ export const ENEMIES = {
     },
     baseStats: {
       con: 2000,
-      dex: 300,
-      str: 36,
-      spd: 300,
-      def: 60,
+      dex: 80,
+      str: 10,
+      spd: 200,
+      def: 65,
       int: 0,
-      critChance: 6,
-      critDamage: 50,
+      critChance: 0,
+      critDamage: 0,
       dodge: 100,
       accuracy: 100,
-      energy: 10,
+      energy: 12,
     },
     moveIds: [
       'shard_stab',
@@ -82,6 +82,7 @@ export const ENEMIES = {
       'bone_barrier',
       'hollow_stance',
       'final_rites',
+      'bone_shards',
     ],
     drops: {
       materials: [
