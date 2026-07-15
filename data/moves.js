@@ -193,8 +193,8 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 999,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
-    debuffs: [{ effect: 'bleed', stacks: 10 }],
-    healMaxPercent: 30,
+    debuffs: [{ effect: 'bleed', stacks: 5 }],
+    healMaxPercent: 25,
     usePriorityBelowHealthPercent: 10,
   },
   pocket_flesh: {
