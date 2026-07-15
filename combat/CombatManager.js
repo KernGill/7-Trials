@@ -1,4 +1,4 @@
-import { COOLDOWN_TYPES } from '../utils/Constants.js';
+import { COOLDOWN_TYPES, MOVE_PROPERTIES } from '../utils/Constants.js';
 import { GOLD_REWARD_RATIO } from '../utils/Constants.js';
 import { DamageCalculator } from './DamageCalculator.js';
 import { EnergySystem, CooldownSystem } from './EnergySystem.js';
@@ -276,6 +276,12 @@ export class CombatManager {
       attacker.reflectSplitPercent = move.template.reflectSplitPercent;
       attacker.reflectSplitTurnsRemaining = move.template.reflectSplitDurationFightTurns ?? 1;
     }
+    if (move.template.guaranteedDodgeFightTurns) {
+      attacker.guaranteedDodgeTurnsRemaining = move.template.guaranteedDodgeFightTurns;
+    }
+    if (move.template.reactiveHealMultiplier) {
+      attacker.pendingReactiveHeal = { multiplier: move.template.reactiveHealMultiplier };
+    }
 
     if (move.template.repeatInstances) {
       attacker.dotEffects.push({
@@ -287,6 +293,14 @@ export class CombatManager {
 
     if (attacker.isPlayer && result?.hit && !result.split) {
       defender.playerHitCount = (defender.playerHitCount ?? 0) + 1;
+    }
+
+    // Reactive passives (Mind Erosion): fired on the defender, scoped to
+    // just them, whenever a melee attack actually lands on them. Mirrors
+    // the debuffs guard above — no result at all (0-damage touch moves)
+    // counts as an automatic hit, same as a rolled one.
+    if ((!result || (result.hit && !result.split)) && move.properties.includes(MOVE_PROPERTIES.MELEE)) {
+      this.triggerPassives('melee_hit_taken', defender);
     }
 
     this.eventBus.emit('combat:move_resolved', { attacker, defender, move, result });
@@ -331,12 +345,22 @@ export class CombatManager {
         if (move.template.buffs) {
           this.statusSystem.applyBuffs(character, move.template.buffs, character);
         }
-        if (move.template.debuffs && !actor) {
+        if (move.template.debuffs) {
           const target = character.isPlayer ? this.aliveEnemies[0] : this.player;
           if (target) this.statusSystem.applyDebuffs(target, move.template.debuffs, character);
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
+        }
+        if (move.template.physicalDamageReductionPercent) {
+          character.physicalDamageReductionPercent =
+            (character.physicalDamageReductionPercent ?? 0) + move.template.physicalDamageReductionPercent;
+        }
+        if (move.template.statusDamageMultipliers) {
+          character.statusDamageMultipliers = {
+            ...(character.statusDamageMultipliers ?? {}),
+            ...move.template.statusDamageMultipliers,
+          };
         }
       });
     });

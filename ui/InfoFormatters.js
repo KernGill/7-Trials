@@ -55,6 +55,8 @@ function healingDefenceText(move) {
   }
   if (move.damageReductionNext) parts.push(t('ability.reduces_next_flat', { n: move.damageReductionNext }));
   if (move.reflectSplitPercent) parts.push(t('ability.splits_incoming', { n: move.reflectSplitPercent }));
+  if (move.guaranteedDodgeFightTurns) parts.push(t('ability.guaranteed_dodge'));
+  if (move.reactiveHealMultiplier) parts.push(t('ability.reactive_heal', { n: move.reactiveHealMultiplier }));
   return parts.length ? parts.join(' ') : t('tooltip.none');
 }
 
@@ -67,6 +69,16 @@ function specialEffectsText(move) {
     parts.push(t('ability.triggers_on', { trigger: move.trigger.replace(/_/g, ' '), interval }));
   }
   if (move.usePriorityBelowHealthPercent) parts.push(t('ability.prioritized_below', { n: move.usePriorityBelowHealthPercent }));
+  if (move.physicalDamageReductionPercent) parts.push(t('ability.physical_reduction', { n: move.physicalDamageReductionPercent }));
+  if (move.statusDamageMultipliers) {
+    Object.entries(move.statusDamageMultipliers).forEach(([key, mult]) => {
+      const label = key === 'default' ? t('ability.status_default') : statusLabel(key);
+      const pct = Math.round(Math.abs(mult - 1) * 100);
+      parts.push(mult > 1
+        ? t('ability.status_extra_damage', { status: label, n: pct })
+        : t('ability.status_less_damage', { status: label, n: pct }));
+    });
+  }
   return parts.length ? parts.join(' ') : t('tooltip.none');
 }
 

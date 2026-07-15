@@ -4,6 +4,8 @@ export const MATERIALS = {
   bones: { id: 'bones', name: 'Bones', description: 'Brittle remains of the indebted.' },
   mana_stone: { id: 'mana_stone', name: 'Mana Stone', description: 'Crystallized arcane residue.' },
   flesh: { id: 'flesh', name: 'Flesh', description: 'Rotting tissue from the hollowed.' },
+  jar_of_spores: { id: 'jar_of_spores', name: 'Jar of Spores', description: 'A sealed jar humming faintly with spores.' },
+  memory_fragment: { id: 'memory_fragment', name: 'Memory Fragment', description: "A sliver of someone else's memory, still warm." },
 };
 
 export const ITEMS = {
@@ -248,6 +250,18 @@ export const ITEMS = {
     unlock: { achievement: 'beat_both_in_one_hit_each' },
     shopState: ITEM_STATES.LOCKED,
     visual: { shape: 'rect', color: '#f1c40f', spriteId: 'rage_of_vitalire' },
+  },
+  shrouded_footsteps: {
+    id: 'shrouded_footsteps',
+    name: 'Shrouded Footsteps',
+    type: 'boots',
+    flavour: 'Fungal memories cling to these steps, quiet as the grave.',
+    stats: { str: 2, dex: 2, con: 2, def: 2, spd: 2, int: 2, critChance: 0, critDamage: 0 },
+    moveIds: ['formless'],
+    price: null,
+    unlock: { dropOnly: true },
+    shopState: ITEM_STATES.BOUGHT,
+    visual: { shape: 'rect', color: '#7f8fa6', spriteId: 'shrouded_footsteps' },
   },
 };
 

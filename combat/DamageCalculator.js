@@ -55,6 +55,10 @@ export class DamageCalculator {
    * flat miss chance that stacks on top of whatever dodge gets through.
    */
   static calculateHitChance(attacker, defender) {
+    // Ethereal Form's "100% dodge chance" is a full guarantee, not a
+    // stat that could be cancelled out by the attacker's accuracy.
+    if (defender.guaranteedDodgeTurnsRemaining > 0) return 0;
+
     const dodgeExcess = Math.max(0, defender.getStat('dodge') - 100);
     const accuracyExcess = Math.max(0, attacker.getStat('accuracy') - 100);
     const effectiveDodge = Math.max(0, dodgeExcess - accuracyExcess);
@@ -63,9 +67,12 @@ export class DamageCalculator {
     return clamp(100 - missChance, 0, 100);
   }
 
-  static applyDefense(damage, defender) {
+  static applyDefense(damage, defender, move = null) {
     const def = defender.getStat('def');
-    const reductionPercent = (def / 2) * (DEF_DAMAGE_REDUCTION_PER_TWO * 100);
+    let reductionPercent = (def / 2) * (DEF_DAMAGE_REDUCTION_PER_TWO * 100);
+    if (move?.properties?.includes('physical') && defender.physicalDamageReductionPercent) {
+      reductionPercent += defender.physicalDamageReductionPercent;
+    }
     const reduction = Math.ceil(damage * (reductionPercent / 100));
     return Math.max(1, damage - reduction);
   }
@@ -110,6 +117,19 @@ export class DamageCalculator {
     return attacker.heal(heal);
   }
 
+  /**
+   * Flashback's "heal 2x the damage taken from the next hit" — only
+   * ever reached from resolveAttack's direct-hit paths below, never
+   * from status ticks (those go through Character.takeDamage directly,
+   * not DamageCalculator), so this naturally excludes status damage.
+   */
+  static applyReactiveHeal(defender, damageTaken) {
+    if (!defender.pendingReactiveHeal || damageTaken <= 0) return;
+    const heal = Math.round(damageTaken * defender.pendingReactiveHeal.multiplier);
+    defender.pendingReactiveHeal = null;
+    defender.heal(heal);
+  }
+
   static resolveAttack({ attacker, defender, move, forceHit = false }) {
     if (!forceHit && !rollChance(this.calculateHitChance(attacker, defender))) {
       return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false };
@@ -125,15 +145,20 @@ export class DamageCalculator {
       const returned = damage - taken;
       defender.reflectSplitPercent = 0;
       defender.reflectSplitTurnsRemaining = 0;
-      defender.takeDamage(this.applyDefense(taken, defender));
-      attacker.takeDamage(this.applyDefense(returned, attacker));
+      const takenAfterDefense = this.applyDefense(taken, defender, move);
+      const returnedAfterDefense = this.applyDefense(returned, attacker, move);
+      defender.takeDamage(takenAfterDefense);
+      attacker.takeDamage(returnedAfterDefense);
+      this.applyReactiveHeal(defender, takenAfterDefense);
+      this.applyReactiveHeal(attacker, returnedAfterDefense);
       return { hit: true, damage: taken, healed: 0, reflected: returned, isCrit: crit.isCrit, split: true };
     }
 
-    damage = this.applyDefense(damage, defender);
+    damage = this.applyDefense(damage, defender, move);
     damage = this.applyDamageReductionState(damage, defender);
     const thorns = this.applyThorns(attacker, defender, damage);
     defender.takeDamage(thorns.finalDamage);
+    this.applyReactiveHeal(defender, thorns.finalDamage);
     const healed = this.applyLifesteal(attacker, thorns.finalDamage);
 
     return {

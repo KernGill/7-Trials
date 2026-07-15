@@ -376,6 +376,89 @@ export const MOVE_TEMPLATES = {
     consumableId: 'strength_elixir',
     buffs: [{ type: 'stat', stat: 'str', amount: 10, duration: -1 }],
   },
+  echo_memory: {
+    id: 'echo_memory',
+    name: 'Echo Memory',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC],
+    damage: 10,
+    scaling: SCALING_TYPES.INT,
+    critChance: 0,
+    energyCost: 2,
+    cooldown: 4,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'stun', stacks: 1 }],
+  },
+  consume_memory: {
+    id: 'consume_memory',
+    name: 'Consume Memory',
+    properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED],
+    damage: 5,
+    scaling: SCALING_TYPES.INT,
+    critChance: 15,
+    energyCost: 0,
+    cooldown: 1,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'frost', stacks: 1 }],
+  },
+  ethereal_form: {
+    id: 'ethereal_form',
+    name: 'Ethereal Form',
+    properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.DEFENCE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 5,
+    cooldown: 9,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    // Present for the rest of the cast turn plus 3 more full fight turns
+    // (matches the decayBuffDurations N+1 convention used by Arcane
+    // Split's reflect: N turns of presence needs a starting value of N+1).
+    guaranteedDodgeFightTurns: 4,
+  },
+  flashback: {
+    id: 'flashback',
+    name: 'Flashback',
+    properties: [MOVE_PROPERTIES.HEALING],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 2,
+    cooldown: 2,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    reactiveHealMultiplier: 2,
+  },
+  mind_erosion: {
+    id: 'mind_erosion',
+    name: 'Mind Erosion',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'frost', stacks: 2 }],
+    // Reactive passive: fires on the owner whenever they're hit by a
+    // melee attack (see CombatManager.executeMove), applying the debuff
+    // to the attacker rather than the owner's fixed opponent slot.
+    trigger: 'melee_hit_taken',
+  },
+  formless: {
+    id: 'formless',
+    name: 'Formless',
+    properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
+    physicalDamageReductionPercent: 20,
+    statusDamageMultipliers: { fire: 2, default: 0.7 },
+    // Fires exactly once, since triggerPassives('fight_start') is only
+    // ever called once per combat (in CombatManager.startCombat).
+    trigger: 'fight_start',
+  },
 };
 
 export function getMoveTemplate(id) {

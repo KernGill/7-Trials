@@ -294,6 +294,18 @@ export class FightState {
           RS
         </span>`);
     }
+    if (character.guaranteedDodgeTurnsRemaining > 0) {
+      icons.push(`
+        <span class="status-icon defence" style="background:#3498db" title="${t('fight.guaranteed_dodge')}">
+          DDG
+        </span>`);
+    }
+    if (character.pendingReactiveHeal) {
+      icons.push(`
+        <span class="status-icon defence" style="background:#3498db" title="${t('fight.reactive_heal', { n: character.pendingReactiveHeal.multiplier })}">
+          HL
+        </span>`);
+    }
 
     return icons.join('');
   }

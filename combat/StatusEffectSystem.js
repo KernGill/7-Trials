@@ -133,5 +133,9 @@ export class StatusEffectSystem {
       character.reflectSplitTurnsRemaining -= 1;
       if (character.reflectSplitTurnsRemaining <= 0) character.reflectSplitPercent = 0;
     }
+
+    if (character.guaranteedDodgeTurnsRemaining > 0) {
+      character.guaranteedDodgeTurnsRemaining -= 1;
+    }
   }
 }

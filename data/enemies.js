@@ -140,6 +140,51 @@ export const ENEMIES = {
       ],
     },
   },
+  false_apparition: {
+    id: 'false_apparition',
+    species: 'ghost',
+    name: 'False Apparition',
+    description: 'Fungi extract the memories of people from their infected corpses to create an embodiment of spores. Almost like a lure, an imitation of the damned spirits; calling out to the living. A lure to bait the clueless challengers.',
+    arcs: ['arc0', 'arc1'],
+    visual: {
+      shape: 'square',
+      width: 44,
+      height: 44,
+      color: '#a29bfe',
+      label: 'FA',
+      spriteId: 'false_apparition',
+    },
+    baseStats: {
+      con: 200,
+      dex: 12,
+      str: 0,
+      spd: 10,
+      def: 0,
+      int: 10,
+      critChance: 5,
+      critDamage: 20,
+      dodge: 100,
+      accuracy: 100,
+      energy: 6,
+    },
+    moveIds: [
+      'echo_memory',
+      'consume_memory',
+      'ethereal_form',
+      'flashback',
+      'mind_erosion',
+      'formless',
+    ],
+    drops: {
+      materials: [
+        { id: 'jar_of_spores', chance: 35, quantity: [1, 2] },
+        { id: 'memory_fragment', chance: 1, quantity: [1, 1] },
+      ],
+      items: [
+        { id: 'shrouded_footsteps', chance: 8, quantity: [1, 1] },
+      ],
+    },
+  },
 };
 
 export function getEnemyConfig(id) {

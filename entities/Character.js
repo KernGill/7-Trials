@@ -42,6 +42,10 @@ export class Character {
     this.guardState = null;
     this.reflectSplitPercent = 0;
     this.reflectSplitTurnsRemaining = 0;
+    this.guaranteedDodgeTurnsRemaining = 0;
+    this.pendingReactiveHeal = null;
+    this.physicalDamageReductionPercent = 0;
+    this.statusDamageMultipliers = null;
     this.moveIds = [...(config.moveIds ?? [])];
     this.moves = [];
     this.combatLogTag = config.combatLogTag ?? this.name;
@@ -159,8 +163,28 @@ export class Character {
     return this.getStatusStacks('stun') > 0;
   }
 
+  /**
+   * Composes every source of status-damage-taken modifier (Ethereal
+   * Form's 50% reduction while its dodge buff is active, Formless's
+   * per-status multipliers) into one multiplier for a given status id.
+   * Only ever consulted from takeDamage() when a `source` is passed —
+   * every takeDamage() caller that passes one is a status tick
+   * (StatusEffectSystem), never a direct attack, so this can't
+   * accidentally apply to attack damage.
+   */
+  getStatusDamageMultiplier(statusId) {
+    let multiplier = 1;
+    if (this.guaranteedDodgeTurnsRemaining > 0) multiplier *= 0.5;
+    if (this.statusDamageMultipliers) {
+      const override = this.statusDamageMultipliers[statusId] ?? this.statusDamageMultipliers.default;
+      if (override !== undefined) multiplier *= override;
+    }
+    return multiplier;
+  }
+
   takeDamage(amount, { source = null } = {}) {
-    const actual = Math.max(0, Math.round(amount));
+    let actual = Math.max(0, Math.round(amount));
+    if (source) actual = Math.max(0, Math.round(actual * this.getStatusDamageMultiplier(source)));
     this.currentHealth = clamp(this.currentHealth - actual, 0, this.getMaxHealth());
     // Fire's own tick doesn't count as "an instance of damage" for its
     // own decay — everything else that lands (attacks, other status
@@ -207,6 +231,10 @@ export class Character {
     this.guardState = null;
     this.reflectSplitPercent = 0;
     this.reflectSplitTurnsRemaining = 0;
+    this.guaranteedDodgeTurnsRemaining = 0;
+    this.pendingReactiveHeal = null;
+    this.physicalDamageReductionPercent = 0;
+    this.statusDamageMultipliers = null;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];

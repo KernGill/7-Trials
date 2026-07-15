@@ -104,6 +104,8 @@ export const TRANSLATIONS = {
     'fight.defended_flat': 'Defended: -{amount} damage',
     'fight.reflecting': 'Reflecting {percent}% of the next hit',
     'fight.hits_left': ' ({n} hit(s) left)',
+    'fight.guaranteed_dodge': 'Guaranteed dodge active',
+    'fight.reactive_heal': 'Will heal {n}x from the next hit',
 
     // Explore
     'explore.floor': 'Floor {n}',
@@ -224,6 +226,12 @@ export const TRANSLATIONS = {
     'ability.triggers_on': 'Triggers automatically on {trigger}{interval}.',
     'ability.every_nth': ' (every {n}{suffix} time)',
     'ability.prioritized_below': 'Prioritized below {n}% health.',
+    'ability.guaranteed_dodge': 'Gains 100% dodge chance and takes 50% less status effect damage for a few fight turns.',
+    'ability.reactive_heal': 'Heals for {n}x the damage taken from the next attack (not status damage).',
+    'ability.physical_reduction': 'Takes {n}% less damage from physical attacks.',
+    'ability.status_extra_damage': 'Takes {n}% extra damage from {status}.',
+    'ability.status_less_damage': 'Takes {n}% less damage from {status}.',
+    'ability.status_default': 'other status effects',
 
     'tile.enemy': 'ENEMY',
     'tile.stairs': 'STAIRS',
@@ -324,6 +332,8 @@ export const TRANSLATIONS = {
     'fight.defended_flat': 'Defendido: -{amount} de daño',
     'fight.reflecting': 'Reflejando el {percent}% del siguiente golpe',
     'fight.hits_left': ' ({n} golpe(s) restante(s))',
+    'fight.guaranteed_dodge': 'Esquiva garantizada activa',
+    'fight.reactive_heal': 'Curará {n}x en el próximo golpe',
 
     // Explore
     'explore.floor': 'Piso {n}',
@@ -444,6 +454,12 @@ export const TRANSLATIONS = {
     'ability.triggers_on': 'Se activa automáticamente en {trigger}{interval}.',
     'ability.every_nth': ' (cada {n}ª vez)',
     'ability.prioritized_below': 'Prioridad por debajo del {n}% de vida.',
+    'ability.guaranteed_dodge': 'Obtiene 100% de probabilidad de esquiva y recibe un 50% menos de daño por efectos de estado durante varios turnos de combate.',
+    'ability.reactive_heal': 'Cura {n} veces el daño recibido del próximo ataque (no incluye daño por estado).',
+    'ability.physical_reduction': 'Recibe un {n}% menos de daño de ataques físicos.',
+    'ability.status_extra_damage': 'Recibe un {n}% más de daño de {status}.',
+    'ability.status_less_damage': 'Recibe un {n}% menos de daño de {status}.',
+    'ability.status_default': 'otros efectos de estado',
 
     'tile.enemy': 'ENEMIGO',
     'tile.stairs': 'ESCALERAS',
@@ -485,6 +501,12 @@ export const DATA_TRANSLATIONS = {
       potion_maniac: 'Maníaco de Pociones',
       minor_potion_move: 'Poción Menor',
       strength_elixir_move: 'Elixir de Fuerza',
+      echo_memory: 'Eco de Memoria',
+      consume_memory: 'Consumir Memoria',
+      ethereal_form: 'Forma Etérea',
+      flashback: 'Destello',
+      mind_erosion: 'Erosión Mental',
+      formless: 'Sin Forma',
     },
     item: {
       wooden_sword: 'Espada de Madera',
@@ -507,6 +529,7 @@ export const DATA_TRANSLATIONS = {
       wooden_boots: 'Botas de Madera',
       ossifying_chokehold: 'Llave de Estrangulación Osificante',
       rage_of_vitalire: 'Furia de Vitalire',
+      shrouded_footsteps: 'Pasos Amortajados',
     },
     itemFlavour: {
       wooden_sword: 'Espada de madera sencilla, podría fabricarla cualquier artesano aficionado.',
@@ -529,16 +552,19 @@ export const DATA_TRANSLATIONS = {
       wooden_boots: 'Botas de madera sencillas.',
       ossifying_chokehold: 'La muerte sujeta tu cuello, pero no por mucho tiempo.',
       rage_of_vitalire: 'Vitalire, el Guardián de los Dioses, se enfureció con las almas errantes por haber perturbado su santuario de paz.',
+      shrouded_footsteps: 'Recuerdos fúngicos se aferran a estos pasos, silenciosos como la tumba.',
     },
     enemy: {
       indebted_fallen: 'Caído Endeudado',
       indebted_fallen_boss: 'Caído Endeudado — Guardián',
       the_hollowed: 'El Hueco',
+      false_apparition: 'Aparición Falsa',
     },
     enemyDesc: {
       indebted_fallen: 'Cadáveres de los caídos que le debían una gran deuda a la Gran Bruja de las Bendiciones.',
       indebted_fallen_boss: 'Un esqueleto imponente atado por una deuda ancestral.',
       the_hollowed: 'Cadáveres sin voluntad, controlados por una enfermedad fúngica.',
+      false_apparition: 'Los hongos extraen los recuerdos de las personas de sus cadáveres infectados para crear una encarnación de esporas. Casi como un señuelo, una imitación de los espíritus condenados que llama a los vivos. Un señuelo para atraer a los retadores despistados.',
     },
     character: {
       artius: 'Artius',
@@ -561,6 +587,8 @@ export const DATA_TRANSLATIONS = {
       bones: 'Huesos',
       mana_stone: 'Piedra de Maná',
       flesh: 'Carne',
+      jar_of_spores: 'Frasco de Esporas',
+      memory_fragment: 'Fragmento de Memoria',
     },
     status: {
       bleed: 'Sangrado',
