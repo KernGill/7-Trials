@@ -3,27 +3,37 @@ import { STATUS_EFFECTS as CONFIG } from '../data/statusEffectConfig.js';
 import { t, tData } from '../ui/i18n.js';
 
 export class StatusEffectSystem {
-  tickCharacterTurnStart(character, log) {
+  /**
+   * `onTick`, when passed, receives `{ character, effectId, amount }` for
+   * every landed tick — structured data CombatManager uses to record a
+   * timeline step (for paced damage-number playback in FightState),
+   * separate from `log`'s plain text message. `amount` is the actual
+   * post-multiplier damage (Character.takeDamage's return value), not
+   * the raw formula output, so it always matches what really landed.
+   */
+  tickCharacterTurnStart(character, log, onTick) {
     character.statusEffects.forEach((effect) => {
       const template = CONFIG[effect.id];
       if (!template || template.tickOn !== 'character_turn_start') return;
       const damage = template.formula(effect.stacks, character);
       if (damage > 0) {
-        character.takeDamage(damage, { source: effect.id });
-        log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
+        const actual = character.takeDamage(damage, { source: effect.id });
+        log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
+        onTick?.({ character, effectId: effect.id, amount: actual });
       }
     });
   }
 
-  tickFightTurnStart(combatants, log) {
+  tickFightTurnStart(combatants, log, onTick) {
     combatants.forEach((character) => {
       character.statusEffects.forEach((effect) => {
         const template = CONFIG[effect.id];
         if (!template || template.tickOn !== 'fight_turn_start') return;
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
-          character.takeDamage(damage, { source: effect.id });
-          log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
+          const actual = character.takeDamage(damage, { source: effect.id });
+          log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
+          onTick?.({ character, effectId: effect.id, amount: actual });
         }
       });
     });
@@ -34,15 +44,16 @@ export class StatusEffectSystem {
    * burns off 35% of fire stacks whenever the burning character takes
    * any OTHER instance of damage (fire's own tick is exempted there).
    */
-  tickFightTurnEnd(combatants, log) {
+  tickFightTurnEnd(combatants, log, onTick) {
     combatants.forEach((character) => {
       character.statusEffects.forEach((effect) => {
         const template = CONFIG[effect.id];
         if (!template || template.tickOn !== 'fight_turn_end') return;
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
-          character.takeDamage(damage, { source: effect.id });
-          log?.(t('log.status_damage', { name: character.name, n: damage, status: tData('status', effect.id, template.name) }));
+          const actual = character.takeDamage(damage, { source: effect.id });
+          log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
+          onTick?.({ character, effectId: effect.id, amount: actual });
         }
       });
 
@@ -53,6 +64,25 @@ export class StatusEffectSystem {
         }
         return true;
       });
+    });
+  }
+
+  /**
+   * No current STATUS_EFFECTS entry uses tickOn: 'character_turn_end'
+   * yet, but the hook exists (mirroring the other three) so an
+   * end-of-turn tick works correctly, including its paced timeline
+   * placement, the moment one is added.
+   */
+  tickCharacterTurnEnd(character, log, onTick) {
+    character.statusEffects.forEach((effect) => {
+      const template = CONFIG[effect.id];
+      if (!template || template.tickOn !== 'character_turn_end') return;
+      const damage = template.formula(effect.stacks, character);
+      if (damage > 0) {
+        const actual = character.takeDamage(damage, { source: effect.id });
+        log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
+        onTick?.({ character, effectId: effect.id, amount: actual });
+      }
     });
   }
 

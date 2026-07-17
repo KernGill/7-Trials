@@ -148,13 +148,11 @@ export class StateManager {
     this.eventBus.on('combat:victory', () => this.deferCombatEnd(() => this.onCombatVictory()));
     this.eventBus.on('combat:defeat', () => this.deferCombatEnd(() => this.onCombatDefeat()));
     this.eventBus.on('combat:abandoned', () => this.onCombatDefeat());
-    this.eventBus.on('combat:player_turn', () => this.currentStateHandler.onCombatUpdate?.());
-    this.eventBus.on('combat:move_resolved', (payload) => {
-      this.trackAchievementTriggers(payload);
-      this.currentStateHandler.onCombatUpdate?.();
-      this.currentStateHandler.onMoveResolved?.(payload);
-    });
-    this.eventBus.on('combat:log', () => this.currentStateHandler.onCombatUpdate?.());
+    // Achievement tracking only cares that a move resolved, not when it's
+    // *visually* revealed — combat:sequence (below) drives all pacing.
+    this.eventBus.on('combat:move_resolved', (payload) => this.trackAchievementTriggers(payload));
+    this.eventBus.on('combat:sequence', (steps) => this.currentStateHandler.onSequence?.(steps));
+    this.eventBus.on('combat:log', () => this.currentStateHandler.onLog?.());
   }
 
   /**
@@ -317,13 +315,18 @@ export class StateManager {
   startCombat(enemyId) {
     const player = this.createPlayer();
     const enemy = new Enemy(enemyId);
+    // FightState has to be listening (via currentStateHandler) *before*
+    // combatManager.startCombat() runs its first synchronous cascade —
+    // otherwise the very first combat:sequence batch (e.g. the enemy
+    // acting first) fires while ExploreState is still current and gets
+    // silently dropped, since ExploreState doesn't implement onSequence.
+    this.setState(GAME_STATES.FIGHT);
     this.combatManager.startCombat({
       player,
       enemies: [enemy],
       explorationBuffs: this.gameState.run.explorationBuffs ?? [],
     });
     this.gameState.combat = this.combatManager.getState();
-    this.setState(GAME_STATES.FIGHT);
   }
 
   onCombatVictory() {

@@ -39,8 +39,41 @@ export class CombatManager {
     this.rewards = null;
     this.selectedMove = null;
     this.pendingExplorationBuffs = [];
+    this.sequence = [];
     this.turnOrder.reset();
     this.enemyAI.reset();
+  }
+
+  /**
+   * Every meaningful sub-event of a synchronous cascade (fight-turn
+   * start, a character's turn beginning, a status tick, a move landing)
+   * gets pushed here instead of only surfacing as a text log line. The
+   * whole batch is flushed as one `combat:sequence` array right before
+   * control visibly returns to someone (player's turn, victory, defeat)
+   * — FightState replays it at a human pace even though every mutation
+   * inside it already happened instantly, under the hood, in order.
+   */
+  record(step) {
+    this.sequence.push(step);
+  }
+
+  recordTick({ character, effectId, amount }, phase) {
+    this.record({
+      kind: 'statusTick',
+      character,
+      effectId,
+      amount,
+      phase,
+      health: character.currentHealth,
+      energy: character.energy,
+    });
+  }
+
+  flushSequence() {
+    if (!this.sequence.length) return;
+    const steps = this.sequence;
+    this.sequence = [];
+    this.eventBus.emit('combat:sequence', steps);
   }
 
   startCombat({ player, enemies, explorationBuffs = [] }) {
@@ -50,10 +83,15 @@ export class CombatManager {
     this.pendingExplorationBuffs = explorationBuffs;
 
     [player, ...enemies].forEach((c) => c.resetBattleState());
+    this.record({
+      kind: 'fightInit',
+      combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy })),
+    });
     this.applyExplorationBuffs();
     this.triggerPassives('fight_start');
     this.turnOrder.beginFightTurn(this.combatants);
-    this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m));
+    this.record({ kind: 'fightTurn', n: this.turnOrder.fightTurn, isFirst: true });
+    this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'fightTurnStart'));
     this.processDotEffects();
     this.cooldownSystem.tickFightTurn(this.combatants);
     this.triggerPassives('fight_turn_start');
@@ -108,6 +146,7 @@ export class CombatManager {
   checkFightEnd() {
     if (!this.player?.isAlive()) {
       this.phase = COMBAT_PHASE.DEFEAT;
+      this.flushSequence();
       this.eventBus.emit('combat:defeat', this.getState());
       return true;
     }
@@ -140,6 +179,17 @@ export class CombatManager {
           if (dot.move.debuffs) this.statusSystem.applyDebuffs(dot.target, dot.move.debuffs, attacker);
           this.eventBus.emit('combat:move_resolved', { attacker, defender: dot.target, move: dot.move, result });
         }
+        this.record({
+          kind: 'move',
+          attacker,
+          defender: dot.target,
+          move: dot.move,
+          result,
+          attackerHealth: attacker.currentHealth,
+          attackerEnergy: attacker.energy,
+          defenderHealth: dot.target.currentHealth,
+          defenderEnergy: dot.target.energy,
+        });
 
         dot.remaining -= 1;
         return dot.remaining > 0;
@@ -151,12 +201,13 @@ export class CombatManager {
     if (this.checkFightEnd()) return;
 
     if (this.turnOrder.allHaveMoved(this.combatants)) {
-      this.statusSystem.tickFightTurnEnd(this.combatants, (m) => this.logMessage(m));
+      this.statusSystem.tickFightTurnEnd(this.combatants, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'fightTurnEnd'));
       if (this.checkFightEnd()) return;
       this.combatants.forEach((c) => this.statusSystem.decayBuffDurations(c));
       this.turnOrder.endFightTurn(this.combatants);
       this.turnOrder.beginFightTurn(this.combatants);
-      this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m));
+      this.record({ kind: 'fightTurn', n: this.turnOrder.fightTurn, isFirst: false });
+      this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'fightTurnStart'));
       if (this.checkFightEnd()) return;
       this.processDotEffects();
       if (this.checkFightEnd()) return;
@@ -171,11 +222,13 @@ export class CombatManager {
     const skip = this.turnOrder.onCharacterTurnStart(actor);
     if (skip.skipped) {
       this.logMessage(t('log.stunned_skip', { name: actor.name }));
+      this.record({ kind: 'turnSkip', character: actor, health: actor.currentHealth, energy: actor.energy });
       this.endActorTurn(actor);
       return;
     }
 
-    this.statusSystem.tickCharacterTurnStart(actor, (m) => this.logMessage(m));
+    this.record({ kind: 'turnStart', character: actor, health: actor.currentHealth, energy: actor.energy });
+    this.statusSystem.tickCharacterTurnStart(actor, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'characterTurnStart'));
     if (this.checkFightEnd()) return;
     this.triggerPassives('character_turn_start', actor);
     const gained = this.energySystem.gainEnergy(actor);
@@ -183,6 +236,7 @@ export class CombatManager {
 
     if (actor.isPlayer) {
       this.phase = COMBAT_PHASE.PLAYER_TURN;
+      this.flushSequence();
       this.eventBus.emit('combat:player_turn', this.getState());
     } else {
       this.phase = COMBAT_PHASE.ENEMY_TURN;
@@ -194,6 +248,8 @@ export class CombatManager {
     this.cooldownSystem.tickCharacterTurn(actor);
     this.turnOrder.onCharacterTurnEnd(actor);
     if (!actor.isPlayer) this.enemyAI.onTurnEnd();
+    this.statusSystem.tickCharacterTurnEnd(actor, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'characterTurnEnd'));
+    this.record({ kind: 'turnEnd', character: actor, health: actor.currentHealth, energy: actor.energy });
     this.advanceTurn();
   }
 
@@ -304,6 +360,18 @@ export class CombatManager {
       this.triggerPassives('melee_hit_taken', defender);
     }
 
+    this.record({
+      kind: 'move',
+      attacker,
+      defender,
+      move,
+      result,
+      attackerHealth: attacker.currentHealth,
+      attackerEnergy: attacker.energy,
+      defenderHealth: defender.currentHealth,
+      defenderEnergy: defender.energy,
+    });
+
     this.eventBus.emit('combat:move_resolved', { attacker, defender, move, result });
   }
 
@@ -326,6 +394,7 @@ export class CombatManager {
       this.statusSystem.applyBuffs(this.player, [effect.buff], this.player);
     }
 
+    this.record({ kind: 'consumable', character: this.player, health: this.player.currentHealth, energy: this.player.energy });
     this.endActorTurn(this.player);
     return { ok: true };
   }
@@ -393,6 +462,7 @@ export class CombatManager {
 
     this.rewards = { gold, drops };
     this.logMessage(t('log.victory', { n: gold }));
+    this.flushSequence();
     this.eventBus.emit('combat:victory', this.getState());
   }
 

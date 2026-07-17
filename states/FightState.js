@@ -21,15 +21,33 @@ function moveAnimationCategory(move) {
   return 'special';
 }
 
-// Pacing "beat" every queued move animation occupies before the next one
-// starts / input re-enables, regardless of how long its own CSS keyframes
-// run for (defence and special finish well under this and just hold).
-const ANIMATION_STEP_MS = 1500;
-
 // How much of the actual on-screen gap between the two avatar boxes the
 // attack animation crosses — short of 100% so the boxes don't fully
 // overlap at the peak of the swing.
 const ATTACK_TRAVEL_RATIO = 0.85;
+
+// --- Playback pacing --------------------------------------------------
+// Every beat in the combat timeline has its own fixed duration; damage
+// and other landing effects apply at a *peak* offset within a move's own
+// beat — the moment the attacker's swing is closest to the defender for
+// attacks, or the moment a defensive stance is at its biggest — rather
+// than at the very start of the animation, so it actually looks like the
+// hit (or the brace) is what's causing the effect.
+const FIGHT_TURN_FLASH_MS = 1000;
+const INTER_TURN_GAP_MS = 1000; // pause after a turn ends, before the next one's first beat
+const STATUS_TICK_MS = 500;
+const TURN_SKIP_MS = 600;
+const CONSUMABLE_BEAT_MS = 500;
+const ATTACK_DURATION_MS = 1500;
+const ATTACK_PEAK_MS = 750; // 50% — matches the anim-attack keyframe's midpoint
+const DEFENCE_DURATION_MS = 500;
+const DEFENCE_PEAK_MS = 350; // 70% — matches the anim-defence keyframe's biggest-scale point
+const SPECIAL_DURATION_MS = 500; // effects apply immediately (peak 0) — special is left as-is
+
+const DAMAGE_NUMBER_LIFETIME_MS = 1200;
+const CRIT_COLOR = '#f1c40f';
+const REGULAR_DAMAGE_COLOR = '#fff';
+const MISS_COLOR = '#999';
 
 const FILTERS = {
   [MOVE_CATEGORIES.ATTACKS]: isAttack,
@@ -47,37 +65,53 @@ const CATEGORY_LABEL_KEYS = {
 /**
  * FightState — 1v1 turn-based combat, top-level peer of ExploreState.
  * Layout: battle log (left) + arena (center) + move-category panel
- * (right). Every combat message (whose move was used, damage dealt,
- * energy gained, etc) accumulates in the left-side log instead of
- * flashing transiently in the middle of the arena.
+ * (right).
  *
- * Re-renders only from real events (StateManager wires combat:log /
- * combat:player_turn / combat:move_resolved to onCombatUpdate()) —
- * never a per-frame loop, which is what broke the category buttons
- * before this file was rewritten.
+ * CombatManager still resolves an entire cascade (a player move, any
+ * immediate enemy counter-move, status ticks, turn changes) fully
+ * synchronously and instantly, exactly as before — nothing about the
+ * underlying rules or their timing changed. What changed is that it now
+ * also records that cascade as an ordered list of steps ("combat:sequence")
+ * instead of just mutating state and firing one-shot events. This file
+ * *replays* that list at a human pace: a fight-turn flash, a beat per
+ * status tick, a beat per move (with damage/effects landing at the
+ * animation's visual peak instead of instantly), and a 1s gap between
+ * one character's turn ending and the next one's first beat.
+ *
+ * Because the underlying mutations already happened by the time replay
+ * starts, the two avatar boxes can't just re-render from `character
+ * .currentHealth` — that's already the *final* post-cascade value. Each
+ * step instead carries a snapshot of the exact health/energy it should
+ * show once its beat arrives; `displayed` tracks the currently-revealed
+ * value per character, fed by those snapshots as playback proceeds.
  */
 export class FightState {
   constructor(app) {
     this.app = app;
     this.openCategory = null;
     this.pause = new PauseOverlay(app);
-    this.animQueue = [];
-    this.animating = false;
+    this.playbackQueue = [];
+    this.playing = false;
+    this.lastStepKind = null;
+    this.displayed = new Map();
     this.pendingEndCallback = null;
-    this.animTimers = [];
+    this.timers = [];
   }
 
   enter(root) {
     this.root = root;
     this.openCategory = null;
-    this.animQueue = [];
-    this.animating = false;
+    this.playbackQueue = [];
+    this.playing = false;
+    this.lastStepKind = null;
+    this.displayed = new Map();
     this.pendingEndCallback = null;
-    this.animTimers.forEach((id) => clearTimeout(id));
-    this.animTimers = [];
+    this.timers.forEach((id) => clearTimeout(id));
+    this.timers = [];
     root.innerHTML = `
       <div class="fight-screen">
         <div class="fight-turn"></div>
+        <div class="turn-flash hidden"></div>
         <div class="battle-log"></div>
         <div class="arena">
           <div class="combatant enemy-slot"></div>
@@ -91,6 +125,7 @@ export class FightState {
       </div>`;
     this.els = {
       turn: root.querySelector('.fight-turn'),
+      flash: root.querySelector('.turn-flash'),
       log: root.querySelector('.battle-log'),
       enemy: root.querySelector('.enemy-slot'),
       player: root.querySelector('.player-slot'),
@@ -102,8 +137,8 @@ export class FightState {
 
   exit() {
     this.pause.unmount();
-    this.animTimers.forEach((id) => clearTimeout(id));
-    this.animTimers = [];
+    this.timers.forEach((id) => clearTimeout(id));
+    this.timers = [];
   }
 
   onPauseToggled() {
@@ -112,74 +147,234 @@ export class FightState {
     this.renderAll();
   }
 
-  onCombatUpdate() { this.renderAll(); }
-
-  /**
-   * Every resolved move (including Bone Zone's queued follow-up hits)
-   * becomes one animated "beat". CombatManager itself runs fully
-   * synchronously — a player move can cascade straight through an
-   * enemy counter-move within the same call stack — so beats are
-   * buffered here and played out one at a time on a real timer instead
-   * of all flashing at once. Health/energy/log still update live via
-   * onCombatUpdate(); only the avatar animation and (via the panel
-   * guard in renderCategoryPanel) player input are paced by the queue.
-   */
-  onMoveResolved({ attacker, move, result } = {}) {
-    if (!attacker || !move || (result && !result.hit)) return;
-    this.animQueue.push({ attacker, move });
-    this.drainAnimQueue();
+  /** Battle log stays live/instant — only the arena (avatars, damage numbers, turn flow) is paced. */
+  onLog() {
+    this.renderLog();
   }
 
-  /**
-   * CombatManager can cascade several moves through one synchronous call
-   * stack (player move -> immediate enemy counter-move), and every log
-   * line along the way triggers its own renderAll() that rebuilds the
-   * avatar-box. Adding the animation class inline here would just get
-   * wiped by the next renderAll() a moment later, before the browser
-   * ever paints it. Waiting a tick (setTimeout 0) lets that synchronous
-   * burst finish and the DOM settle before the class actually goes on.
-   */
-  drainAnimQueue() {
-    if (this.animating || !this.animQueue.length) return;
-    this.animating = true;
-    this.animTimers.push(setTimeout(() => {
-      const { attacker, move } = this.animQueue.shift();
-      this.playMoveAnimation(attacker, move);
-      this.animTimers.push(setTimeout(() => {
-        this.animating = false;
-        if (this.animQueue.length) this.drainAnimQueue();
-        else this.onAnimQueueDrained();
-      }, ANIMATION_STEP_MS));
-    }, 0));
+  /** A whole cascade's worth of steps arrives as one batch; queue it and keep playing. */
+  onSequence(steps) {
+    if (!steps?.length) return;
+    this.playbackQueue.push(...steps);
+    this.drainQueue();
   }
 
-  onAnimQueueDrained() {
+  drainQueue() {
+    if (this.playing || !this.playbackQueue.length) return;
+    this.playing = true;
+    this.playStep(this.playbackQueue.shift());
+  }
+
+  /** The only source of the 1s inter-turn pause: whatever follows a `turnEnd` beat waits an extra second before starting its own beat. */
+  playStep(step) {
+    const preDelay = this.lastStepKind === 'turnEnd' ? INTER_TURN_GAP_MS : 0;
+    this.timers.push(setTimeout(() => this.runStep(step), preDelay));
+  }
+
+  runStep(step) {
+    this.lastStepKind = step.kind;
+    switch (step.kind) {
+      case 'fightInit': return this.playFightInitStep(step);
+      case 'fightTurn': return this.playFightTurnStep(step);
+      case 'statusTick': return this.playStatusTickStep(step);
+      case 'turnStart': return this.playTurnStartStep(step);
+      case 'turnSkip': return this.playTurnSkipStep(step);
+      case 'move': return this.playMoveStep(step);
+      case 'consumable': return this.playConsumableStep(step);
+      case 'turnEnd': return this.playTurnEndStep(step);
+      default: return this.finishStep();
+    }
+  }
+
+  finishStep() {
+    this.playing = false;
+    if (this.playbackQueue.length) this.drainQueue();
+    else this.onPlaybackDrained();
+  }
+
+  onPlaybackDrained() {
     if (this.pendingEndCallback) {
       const cb = this.pendingEndCallback;
       this.pendingEndCallback = null;
       cb();
       return;
     }
-    this.renderAll(); // re-show the move panel now that the beat is over
+    this.renderAll(); // everything's settled — safe to re-show the move panel etc.
   }
 
   /**
    * Called by StateManager instead of jumping straight to the
-   * victory/defeat screen, so the killing blow's own animation gets to
+   * victory/defeat screen, so the killing blow's own beat gets to
    * finish playing before the arena is torn down.
    */
   deferUntilAnimationsDone(fn) {
-    if (!this.animating && !this.animQueue.length) fn();
+    if (!this.playing && !this.playbackQueue.length) fn();
     else this.pendingEndCallback = fn;
   }
 
-  playMoveAnimation(attacker, move) {
+  // --- Individual step players -------------------------------------------
+
+  playFightInitStep(step) {
+    step.combatants.forEach(({ character, health, energy }) => this.setDisplayed(character, health, energy));
+    this.renderAll();
+    this.finishStep();
+  }
+
+  playFightTurnStep(step) {
+    const text = step.isFirst ? t('fight.start_flash') : t('fight.turn_flash', { n: step.n });
+    this.els.turn.textContent = t('fight.turn', { n: step.n });
+    this.els.flash.textContent = text;
+    this.els.flash.classList.remove('hidden');
+    this.timers.push(setTimeout(() => {
+      this.els.flash.classList.add('hidden');
+      this.finishStep();
+    }, FIGHT_TURN_FLASH_MS));
+  }
+
+  playStatusTickStep(step) {
+    const cfg = STATUS_EFFECTS[step.effectId];
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.spawnDamageNumber(step.character, `-${step.amount}`, cfg?.color ?? REGULAR_DAMAGE_COLOR);
+    this.timers.push(setTimeout(() => this.finishStep(), STATUS_TICK_MS));
+  }
+
+  playTurnStartStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.renderMoveOrder(step.character);
+    this.finishStep();
+  }
+
+  playTurnSkipStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.renderMoveOrder(step.character);
+    this.timers.push(setTimeout(() => this.finishStep(), TURN_SKIP_MS));
+  }
+
+  playConsumableStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.timers.push(setTimeout(() => this.finishStep(), CONSUMABLE_BEAT_MS));
+  }
+
+  playTurnEndStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.finishStep();
+  }
+
+  playMoveStep(step) {
+    const { attacker, defender, move } = step;
+    if (!move) { this.finishStep(); return; } // enemy had nothing it could use — just a quiet beat
+
+    const category = moveAnimationCategory(move);
+    this.playMoveAnimation(attacker, category);
+
+    const applyEffects = () => {
+      this.setDisplayed(attacker, step.attackerHealth, step.attackerEnergy);
+      this.setDisplayed(defender, step.defenderHealth, step.defenderEnergy);
+      this.renderCombatant(attacker);
+      this.renderCombatant(defender);
+      this.spawnMoveDamageNumbers(step);
+    };
+
+    const duration = category === 'attack' ? ATTACK_DURATION_MS : category === 'defence' ? DEFENCE_DURATION_MS : SPECIAL_DURATION_MS;
+    const peak = category === 'attack' ? ATTACK_PEAK_MS : category === 'defence' ? DEFENCE_PEAK_MS : 0;
+
+    this.timers.push(setTimeout(applyEffects, peak));
+    this.timers.push(setTimeout(() => this.finishStep(), duration));
+  }
+
+  spawnMoveDamageNumbers(step) {
+    const { attacker, defender, result } = step;
+    if (!result) return; // pure buff/defence move with no attack roll at all
+    if (!result.hit) {
+      this.spawnDamageNumber(defender, t('fight.miss_popup'), MISS_COLOR);
+      return;
+    }
+    const regularColor = result.isCrit ? CRIT_COLOR : REGULAR_DAMAGE_COLOR;
+    if (result.split) {
+      this.spawnDamageNumber(defender, `-${result.damage}`, regularColor, result.isCrit);
+      if (result.reflected > 0) this.spawnDamageNumber(attacker, `-${result.reflected}`, regularColor, result.isCrit);
+      return;
+    }
+    this.spawnDamageNumber(defender, `-${result.damage}`, regularColor, result.isCrit);
+    if (result.reflected > 0) {
+      this.spawnDamageNumber(attacker, `-${result.reflected}`, STATUS_EFFECTS.thorns?.color ?? REGULAR_DAMAGE_COLOR);
+    }
+  }
+
+  // --- Rendering -----------------------------------------------------------
+
+  setDisplayed(character, health, energy) {
+    if (!character) return;
+    this.displayed.set(character, { health, energy });
+  }
+
+  getDisplayed(character) {
+    if (!character) return { health: 0, energy: 0 };
+    if (!this.displayed.has(character)) {
+      this.displayed.set(character, { health: character.currentHealth, energy: character.energy });
+    }
+    return this.displayed.get(character);
+  }
+
+  /** Full initial build for a combatant's box — only ever used before any animation is in flight (enter/pause/idle-settle), never mid-beat, since it replaces the whole node (and would wipe a running CSS animation). */
+  renderAll() {
+    const { app } = this;
+    const combat = app.combatManager;
+    if (!combat.player) return;
+
+    this.els.turn.textContent = t('fight.turn', { n: combat.turnOrder.fightTurn });
+    this.els.player.innerHTML = this.combatantHTML(combat.player, t('fight.player'));
+    combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy')); });
+
+    this.renderLog();
+    this.renderMoveOrder(combat.currentActor);
+    this.renderCategoryPanel();
+
+    if (app.gameState.paused) this.pause.render();
+  }
+
+  renderLog() {
+    if (!this.els) return;
+    this.els.log.innerHTML = this.app.combatManager.log.map((line) => `<div class="log-line">${line}</div>`).join('');
+  }
+
+  renderMoveOrder(highlight = null) {
+    if (!this.els) return;
+    const combat = this.app.combatManager;
+    const order = [...combat.combatants].sort((a, b) => b.battleSpeed - a.battleSpeed);
+    this.els.order.innerHTML = `<div class="order-title">${t('fight.move_order')}</div>` +
+      order.map((c) => `<div class="${c === highlight ? 'order-active' : ''}">${c.name}: ${Math.round(c.battleSpeed)}</div>`).join('');
+  }
+
+  /**
+   * Surgical update, used for every in-playback refresh — only touches
+   * the status-icon list and the two stat-line text nodes, leaving the
+   * `.avatar-box` element itself (and any CSS animation class currently
+   * running on it) completely untouched.
+   */
+  renderCombatant(character) {
+    if (!this.els || !character) return;
+    const slot = character.isPlayer ? this.els.player : this.els.enemy;
+    if (!slot) return;
+    const { health, energy } = this.getDisplayed(character);
+    const statusEl = slot.querySelector('.status-icons');
+    if (statusEl) statusEl.innerHTML = this.statusIconsHTML(character);
+    const statLines = slot.querySelectorAll('.stat-line');
+    if (statLines[0]) statLines[0].textContent = `${health} / ${character.getMaxHealth()}`;
+    if (statLines[1]) statLines[1].textContent = `${energy} / ${character.getMaxEnergy()}`;
+  }
+
+  playMoveAnimation(attacker, category) {
     if (!this.els) return;
     const slot = attacker.isPlayer ? this.els.player : this.els.enemy;
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 
-    const category = moveAnimationCategory(move);
     const animClass = category === 'attack' ? 'anim-attack' : category === 'defence' ? 'anim-defence' : 'anim-special';
 
     if (category === 'attack') box.style.setProperty('--attack-travel', `${this.attackTravelPx(attacker, box)}px`);
@@ -201,28 +396,30 @@ export class FightState {
     return (defenderCenterY - attackerCenterY) * ATTACK_TRAVEL_RATIO;
   }
 
-  renderAll() {
-    const { app } = this;
-    const combat = app.combatManager;
-    if (!combat.player) return;
+  /** Floating combat-text at a random spot over the character's avatar box. */
+  spawnDamageNumber(character, text, color, isCrit = false) {
+    if (!this.els) return;
+    const slot = character.isPlayer ? this.els.player : this.els.enemy;
+    const box = slot?.querySelector('.avatar-box');
+    if (!box) return;
 
-    this.els.turn.textContent = t('fight.turn', { n: combat.turnOrder.fightTurn });
-    this.els.player.innerHTML = this.combatantHTML(combat.player, t('fight.player'));
-    combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy')); });
+    const el = document.createElement('div');
+    el.className = `damage-number${isCrit ? ' crit' : ''}`;
+    el.textContent = text;
+    el.style.color = color;
+    const offsetX = Math.round((Math.random() - 0.5) * 64);
+    const offsetY = Math.round((Math.random() - 0.5) * 30) - 6;
+    el.style.left = `calc(50% + ${offsetX}px)`;
+    el.style.top = `calc(35% + ${offsetY}px)`;
+    box.appendChild(el);
 
-    // Newest message on top.
-    this.els.log.innerHTML = combat.log.map((line) => `<div class="log-line">${line}</div>`).join('');
-
-    const order = [...combat.combatants].sort((a, b) => b.battleSpeed - a.battleSpeed);
-    this.els.order.innerHTML = `<div class="order-title">${t('fight.move_order')}</div>` +
-      order.map((c) => `<div>${c.name}: ${Math.round(c.battleSpeed)}</div>`).join('');
-
-    this.renderCategoryPanel();
-
-    if (app.gameState.paused) this.pause.render();
+    const cleanup = () => el.remove();
+    el.addEventListener('animationend', cleanup);
+    this.timers.push(setTimeout(cleanup, DAMAGE_NUMBER_LIFETIME_MS));
   }
 
   combatantHTML(c, label) {
+    const { health, energy } = this.getDisplayed(c);
     const color = c.visual?.color ?? '#555';
     const sprite = c.isPlayer ? getCharacterSprite(c.characterId) : getEnemySprite(c.enemyId);
     const inner = sprite
@@ -235,8 +432,8 @@ export class FightState {
         <img class="avatar-border" src="${CHARACTER_BORDER}" alt="">
       </div>
       <div class="status-icons">${this.statusIconsHTML(c)}</div>
-      <div class="stat-line">${c.currentHealth} / ${c.getMaxHealth()}</div>
-      <div class="stat-line">${c.energy} / ${c.getMaxEnergy()}</div>`;
+      <div class="stat-line">${health} / ${c.getMaxHealth()}</div>
+      <div class="stat-line">${energy} / ${c.getMaxEnergy()}</div>`;
   }
 
   /**
@@ -322,7 +519,7 @@ export class FightState {
     const panel = this.els.panel;
 
     if (app.gameState.paused || combat.phase !== COMBAT_PHASE.PLAYER_TURN ||
-        this.animating || this.animQueue.length) {
+        this.playing || this.playbackQueue.length) {
       panel.innerHTML = '';
       return;
     }
@@ -368,7 +565,7 @@ export class FightState {
         const result = combat.playerUseMove(btn.dataset.move);
         if (!result.ok) app.gameState.addLog(tReason(result.reason));
         this.openCategory = null;
-        this.renderAll();
+        this.renderCategoryPanel();
       });
     });
   }
@@ -408,7 +605,7 @@ export class FightState {
         if (result.ok) { app.inventory.useConsumable(id, 1); app.trackConsumableUsed(id); }
         else app.gameState.addLog(tReason(result.reason));
         this.openCategory = null;
-        this.renderAll();
+        this.renderCategoryPanel();
       });
     });
   }

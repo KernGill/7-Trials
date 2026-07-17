@@ -118,6 +118,9 @@ export const TRANSLATIONS = {
     'fight.hits_left': ' ({n} hit(s) left)',
     'fight.guaranteed_dodge': 'Guaranteed dodge active',
     'fight.reactive_heal': 'Will heal {n}x from the next hit',
+    'fight.turn_flash': 'FIGHT TURN {n}',
+    'fight.start_flash': 'FIGHT START',
+    'fight.miss_popup': 'Miss',
 
     // Explore
     'explore.floor': 'Floor {n}',
@@ -358,6 +361,9 @@ export const TRANSLATIONS = {
     'fight.hits_left': ' ({n} golpe(s) restante(s))',
     'fight.guaranteed_dodge': 'Esquiva garantizada activa',
     'fight.reactive_heal': 'Curará {n}x en el próximo golpe',
+    'fight.turn_flash': 'TURNO DE COMBATE {n}',
+    'fight.start_flash': 'INICIO DEL COMBATE',
+    'fight.miss_popup': 'Fallo',
 
     // Explore
     'explore.floor': 'Piso {n}',
