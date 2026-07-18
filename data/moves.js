@@ -137,12 +137,12 @@ export const MOVE_TEMPLATES = {
     scaling: SCALING_TYPES.STR,
     critChance: 0,
     energyCost: 6,
-    cooldown: 12,
+    cooldown: 17,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     // 5 total damage instances: the immediate hit below, plus one more
     // at the start of each of the next 4 fight turns (repeatInstances).
     // Each landed instance — including this one — applies 3 frost stacks.
-    debuffs: [{ effect: 'frost', stacks: 2 }],
+    debuffs: [{ effect: 'frost', stacks: 1 }],
     repeatInstances: 4,
   },
   undead_fury: {
