@@ -24,17 +24,24 @@ const CARDINAL_DIRS = [
 // move — not a persistent "once seen, always shown" memory. CLEAR_RADIUS
 // is a Chebyshev (grid, not Euclidean) distance so it reads as a clean
 // square ring: dist<=1 is the 3x3 block centered on the player (the
-// player's own tile plus its 8 neighbors), dist<=2 is one ring out (dim —
-// faded but same color), dist<=3 is one further ring out still (faint —
-// even more transparent AND darker), and anything past FAINT_RADIUS isn't
-// rendered at all — true darkness. CLEAR_RADIUS only matters for markers,
-// which brighten up close; walls/floor just step through dim -> faint.
+// player's own tile plus its 8 neighbors), dist<=2 is one ring out (dim),
+// dist<=3 is one further ring out still (faint), and anything past
+// FAINT_RADIUS isn't rendered at all — true darkness.
+//
+// Walls/floor stay fully OPAQUE at every tier — they fade by blending
+// their color toward the background color instead, so a distant wall
+// still fully occludes what's behind it (no see-through). Markers (the
+// actual objects on a tile) are the opposite: they stay transparent,
+// brightening to full opacity within CLEAR_RADIUS and fading out (more
+// transparent + darker) toward FAINT_RADIUS.
 const CLEAR_RADIUS = 1;
 const DIM_RADIUS = 2;
 const FAINT_RADIUS = 3;
-const DIM_OPACITY = 0.25;
+const WALL_DIM_KEEP = 0.35; // walls/floor at the dim tier: fraction of true color kept, rest blended to background
+const WALL_FAINT_KEEP = 0.12; // walls/floor at the faint tier: nearly all background
+const DIM_OPACITY = 0.25; // markers only, from here down
 const FAINT_OPACITY = 0.1; // more transparent than DIM_OPACITY
-const FAINT_COLOR_KEEP = 0.5; // faint tier also darkens: keeps half the true color, rest blended to black
+const FAINT_COLOR_KEEP = 0.5; // marker faint tier also darkens: keeps half the true color, rest blended to black
 
 const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
@@ -71,9 +78,9 @@ function tileKey(x, y) {
   return `${x},${y}`;
 }
 
-/** Blends a color toward black, keeping `keepFraction` of the original — used for the faint outer ring. */
-function darkenColor(hex, keepFraction) {
-  return new THREE.Color(hex).lerp(new THREE.Color(0x000000), 1 - keepFraction);
+/** Blends a color toward `towardHex`, keeping `keepFraction` of the original. */
+function blendColor(hex, keepFraction, towardHex) {
+  return new THREE.Color(hex).lerp(new THREE.Color(towardHex), 1 - keepFraction);
 }
 
 /**
@@ -125,12 +132,12 @@ export class DungeonRenderer3D {
 
     // Shared geometries/materials, reused across every tile mesh —
     // cheap to keep alive for the renderer's lifetime, disposed in unmount().
-    // Walls and floor never brighten up close — they render at the same
-    // single faded appearance across the whole visible range, and only
-    // toggle visible/hidden at the outer edge. Only markers (the actual
-    // objects sitting on a tile) get a distinct bright/opaque look up
-    // close, fading in the outer ring — brightness is reserved for
-    // objects, never for plain architecture.
+    // Walls and floor never brighten up close — see the WALL_DIM_KEEP /
+    // WALL_FAINT_KEEP comment above for how they fade instead. Only
+    // markers (the actual objects sitting on a tile) get a distinct
+    // bright/opaque look up close, fading via transparency in the outer
+    // ring — brightness is reserved for objects, never for plain
+    // architecture.
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
       // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
@@ -144,10 +151,13 @@ export class DungeonRenderer3D {
       enemyCube: new THREE.BoxGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8, TILE_SIZE * 0.8),
     };
     this._mat = {
-      floor: new THREE.MeshBasicMaterial({ color: COLOR_FLOOR, transparent: true, opacity: DIM_OPACITY }),
-      faintFloor: new THREE.MeshBasicMaterial({ color: darkenColor(COLOR_FLOOR, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY }),
-      wall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, opacity: DIM_OPACITY }),
-      faintWall: new THREE.MeshBasicMaterial({ color: darkenColor(COLOR_WALL, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY }),
+      // Opaque — no `transparent`/`opacity` at all, so a distant wall/floor
+      // still fully blocks whatever's behind it; only the color shifts
+      // toward the background as distance increases.
+      floor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_DIM_KEEP, BACKGROUND_COLOR) }),
+      faintFloor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
+      wall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_DIM_KEEP, BACKGROUND_COLOR) }),
+      faintWall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
       markers: Object.fromEntries(
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color })]),
       ),
@@ -155,7 +165,7 @@ export class DungeonRenderer3D {
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: DIM_OPACITY })]),
       ),
       faintMarkers: Object.fromEntries(
-        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color: darkenColor(color, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY })]),
+        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color: blendColor(color, FAINT_COLOR_KEEP, 0x000000), transparent: true, opacity: FAINT_OPACITY })]),
       ),
     };
 
@@ -280,9 +290,11 @@ export class DungeonRenderer3D {
   /**
    * Recomputes every tile's visibility tier from the player's current grid
    * position: clear (dist<=CLEAR_RADIUS, markers only — walls/floor use
-   * the same look as dim), dim (dist<=DIM_RADIUS), faint (dist<=FAINT_RADIUS
-   * — more transparent AND darker than dim), and hidden beyond that. Runs
-   * on every move — this is live sight, not a permanent "once seen" reveal.
+   * the same look as dim), dim (dist<=DIM_RADIUS), faint (dist<=FAINT_RADIUS,
+   * fading further toward invisible/background), and hidden beyond that.
+   * Walls/floor fade by shifting color toward the background while staying
+   * fully opaque; markers fade via transparency instead. Runs on every
+   * move — this is live sight, not a permanent "once seen" reveal.
    */
   updateVisibility(px, py) {
     this.tileMeshes.forEach((entry, key) => {
