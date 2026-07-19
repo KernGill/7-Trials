@@ -5,7 +5,7 @@ const BACKGROUND_COLOR = 0x0b0c10;
 const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho frustum
 
 const TILE_SIZE = 2;
-const WALL_HEIGHT = TILE_SIZE * 2.5;
+const WALL_HEIGHT = TILE_SIZE * 8; // tall enough that the top edge is never visible in frame
 const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
 
 // A wall tile only gets geometry on the sides that actually border a
@@ -43,14 +43,30 @@ const DIM_OPACITY = 0.25; // markers only, from here down
 const FAINT_OPACITY = 0.1; // more transparent than DIM_OPACITY
 const FAINT_COLOR_KEEP = 0.5; // marker faint tier also darkens: keeps half the true color, rest blended to black
 
+// The camera sits behind the player relative to facing, so a wall directly
+// behind the player (the tile one step opposite of facing) can sit right
+// on the camera-to-player line and hide the character sprite entirely.
+// That one wall panel — the one facing the player — is made mostly
+// transparent so the character stays visible; turning restores it to
+// normal and makes whichever wall is newly "behind" transparent instead.
+const BEHIND_WALL_OPACITY = 0.15;
+
 const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
 const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
 
-const CAMERA_DISTANCE = TILE_SIZE * 3.5;
-const CAMERA_PITCH = (20 * Math.PI) / 180; // 20 degrees from the ground
-const CAMERA_VERTICAL_OFFSET = CAMERA_DISTANCE * Math.sin(CAMERA_PITCH);
-const CAMERA_HORIZONTAL_OFFSET = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
+const CAMERA_PITCH = (20 * Math.PI) / 180; // 20 degrees from the ground — unchanged
+const CAMERA_HORIZONTAL_OFFSET = TILE_SIZE; // camera sits exactly 1 tile behind the player
+// Derived so the true camera->look-at angle is exactly CAMERA_PITCH: the
+// look-at target sits at LOOK_AT_HEIGHT, not ground level, so that offset
+// has to be folded in here too — otherwise the actual angle drifts from
+// CAMERA_PITCH once CAMERA_HORIZONTAL_OFFSET gets small (as it now is).
+const CAMERA_VERTICAL_OFFSET = LOOK_AT_HEIGHT + CAMERA_HORIZONTAL_OFFSET * Math.tan(CAMERA_PITCH);
+// Extra height added equally to the camera AND its look-at target — since it's
+// added to both, the view direction (and so the pitch) is unaffected; it just
+// aims the camera at a point above the character instead of straight at them,
+// so the character sits lower in frame rather than filling the whole screen.
+const CAMERA_LOOK_LIFT = TILE_SIZE * 1.5;
 const TWEEN_SPEED = 10; // per second; reaches ~95% of the way to target in ~300ms
 
 // Maps run.facing to the world-space direction the player is walking
@@ -107,7 +123,7 @@ export class DungeonRenderer3D {
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
 
-    this.tileMeshes = new Map(); // "x,y" -> { walls: [panel,...] } | { floor, marker, type }
+    this.tileMeshes = new Map(); // "x,y" -> { walls: [{mesh,dx,dy},...] } | { floor, marker, type }
     this.dungeonGroup = null;
     this.dungeon = null;
 
@@ -158,6 +174,8 @@ export class DungeonRenderer3D {
       faintFloor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
       wall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_DIM_KEEP, BACKGROUND_COLOR) }),
       faintWall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
+      // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above.
+      behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, opacity: BEHIND_WALL_OPACITY }),
       markers: Object.fromEntries(
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color })]),
       ),
@@ -246,7 +264,7 @@ export class DungeonRenderer3D {
             worldZ + (dy * TILE_SIZE) / 2,
           );
           this.dungeonGroup.add(panel);
-          walls.push(panel);
+          walls.push({ mesh: panel, dx, dy });
         });
         this.tileMeshes.set(tileKey(tile.x, tile.y), { walls, type: TILE_TYPES.WALL });
         return;
@@ -304,9 +322,9 @@ export class DungeonRenderer3D {
       const faint = dist > DIM_RADIUS; // implies dist <= FAINT_RADIUS given `visible` above
 
       if (entry.walls) {
-        entry.walls.forEach((panel) => {
-          panel.visible = visible;
-          panel.material = faint ? this._mat.faintWall : this._mat.wall;
+        entry.walls.forEach(({ mesh }) => {
+          mesh.visible = visible;
+          mesh.material = faint ? this._mat.faintWall : this._mat.wall;
         });
         return;
       }
@@ -322,6 +340,24 @@ export class DungeonRenderer3D {
   }
 
   /**
+   * If a wall sits directly behind the player (one tile opposite of
+   * `facing`), it can land right on the camera-to-player line and hide
+   * the character sprite — override just that one panel (the side facing
+   * the player) to the mostly-transparent behindWall material. Called
+   * after updateVisibility() so it overrides that panel's normal tiered
+   * material for this frame; the next call (any move or turn) resets
+   * everything via updateVisibility() first, so a wall that's no longer
+   * behind the player automatically reverts to opaque.
+   */
+  _applyBehindWallOcclusion(px, py, facing) {
+    const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
+    const behindEntry = this.tileMeshes.get(tileKey(px - facingVec.x, py - facingVec.z));
+    if (!behindEntry || !behindEntry.walls) return;
+    const panel = behindEntry.walls.find((w) => w.dx === facingVec.x && w.dy === facingVec.z);
+    if (panel) panel.mesh.material = this._mat.behindWall;
+  }
+
+  /**
    * Sets the camera/player target for the next tween step and recomputes
    * tile visibility immediately (visibility is tile-discrete, not tweened).
    * The camera sits behind the player relative to `facing`
@@ -331,17 +367,18 @@ export class DungeonRenderer3D {
    */
   setPlayerState({ x, y, facing }) {
     this.updateVisibility(x, y);
+    this._applyBehindWallOcclusion(x, y, facing);
 
     const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
     this.desiredPlayerPos.set(x * TILE_SIZE, 0, y * TILE_SIZE);
     this.desiredLookAt.set(
       this.desiredPlayerPos.x,
-      LOOK_AT_HEIGHT,
+      LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT,
       this.desiredPlayerPos.z,
     );
     this.desiredCameraPos.copy(this.desiredPlayerPos)
       .addScaledVector(facingVec, -CAMERA_HORIZONTAL_OFFSET)
-      .add(new THREE.Vector3(0, CAMERA_VERTICAL_OFFSET, 0));
+      .add(new THREE.Vector3(0, CAMERA_VERTICAL_OFFSET + CAMERA_LOOK_LIFT, 0));
 
     if (!this._playerStateInitialized) {
       this._playerStateInitialized = true;
