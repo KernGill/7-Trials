@@ -340,21 +340,36 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * If a wall sits directly behind the player (one tile opposite of
-   * `facing`), it can land right on the camera-to-player line and hide
-   * the character sprite — override just that one panel (the side facing
-   * the player) to the mostly-transparent behindWall material. Called
-   * after updateVisibility() so it overrides that panel's normal tiered
+   * A wall directly behind the player (one tile opposite of `facing`) can
+   * land right on the camera-to-player line and hide the character sprite.
+   * Widen the see-through window to 3 tiles — directly behind, plus the
+   * two tiles flanking it one step to each side — so there's a clear gap
+   * around the character instead of a single narrow slit. Called after
+   * updateVisibility() so it overrides those panels' normal tiered
    * material for this frame; the next call (any move or turn) resets
-   * everything via updateVisibility() first, so a wall that's no longer
-   * behind the player automatically reverts to opaque.
+   * everything via updateVisibility() first, so walls that are no longer
+   * behind the player automatically revert to opaque.
    */
   _applyBehindWallOcclusion(px, py, facing) {
     const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
-    const behindEntry = this.tileMeshes.get(tileKey(px - facingVec.x, py - facingVec.z));
-    if (!behindEntry || !behindEntry.walls) return;
-    const panel = behindEntry.walls.find((w) => w.dx === facingVec.x && w.dy === facingVec.z);
-    if (panel) panel.mesh.material = this._mat.behindWall;
+    // Perpendicular to facing (rotate the facing vector ±90° on the ground plane).
+    const perpA = { x: facingVec.z, z: -facingVec.x };
+    const perpB = { x: -facingVec.z, z: facingVec.x };
+    const behindX = px - facingVec.x;
+    const behindY = py - facingVec.z;
+
+    // Directly behind: only the one panel that actually faces the player.
+    const behindEntry = this.tileMeshes.get(tileKey(behindX, behindY));
+    const centerPanel = behindEntry?.walls?.find((w) => w.dx === facingVec.x && w.dy === facingVec.z);
+    if (centerPanel) centerPanel.mesh.material = this._mat.behindWall;
+
+    // The two flanking tiles: make all of their panels transparent, since
+    // they aren't cardinally adjacent to the player so there's no single
+    // "faces the player" panel to pick out.
+    [perpA, perpB].forEach((perp) => {
+      const sideEntry = this.tileMeshes.get(tileKey(behindX + perp.x, behindY + perp.z));
+      sideEntry?.walls?.forEach(({ mesh }) => { mesh.material = this._mat.behindWall; });
+    });
   }
 
   /**
