@@ -6,6 +6,19 @@ const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho fru
 
 const TILE_SIZE = 2;
 const WALL_HEIGHT = TILE_SIZE * 1.5;
+const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
+
+// A wall tile only gets geometry on the sides that actually border a
+// non-wall tile — a wall surrounded entirely by other walls renders
+// nothing at all, and a wall with floor on only one side gets a single
+// thin panel there, not a solid block filling the whole cell. This keeps
+// walls reading as boundaries between spaces rather than stacked blocks.
+const CARDINAL_DIRS = [
+  { dx: 0, dy: -1, side: 'north' },
+  { dx: 0, dy: 1, side: 'south' },
+  { dx: 1, dy: 0, side: 'east' },
+  { dx: -1, dy: 0, side: 'west' },
+];
 
 // Tile visibility is a live radius around the player, recomputed on every
 // move — not a persistent "once seen, always shown" memory. CLEAR_RADIUS
@@ -78,7 +91,7 @@ export class DungeonRenderer3D {
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
 
-    this.tileMeshes = new Map(); // "x,y" -> { wall } | { floor, marker, type }
+    this.tileMeshes = new Map(); // "x,y" -> { walls: [panel,...] } | { floor, marker, type }
     this.dungeonGroup = null;
     this.dungeon = null;
 
@@ -111,7 +124,11 @@ export class DungeonRenderer3D {
     // objects, never for plain architecture.
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
-      wall: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE),
+      // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
+      // wallPanelNS spans the tile's width, wallPanelEW spans its depth;
+      // both are only WALL_THICKNESS deep in the direction they face.
+      wallPanelNS: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS),
+      wallPanelEW: new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE),
       marker: new THREE.BoxGeometry(TILE_SIZE * 0.5, TILE_SIZE * 0.25, TILE_SIZE * 0.5),
       stairsMarker: new THREE.BoxGeometry(TILE_SIZE * 0.6, TILE_SIZE * 0.075, TILE_SIZE * 0.6),
       // Enemy tiles get their own plain cube for now (placeholder, per design).
@@ -186,15 +203,28 @@ export class DungeonRenderer3D {
     // tweening a long swoop across the whole dungeon.
     this._playerStateInitialized = false;
 
+    const tilesByKey = new Map(dungeon.tiles.map((t) => [tileKey(t.x, t.y), t]));
+
     dungeon.tiles.forEach((tile) => {
       const worldX = tile.x * TILE_SIZE;
       const worldZ = tile.y * TILE_SIZE;
 
       if (tile.type === TILE_TYPES.WALL) {
-        const wall = new THREE.Mesh(this._geo.wall, this._mat.wall);
-        wall.position.set(worldX, WALL_HEIGHT / 2, worldZ);
-        this.dungeonGroup.add(wall);
-        this.tileMeshes.set(tileKey(tile.x, tile.y), { wall, type: TILE_TYPES.WALL });
+        const walls = [];
+        CARDINAL_DIRS.forEach(({ dx, dy, side }) => {
+          const neighbor = tilesByKey.get(tileKey(tile.x + dx, tile.y + dy));
+          if (!neighbor || neighbor.type === TILE_TYPES.WALL) return; // no panel toward another wall or off-grid
+          const isNS = side === 'north' || side === 'south';
+          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, this._mat.wall);
+          panel.position.set(
+            worldX + (dx * TILE_SIZE) / 2,
+            WALL_HEIGHT / 2,
+            worldZ + (dy * TILE_SIZE) / 2,
+          );
+          this.dungeonGroup.add(panel);
+          walls.push(panel);
+        });
+        this.tileMeshes.set(tileKey(tile.x, tile.y), { walls, type: TILE_TYPES.WALL });
         return;
       }
 
@@ -247,8 +277,8 @@ export class DungeonRenderer3D {
       const dist = Math.max(Math.abs(Number(txStr) - px), Math.abs(Number(tyStr) - py));
       const visible = dist <= DIM_RADIUS;
 
-      if (entry.wall) {
-        entry.wall.visible = visible;
+      if (entry.walls) {
+        entry.walls.forEach((panel) => { panel.visible = visible; });
         return;
       }
       entry.floor.visible = visible;
