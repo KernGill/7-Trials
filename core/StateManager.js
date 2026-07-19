@@ -354,14 +354,14 @@ export class StateManager {
 
       if (config?.species === 'skeleton') {
         this.achievements.recordProgress('kill_one_skeleton', 1);
-        if (oneHitKill) progress.oneHitSkeleton = true;
       }
       if (config?.species === 'zombie') {
         this.achievements.recordProgress('kill_one_zombie', 1);
         progress.beatHollowedThisRun = true; // for Ossifying Chokehold's "die to IF after beating a Hollowed"
-        if (oneHitKill) progress.oneHitZombie = true;
       }
-      if (progress.oneHitSkeleton && progress.oneHitZombie) {
+      // Species-agnostic on purpose: any enemy — current or added later —
+      // one-hit-killed unlocks Rage of Vitalire, not just skeleton+zombie.
+      if (oneHitKill) {
         this.achievements.setComplete('beat_both_in_one_hit_each');
       }
       if (enemy.enemyId === 'indebted_fallen' || enemy.enemyId === 'indebted_fallen_boss') {
