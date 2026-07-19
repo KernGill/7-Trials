@@ -50,7 +50,12 @@ export class GameState {
     this.run = deepClone(DEFAULT_RUN);
     this.bestiary = {};
     this.combat = null;
-    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en' };
+    // gameSpeed: 1-5x multiplier on combat pacing (turn flashes, gaps,
+    // move/status beats). Defaults to 2x — twice the original pace —
+    // for everyone, new and existing saves alike (loadSnapshot's merge
+    // below only overwrites this if an already-saved settings object
+    // explicitly has its own gameSpeed value).
+    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2 };
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;

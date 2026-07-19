@@ -31,6 +31,10 @@ export class SettingsState {
         <input type="range" min="30" max="150" value="${Math.round(s.brightness * 100)}" class="brightness-slider">
       </div>
       <div class="settings-row">
+        <span class="gamespeed-label">${t('settings.game_speed', { mult: s.gameSpeed ?? 2 })}</span>
+        <input type="range" min="1" max="5" step="1" value="${s.gameSpeed ?? 2}" class="gamespeed-slider">
+      </div>
+      <div class="settings-row">
         <span>${t('settings.fps')}</span>
         <select class="fps-select">
           ${FPS_OPTIONS.map((fps) => `<option value="${fps}" ${fps === s.fps ? 'selected' : ''}>${fps}</option>`).join('')}
@@ -51,6 +55,11 @@ export class SettingsState {
       s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
       this.app.applyBrightness();
       this.body.querySelector('.brightness-label').textContent = t('settings.brightness', { percent: Math.round(s.brightness * 100) });
+    });
+    this.body.querySelector('.gamespeed-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.gamespeed-slider').addEventListener('input', (e) => {
+      s.gameSpeed = clamp(Number(e.target.value), 1, 5);
+      this.body.querySelector('.gamespeed-label').textContent = t('settings.game_speed', { mult: s.gameSpeed });
     });
     this.body.querySelector('.fps-select').addEventListener('change', (e) => {
       this.app.setFPS(Number(e.target.value));

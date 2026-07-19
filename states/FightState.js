@@ -177,9 +177,21 @@ export class FightState {
     this.playStep(this.playbackQueue.shift());
   }
 
+  /**
+   * Every timing constant in this file is written at its 1x baseline
+   * and passed through here before being handed to setTimeout — divides
+   * by the user's gameSpeed setting (1-5x, default 2x), so turning the
+   * slider up makes every beat proportionally shorter without having to
+   * touch the constants themselves or their relative timing.
+   */
+  scaled(ms) {
+    const speed = this.app.gameState.settings.gameSpeed ?? 2;
+    return ms / speed;
+  }
+
   /** The only source of the 1s inter-turn pause: whatever follows a `turnEnd` beat waits an extra second before starting its own beat. */
   playStep(step) {
-    const preDelay = this.lastStepKind === 'turnEnd' ? INTER_TURN_GAP_MS : 0;
+    const preDelay = this.lastStepKind === 'turnEnd' ? this.scaled(INTER_TURN_GAP_MS) : 0;
     this.timers.push(setTimeout(() => this.runStep(step), preDelay));
   }
 
@@ -244,7 +256,7 @@ export class FightState {
     this.timers.push(setTimeout(() => {
       this.els.flash.classList.add('hidden');
       this.finishStep();
-    }, FIGHT_TURN_FLASH_MS));
+    }, this.scaled(FIGHT_TURN_FLASH_MS)));
   }
 
   /**
@@ -257,7 +269,7 @@ export class FightState {
   playSpeedCheckStep(step) {
     step.combatants.forEach(({ character, speed }) => this.setDisplayedSpeed(character, speed));
     this.renderMoveOrder(step.actor);
-    this.timers.push(setTimeout(() => this.finishStep(), SPEED_CHECK_MS));
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(SPEED_CHECK_MS)));
   }
 
   playStatusTickStep(step) {
@@ -265,7 +277,7 @@ export class FightState {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
     this.spawnDamageNumber(step.character, `-${step.amount}`, cfg?.color ?? REGULAR_DAMAGE_COLOR);
-    this.timers.push(setTimeout(() => this.finishStep(), STATUS_TICK_MS));
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(STATUS_TICK_MS)));
   }
 
   playTurnStartStep(step) {
@@ -279,13 +291,13 @@ export class FightState {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
     this.renderMoveOrder(step.character);
-    this.timers.push(setTimeout(() => this.finishStep(), TURN_SKIP_MS));
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(TURN_SKIP_MS)));
   }
 
   playConsumableStep(step) {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
-    this.timers.push(setTimeout(() => this.finishStep(), CONSUMABLE_BEAT_MS));
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(CONSUMABLE_BEAT_MS)));
   }
 
   /** Holds on the character's just-reduced speed for a beat, so losing it from acting is actually visible before the next speedCheck compares again. */
@@ -294,7 +306,7 @@ export class FightState {
     this.setDisplayedSpeed(step.character, step.speed);
     this.renderCombatant(step.character);
     this.renderMoveOrder(step.character);
-    this.timers.push(setTimeout(() => this.finishStep(), TURN_END_SPEED_HOLD_MS));
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(TURN_END_SPEED_HOLD_MS)));
   }
 
   playMoveStep(step) {
@@ -302,7 +314,11 @@ export class FightState {
     if (!move) { this.finishStep(); return; } // enemy had nothing it could use — just a quiet beat
 
     const category = moveAnimationCategory(move);
-    this.playMoveAnimation(attacker, category);
+    const duration = this.scaled(
+      category === 'attack' ? ATTACK_DURATION_MS : category === 'defence' ? DEFENCE_DURATION_MS : SPECIAL_DURATION_MS,
+    );
+    const peak = this.scaled(category === 'attack' ? ATTACK_PEAK_MS : category === 'defence' ? DEFENCE_PEAK_MS : 0);
+    this.playMoveAnimation(attacker, category, duration);
 
     const applyEffects = () => {
       this.setDisplayed(attacker, step.attackerHealth, step.attackerEnergy);
@@ -311,9 +327,6 @@ export class FightState {
       this.renderCombatant(defender);
       this.spawnMoveDamageNumbers(step);
     };
-
-    const duration = category === 'attack' ? ATTACK_DURATION_MS : category === 'defence' ? DEFENCE_DURATION_MS : SPECIAL_DURATION_MS;
-    const peak = category === 'attack' ? ATTACK_PEAK_MS : category === 'defence' ? DEFENCE_PEAK_MS : 0;
 
     this.timers.push(setTimeout(applyEffects, peak));
     this.timers.push(setTimeout(() => this.finishStep(), duration));
@@ -412,7 +425,8 @@ export class FightState {
     if (statLines[1]) statLines[1].textContent = `${energy} / ${character.getMaxEnergy()}`;
   }
 
-  playMoveAnimation(attacker, category) {
+  /** `durationMs` is the already gameSpeed-scaled value the JS timers are using for this beat — set as a CSS var so the visual keyframe animation finishes at exactly the same moment, at any speed. */
+  playMoveAnimation(attacker, category, durationMs) {
     if (!this.els) return;
     const slot = attacker.isPlayer ? this.els.player : this.els.enemy;
     const box = slot?.querySelector('.avatar-box');
@@ -421,6 +435,7 @@ export class FightState {
     const animClass = category === 'attack' ? 'anim-attack' : category === 'defence' ? 'anim-defence' : 'anim-special';
 
     if (category === 'attack') box.style.setProperty('--attack-travel', `${this.attackTravelPx(attacker, box)}px`);
+    box.style.setProperty('--anim-duration', `${durationMs}ms`);
     box.classList.remove('anim-attack', 'anim-defence', 'anim-special');
     void box.offsetWidth; // restart the animation if it's still mid-flight
     box.classList.add(animClass);
@@ -446,10 +461,12 @@ export class FightState {
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 
+    const lifetime = this.scaled(DAMAGE_NUMBER_LIFETIME_MS);
     const el = document.createElement('div');
     el.className = `damage-number${isCrit ? ' crit' : ''}`;
     el.textContent = text;
     el.style.color = color;
+    el.style.setProperty('--damage-number-duration', `${lifetime}ms`);
     const offsetX = Math.round((Math.random() - 0.5) * 64);
     const offsetY = Math.round((Math.random() - 0.5) * 30) - 6;
     el.style.left = `calc(50% + ${offsetX}px)`;
@@ -458,7 +475,7 @@ export class FightState {
 
     const cleanup = () => el.remove();
     el.addEventListener('animationend', cleanup);
-    this.timers.push(setTimeout(cleanup, DAMAGE_NUMBER_LIFETIME_MS));
+    this.timers.push(setTimeout(cleanup, lifetime));
   }
 
   combatantHTML(c, label) {

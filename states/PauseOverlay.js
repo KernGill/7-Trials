@@ -107,6 +107,10 @@ export class PauseOverlay {
           <input type="range" min="30" max="150" value="${Math.round(s.brightness * 100)}" class="brightness-slider">
         </div>
         <div class="pause-row">
+          <span class="gamespeed-label">${t('settings.game_speed', { mult: s.gameSpeed ?? 2 })}</span>
+          <input type="range" min="1" max="5" step="1" value="${s.gameSpeed ?? 2}" class="gamespeed-slider">
+        </div>
+        <div class="pause-row">
           <span>${t('settings.language')}</span>
           <select class="language-select">
             ${LANGUAGE_OPTIONS.map((lang) => `<option value="${lang}" ${lang === s.language ? 'selected' : ''}>${t(`settings.language.${lang}`)}</option>`).join('')}
@@ -120,6 +124,11 @@ export class PauseOverlay {
       s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
       app.applyBrightness();
       this.el.querySelector('.brightness-label').textContent = t('settings.brightness', { percent: Math.round(s.brightness * 100) });
+    });
+    this.el.querySelector('.gamespeed-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.gamespeed-slider').addEventListener('input', (e) => {
+      s.gameSpeed = clamp(Number(e.target.value), 1, 5);
+      this.el.querySelector('.gamespeed-label').textContent = t('settings.game_speed', { mult: s.gameSpeed });
     });
     this.el.querySelector('.language-select').addEventListener('change', (e) => {
       app.setLanguage(e.target.value);

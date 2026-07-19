@@ -42,6 +42,7 @@ export const TRANSLATIONS = {
     // Settings
     'settings.title': 'SETTINGS',
     'settings.brightness': 'Brightness: {percent}%',
+    'settings.game_speed': 'Game Speed: {mult}x',
     'settings.fps': 'FPS (simulation rate)',
     'settings.sound': 'Sound: (no audio implemented yet)',
     'settings.on': 'On',
@@ -285,6 +286,7 @@ export const TRANSLATIONS = {
     // Settings
     'settings.title': 'AJUSTES',
     'settings.brightness': 'Brillo: {percent}%',
+    'settings.game_speed': 'Velocidad del Juego: {mult}x',
     'settings.fps': 'FPS (velocidad de simulación)',
     'settings.sound': 'Sonido: (audio aún no implementado)',
     'settings.on': 'Activado',

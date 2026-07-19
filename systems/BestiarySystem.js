@@ -5,21 +5,25 @@ export class BestiarySystem {
     this.gameState = gameState;
   }
 
+  /**
+   * name/description/stats/moveIds are refreshed from the current enemy
+   * config on *every* encounter, not just the first — otherwise a
+   * balance patch (stat tweaks, a reworked moveset) would leave anyone
+   * who'd already recorded that enemy staring at stale numbers forever.
+   * Only `kills` and `firstSeenArc` are genuinely one-way history, so
+   * those are the only fields actually preserved across encounters.
+   */
   recordEncounter(enemy) {
     const existing = this.gameState.bestiary[enemy.enemyId];
-    if (!existing) {
-      this.gameState.bestiary[enemy.enemyId] = {
-        id: enemy.enemyId,
-        name: enemy.name,
-        description: enemy.description,
-        kills: 1,
-        stats: { ...enemy.baseStats },
-        moveIds: [...enemy.moveIds],
-        firstSeenArc: this.gameState.meta.currentArc,
-      };
-    } else {
-      existing.kills += 1;
-    }
+    this.gameState.bestiary[enemy.enemyId] = {
+      id: enemy.enemyId,
+      name: enemy.name,
+      description: enemy.description,
+      kills: (existing?.kills ?? 0) + 1,
+      stats: { ...enemy.baseStats },
+      moveIds: [...enemy.moveIds],
+      firstSeenArc: existing?.firstSeenArc ?? this.gameState.meta.currentArc,
+    };
   }
 
   getEntries() {
