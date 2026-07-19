@@ -12,11 +12,11 @@ const WALL_HEIGHT = TILE_SIZE * 1.5;
 // is a Chebyshev (grid, not Euclidean) distance so it reads as a clean
 // square ring: dist<=1 is the 3x3 block centered on the player (the
 // player's own tile plus its 8 neighbors), dist<=2 is one further ring
-// out (rendered heavily dimmed), and anything past that isn't rendered
-// at all — true darkness, not just dark color.
+// out (rendered at reduced opacity, not darkened — see DIM_OPACITY),
+// and anything past that isn't rendered at all — true darkness.
 const CLEAR_RADIUS = 1;
 const DIM_RADIUS = 2;
-const DIM_BLEND = 0.18; // fraction of true color kept at the dim tier; rest is blended toward black
+const DIM_OPACITY = 0.25; // opacity for the outer ring; same color as up close, just faded, not darkened
 
 const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
@@ -51,11 +51,6 @@ const MARKER_COLORS = {
 
 function tileKey(x, y) {
   return `${x},${y}`;
-}
-
-/** Blends a color toward black, keeping `DIM_BLEND` of the original — used for the shadowy outer ring. */
-function dimColor(hex) {
-  return new THREE.Color(hex).lerp(new THREE.Color(0x000000), 1 - DIM_BLEND);
 }
 
 /**
@@ -107,8 +102,11 @@ export class DungeonRenderer3D {
 
     // Shared geometries/materials, reused across every tile mesh —
     // cheap to keep alive for the renderer's lifetime, disposed in unmount().
-    // Two material variants per color (clear/dim) implement the visibility
-    // tiers; the hidden tier is simply mesh.visible = false, no material.
+    // Walls and floor are deliberately NOT highlighted up close — they use
+    // the same plain color at both visibility tiers, only fading via
+    // opacity in the outer ring. Only markers (the actual objects sitting
+    // on a tile) get a distinct bright/prominent look up close; the hidden
+    // tier beyond that is simply mesh.visible = false, no material.
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
       wall: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE),
@@ -119,14 +117,14 @@ export class DungeonRenderer3D {
     };
     this._mat = {
       floor: new THREE.MeshBasicMaterial({ color: COLOR_FLOOR }),
-      dimFloor: new THREE.MeshBasicMaterial({ color: dimColor(COLOR_FLOOR) }),
+      transparentFloor: new THREE.MeshBasicMaterial({ color: COLOR_FLOOR, transparent: true, opacity: DIM_OPACITY }),
       wall: new THREE.MeshBasicMaterial({ color: COLOR_WALL }),
-      dimWall: new THREE.MeshBasicMaterial({ color: dimColor(COLOR_WALL) }),
+      transparentWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, opacity: DIM_OPACITY }),
       markers: Object.fromEntries(
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color })]),
       ),
-      dimMarkers: Object.fromEntries(
-        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color: dimColor(color) })]),
+      transparentMarkers: Object.fromEntries(
+        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: DIM_OPACITY })]),
       ),
     };
 
@@ -237,7 +235,7 @@ export class DungeonRenderer3D {
 
   /**
    * Recomputes every tile's visibility tier from the player's current grid
-   * position: clear (true color) within CLEAR_RADIUS, dimmed within
+   * position: full opacity within CLEAR_RADIUS, faded/transparent within
    * DIM_RADIUS, and not rendered at all beyond that. Runs on every move —
    * this is live sight, not a permanent "once seen" reveal.
    */
@@ -247,18 +245,18 @@ export class DungeonRenderer3D {
       const dist = Math.max(Math.abs(Number(txStr) - px), Math.abs(Number(tyStr) - py));
       const tier = dist <= CLEAR_RADIUS ? 'clear' : dist <= DIM_RADIUS ? 'dim' : 'hidden';
       const visible = tier !== 'hidden';
-      const dim = tier === 'dim';
+      const faded = tier === 'dim';
 
       if (entry.wall) {
         entry.wall.visible = visible;
-        entry.wall.material = dim ? this._mat.dimWall : this._mat.wall;
+        entry.wall.material = faded ? this._mat.transparentWall : this._mat.wall;
         return;
       }
       entry.floor.visible = visible;
-      entry.floor.material = dim ? this._mat.dimFloor : this._mat.floor;
+      entry.floor.material = faded ? this._mat.transparentFloor : this._mat.floor;
       if (entry.marker) {
         entry.marker.visible = visible;
-        entry.marker.material = dim ? this._mat.dimMarkers[entry.type] : this._mat.markers[entry.type];
+        entry.marker.material = faded ? this._mat.transparentMarkers[entry.type] : this._mat.markers[entry.type];
       }
     });
   }
