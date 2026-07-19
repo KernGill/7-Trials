@@ -6,7 +6,19 @@ import { getArcForFloor } from '../data/arcs.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 
-const DIR_FROM_DELTA = { '0,-1': 'north', '0,1': 'south', '-1,0': 'west', '1,0': 'east' };
+const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
+const FACING_DELTAS = {
+  north: { dx: 0, dy: -1 },
+  east: { dx: 1, dy: 0 },
+  south: { dx: 0, dy: 1 },
+  west: { dx: -1, dy: 0 },
+};
+
+/** Rotates a facing direction by `steps` 90-degree turns (+1 clockwise, -1 counterclockwise). */
+function rotateFacing(facing, steps) {
+  const idx = FACING_ORDER.indexOf(facing);
+  return FACING_ORDER[(idx + steps + FACING_ORDER.length) % FACING_ORDER.length];
+}
 
 /**
  * ExploreState — dungeon crawling. Top-level peer of FightState. Rendered
@@ -36,6 +48,13 @@ export class ExploreState {
       msg: root.querySelector('.floor-message'),
     };
     this.renderer3d = new DungeonRenderer3D();
+    // This ExploreState instance is a long-lived singleton (StateManager
+    // creates it once), but a fresh DungeonRenderer3D is created on every
+    // enter() — reset the sync guard so syncDungeon3D() below doesn't
+    // wrongly no-op just because `run.dungeon` didn't change (e.g.
+    // returning from combat on the same floor), leaving the new renderer's
+    // geometry never built.
+    this._synced3DDungeon = null;
     this.renderer3d.mount(this.els.grid);
     this.syncDungeon3D();
     this.syncPlayer3D();
@@ -116,15 +135,22 @@ export class ExploreState {
   handleKeydown(e) {
     if (this.app.gameState.paused || this.resultOpen) return;
     const key = e.key;
-    const moves = {
-      arrowup: [0, -1], w: [0, -1],
-      arrowdown: [0, 1], s: [0, 1],
-      arrowleft: [-1, 0], a: [-1, 0],
-      arrowright: [1, 0], d: [1, 0],
+    // WASD moves relative to the current facing (forward/back/strafe) and
+    // never changes facing itself. Left/right arrows turn in place —
+    // rotate facing without moving — independent of movement.
+    const moveActions = {
+      w: 'forward', arrowup: 'forward',
+      s: 'backward', arrowdown: 'backward',
+      a: 'strafeLeft',
+      d: 'strafeRight',
     };
-    if (moves[key]) {
+    const turnSteps = { arrowleft: -1, arrowright: 1 };
+    if (moveActions[key]) {
       e.originalEvent?.preventDefault?.();
-      this.movePlayer(...moves[key]);
+      this.moveRelative(moveActions[key]);
+    } else if (turnSteps[key] !== undefined) {
+      e.originalEvent?.preventDefault?.();
+      this.turnPlayer(turnSteps[key]);
     }
   }
 
@@ -132,16 +158,35 @@ export class ExploreState {
     return this.app.gameState.run.dungeon?.tiles.find((t) => t.x === x && t.y === y) ?? null;
   }
 
+  /** Turns facing by ±1 quarter-turn in place — no movement, no tile effects. */
+  turnPlayer(steps) {
+    const run = this.app.gameState.run;
+    if (!run.dungeon) return;
+    run.facing = rotateFacing(run.facing, steps);
+    this.syncPlayer3D();
+    this.app.saveSystem.save();
+  }
+
+  /** Resolves a forward/backward/strafeLeft/strafeRight action to a grid delta relative to the current facing. */
+  moveRelative(action) {
+    const run = this.app.gameState.run;
+    if (!run.dungeon) return;
+    const facing = run.facing;
+    let delta;
+    switch (action) {
+      case 'forward': delta = FACING_DELTAS[facing]; break;
+      case 'backward': { const f = FACING_DELTAS[facing]; delta = { dx: -f.dx, dy: -f.dy }; break; }
+      case 'strafeLeft': delta = FACING_DELTAS[rotateFacing(facing, -1)]; break;
+      case 'strafeRight': delta = FACING_DELTAS[rotateFacing(facing, 1)]; break;
+      default: return;
+    }
+    this.movePlayer(delta.dx, delta.dy);
+  }
+
   movePlayer(dx, dy) {
     const run = this.app.gameState.run;
     const dungeon = run.dungeon;
     if (!dungeon) return;
-    const dir = DIR_FROM_DELTA[`${dx},${dy}`];
-    if (dir) run.facing = dir;
-    // Push the turn to the 3D camera immediately, even if the move below
-    // ends up blocked — bumping a wall still turns the character to face
-    // it, per the early-return checks that follow.
-    this.syncPlayer3D();
     const nx = run.playerPosition.x + dx;
     const ny = run.playerPosition.y + dy;
     if (nx < 0 || ny < 0 || nx >= dungeon.width || ny >= dungeon.height) return;
