@@ -5,7 +5,7 @@ const BACKGROUND_COLOR = 0x0b0c10;
 const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho frustum
 
 const TILE_SIZE = 2;
-const WALL_HEIGHT = TILE_SIZE * 1.5;
+const WALL_HEIGHT = TILE_SIZE * 2.5;
 const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
 
 // A wall tile only gets geometry on the sides that actually border a
@@ -24,20 +24,24 @@ const CARDINAL_DIRS = [
 // move — not a persistent "once seen, always shown" memory. CLEAR_RADIUS
 // is a Chebyshev (grid, not Euclidean) distance so it reads as a clean
 // square ring: dist<=1 is the 3x3 block centered on the player (the
-// player's own tile plus its 8 neighbors) and dist<=2 is one further ring
-// out; anything past DIM_RADIUS isn't rendered at all — true darkness.
-// Walls/floor are visible (same faded look) anywhere within DIM_RADIUS —
-// CLEAR_RADIUS only matters for markers, which brighten up close.
+// player's own tile plus its 8 neighbors), dist<=2 is one ring out (dim —
+// faded but same color), dist<=3 is one further ring out still (faint —
+// even more transparent AND darker), and anything past FAINT_RADIUS isn't
+// rendered at all — true darkness. CLEAR_RADIUS only matters for markers,
+// which brighten up close; walls/floor just step through dim -> faint.
 const CLEAR_RADIUS = 1;
 const DIM_RADIUS = 2;
-const DIM_OPACITY = 0.25; // the one opacity walls/floor/dim-markers ever render at
+const FAINT_RADIUS = 3;
+const DIM_OPACITY = 0.25;
+const FAINT_OPACITY = 0.1; // more transparent than DIM_OPACITY
+const FAINT_COLOR_KEEP = 0.5; // faint tier also darkens: keeps half the true color, rest blended to black
 
 const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
 const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
 
 const CAMERA_DISTANCE = TILE_SIZE * 3.5;
-const CAMERA_PITCH = Math.PI / 4; // 45 degrees from the ground
+const CAMERA_PITCH = (20 * Math.PI) / 180; // 20 degrees from the ground
 const CAMERA_VERTICAL_OFFSET = CAMERA_DISTANCE * Math.sin(CAMERA_PITCH);
 const CAMERA_HORIZONTAL_OFFSET = CAMERA_DISTANCE * Math.cos(CAMERA_PITCH);
 const TWEEN_SPEED = 10; // per second; reaches ~95% of the way to target in ~300ms
@@ -65,6 +69,11 @@ const MARKER_COLORS = {
 
 function tileKey(x, y) {
   return `${x},${y}`;
+}
+
+/** Blends a color toward black, keeping `keepFraction` of the original — used for the faint outer ring. */
+function darkenColor(hex, keepFraction) {
+  return new THREE.Color(hex).lerp(new THREE.Color(0x000000), 1 - keepFraction);
 }
 
 /**
@@ -136,12 +145,17 @@ export class DungeonRenderer3D {
     };
     this._mat = {
       floor: new THREE.MeshBasicMaterial({ color: COLOR_FLOOR, transparent: true, opacity: DIM_OPACITY }),
+      faintFloor: new THREE.MeshBasicMaterial({ color: darkenColor(COLOR_FLOOR, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY }),
       wall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, opacity: DIM_OPACITY }),
+      faintWall: new THREE.MeshBasicMaterial({ color: darkenColor(COLOR_WALL, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY }),
       markers: Object.fromEntries(
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color })]),
       ),
       transparentMarkers: Object.fromEntries(
         Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: DIM_OPACITY })]),
+      ),
+      faintMarkers: Object.fromEntries(
+        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color: darkenColor(color, FAINT_COLOR_KEEP), transparent: true, opacity: FAINT_OPACITY })]),
       ),
     };
 
@@ -265,26 +279,32 @@ export class DungeonRenderer3D {
 
   /**
    * Recomputes every tile's visibility tier from the player's current grid
-   * position. Walls and floor only ever toggle visible/hidden — their
-   * material never changes, so they never brighten up close. Markers are
-   * the one thing that brighten: full opacity within CLEAR_RADIUS, faded
-   * within DIM_RADIUS. Nothing renders beyond DIM_RADIUS. Runs on every
-   * move — this is live sight, not a permanent "once seen" reveal.
+   * position: clear (dist<=CLEAR_RADIUS, markers only — walls/floor use
+   * the same look as dim), dim (dist<=DIM_RADIUS), faint (dist<=FAINT_RADIUS
+   * — more transparent AND darker than dim), and hidden beyond that. Runs
+   * on every move — this is live sight, not a permanent "once seen" reveal.
    */
   updateVisibility(px, py) {
     this.tileMeshes.forEach((entry, key) => {
       const [txStr, tyStr] = key.split(',');
       const dist = Math.max(Math.abs(Number(txStr) - px), Math.abs(Number(tyStr) - py));
-      const visible = dist <= DIM_RADIUS;
+      const visible = dist <= FAINT_RADIUS;
+      const faint = dist > DIM_RADIUS; // implies dist <= FAINT_RADIUS given `visible` above
 
       if (entry.walls) {
-        entry.walls.forEach((panel) => { panel.visible = visible; });
+        entry.walls.forEach((panel) => {
+          panel.visible = visible;
+          panel.material = faint ? this._mat.faintWall : this._mat.wall;
+        });
         return;
       }
       entry.floor.visible = visible;
+      entry.floor.material = faint ? this._mat.faintFloor : this._mat.floor;
       if (entry.marker) {
         entry.marker.visible = visible;
-        entry.marker.material = dist <= CLEAR_RADIUS ? this._mat.markers[entry.type] : this._mat.transparentMarkers[entry.type];
+        entry.marker.material = dist <= CLEAR_RADIUS ? this._mat.markers[entry.type]
+          : faint ? this._mat.faintMarkers[entry.type]
+          : this._mat.transparentMarkers[entry.type];
       }
     });
   }
@@ -294,8 +314,8 @@ export class DungeonRenderer3D {
    * tile visibility immediately (visibility is tile-discrete, not tweened).
    * The camera sits behind the player relative to `facing`
    * (over-the-shoulder), looking toward the direction they're walking, at
-   * a fixed 45-degree pitch. On the very first call, snaps instantly
-   * instead of tweening in from the origin.
+   * a fixed CAMERA_PITCH. On the very first call, snaps instantly instead
+   * of tweening in from the origin.
    */
   setPlayerState({ x, y, facing }) {
     this.updateVisibility(x, y);
