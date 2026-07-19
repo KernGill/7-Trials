@@ -17,8 +17,12 @@ function computeDungeonDimensions(tilesPerFloor) {
  * Organic dungeon: starts all-WALL, then random-walks a connected path
  * of `tilesPerFloor` floor tiles from the center. Only carved tiles are
  * ever rendered, so the map reads as an actual dungeon shape rather
- * than a filled rectangle. Stairs are always placed on an edge tile
- * (per design doc) so they can't wall off enemy/treasure tiles.
+ * than a filled rectangle. Carving is confined to the interior (never the
+ * outermost ring of the grid), so that ring stays permanent wall and the
+ * floor always reads as a sealed space — no separate border-wrap step
+ * needed. Stairs are always placed on an edge tile of that carveable
+ * interior (per design doc) so they can't wall off enemy/treasure tiles,
+ * and are still guaranteed a wall just beyond them either way.
  * Regenerated fresh every time the player takes the stairs.
  */
 export class DungeonGenerator {
@@ -41,14 +45,16 @@ export class DungeonGenerator {
     const carved = [at(cx, cy)];
     carved[0].type = TILE_TYPES.FLOOR;
 
-    const target = Math.min(this.arcConfig.tilesPerFloor ?? 50, width * height - 1);
+    // Carveable interior excludes the outermost ring on every side, which
+    // is what keeps that ring permanently WALL without padding the grid.
+    const target = Math.min(this.arcConfig.tilesPerFloor ?? 50, (width - 2) * (height - 2) - 1);
     let guard = 0;
     while (carved.length < target && guard < 10000) {
       guard += 1;
       const [dx, dy] = DIRS[randomInt(0, 3)];
       const nx = cx + dx;
       const ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= height - 1) continue;
       cx = nx;
       cy = ny;
       const tile = at(cx, cy);
@@ -59,7 +65,7 @@ export class DungeonGenerator {
     }
 
     const startTile = carved[0];
-    const isEdge = (t) => t.x === 0 || t.y === 0 || t.x === width - 1 || t.y === height - 1;
+    const isEdge = (t) => t.x === 1 || t.y === 1 || t.x === width - 2 || t.y === height - 2;
     const edgeCandidates = carved.filter((t) => t !== startTile && isEdge(t));
     const stairsTile = edgeCandidates.length ? shuffle(edgeCandidates)[0]
       : shuffle(carved.filter((t) => t !== startTile))[0];
@@ -94,35 +100,15 @@ export class DungeonGenerator {
       treasureTile.type = TILE_TYPES.TREASURE;
     }
 
-    // Wrap the carved interior in a 1-tile border of permanent walls so no
-    // carved tile — including the stairs, which are deliberately placed on
-    // an edge tile above — is ever exposed to open void at the map
-    // boundary. The whole floor reads as a sealed space from any angle.
-    const outerWidth = width + 2;
-    const outerHeight = height + 2;
-    const bordered = [];
-    for (let y = 0; y < outerHeight; y += 1) {
-      for (let x = 0; x < outerWidth; x += 1) {
-        bordered.push(new Tile(x, y, TILE_TYPES.WALL));
-      }
-    }
-    const atOuter = (x, y) => bordered[y * outerWidth + x];
-    tiles.forEach((tile) => {
-      const shifted = atOuter(tile.x + 1, tile.y + 1);
-      shifted.type = tile.type;
-      shifted.meta = tile.meta;
-      shifted.explored = tile.explored;
-    });
-
     return {
       floor,
       seed,
-      width: outerWidth,
-      height: outerHeight,
-      tiles: bordered,
+      width,
+      height,
+      tiles,
       tilesTotal: carved.length,
       tilesExplored: 0,
-      playerPos: { x: startTile.x + 1, y: startTile.y + 1 },
+      playerPos: { x: startTile.x, y: startTile.y },
       enemiesRemaining: enemyCount,
     };
   }
