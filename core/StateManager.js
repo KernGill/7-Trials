@@ -18,6 +18,7 @@ import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
 import { getEnemyConfig } from '../data/enemies.js';
+import { getItemConfig } from '../data/items.js';
 import { HomeState } from '../states/HomeState.js';
 import { ExploreState } from '../states/ExploreState.js';
 import { FightState } from '../states/FightState.js';
@@ -354,14 +355,14 @@ export class StateManager {
 
       if (config?.species === 'skeleton') {
         this.achievements.recordProgress('kill_one_skeleton', 1);
+        if (oneHitKill && this.hasOnlyArc0EquipmentEquipped()) progress.oneHitSkeletonArc0 = true;
       }
       if (config?.species === 'zombie') {
         this.achievements.recordProgress('kill_one_zombie', 1);
         progress.beatHollowedThisRun = true; // for Ossifying Chokehold's "die to IF after beating a Hollowed"
+        if (oneHitKill && this.hasOnlyArc0EquipmentEquipped()) progress.oneHitZombieArc0 = true;
       }
-      // Species-agnostic on purpose: any enemy — current or added later —
-      // one-hit-killed unlocks Rage of Vitalire, not just skeleton+zombie.
-      if (oneHitKill) {
+      if (progress.oneHitSkeletonArc0 && progress.oneHitZombieArc0) {
         this.achievements.setComplete('beat_both_in_one_hit_each');
       }
       if (enemy.enemyId === 'indebted_fallen' || enemy.enemyId === 'indebted_fallen_boss') {
@@ -390,6 +391,13 @@ export class StateManager {
     // .movePlayer for why entering combat itself isn't a checkpoint).
     this.saveSystem.save();
     this.setState(GAME_STATES.EXPLORE);
+  }
+
+  /** Every currently-equipped item must be Arc0 gear — used by Rage of Vitalire's achievement gate. */
+  hasOnlyArc0EquipmentEquipped() {
+    const equipped = this.inventory.getEquippedItems();
+    const ids = Object.values(equipped).flatMap((v) => (Array.isArray(v) ? v : (v ? [v] : [])));
+    return ids.every((id) => getItemConfig(id)?.arc === 0);
   }
 
   onCombatDefeat() {

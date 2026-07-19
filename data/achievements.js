@@ -47,10 +47,7 @@ export const ACHIEVEMENTS = {
   beat_both_in_one_hit_each: {
     id: 'beat_both_in_one_hit_each',
     name: "Vitalire's Wrath",
-    // Deliberately species-agnostic: any enemy, present or future,
-    // felled in a single hit counts — see StateManager.onCombatVictory's
-    // oneHitKill check, which doesn't gate on species/enemyId at all.
-    description: 'Defeat any enemy in a single hit.',
+    description: 'In one run, using only Arc0 equipment, defeat a skeleton-type enemy and a zombie-type enemy each in a single hit.',
     target: 1,
   },
 };
