@@ -194,11 +194,14 @@ export class ExploreState {
     if (!tile || !tile.isWalkable()) return;
 
     run.playerPosition = { x: nx, y: ny };
+    // syncPlayer3D() (below) already recomputes every tile's visibility
+    // tier from the new position on every move — no separate reveal call
+    // needed; the "explored" flag here is purely the permanent HUD/save
+    // progress counter, unrelated to what's currently visible on screen.
     this.syncPlayer3D();
     if (!tile.explored) {
       tile.explored = true;
       run.tilesExplored += 1;
-      this.renderer3d?.revealTile(tile);
     }
 
     // Enemy tiles hand off to FightState immediately — nothing left on

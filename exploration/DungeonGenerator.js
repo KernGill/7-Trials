@@ -94,15 +94,35 @@ export class DungeonGenerator {
       treasureTile.type = TILE_TYPES.TREASURE;
     }
 
+    // Wrap the carved interior in a 1-tile border of permanent walls so no
+    // carved tile — including the stairs, which are deliberately placed on
+    // an edge tile above — is ever exposed to open void at the map
+    // boundary. The whole floor reads as a sealed space from any angle.
+    const outerWidth = width + 2;
+    const outerHeight = height + 2;
+    const bordered = [];
+    for (let y = 0; y < outerHeight; y += 1) {
+      for (let x = 0; x < outerWidth; x += 1) {
+        bordered.push(new Tile(x, y, TILE_TYPES.WALL));
+      }
+    }
+    const atOuter = (x, y) => bordered[y * outerWidth + x];
+    tiles.forEach((tile) => {
+      const shifted = atOuter(tile.x + 1, tile.y + 1);
+      shifted.type = tile.type;
+      shifted.meta = tile.meta;
+      shifted.explored = tile.explored;
+    });
+
     return {
       floor,
       seed,
-      width,
-      height,
-      tiles,
+      width: outerWidth,
+      height: outerHeight,
+      tiles: bordered,
       tilesTotal: carved.length,
       tilesExplored: 0,
-      playerPos: { x: startTile.x, y: startTile.y },
+      playerPos: { x: startTile.x + 1, y: startTile.y + 1 },
       enemiesRemaining: enemyCount,
     };
   }
