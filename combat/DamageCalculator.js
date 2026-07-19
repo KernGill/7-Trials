@@ -20,7 +20,10 @@ export class DamageCalculator {
   }
 
   static calculateBaseDamage(attacker, move) {
-    const scalingStat = this.getScalingStat(attacker, move.scaling);
+    // Direct damage only benefits from half the scaling stat now — str/
+    // dex/int still matter, but a move's flat `damage` base carries
+    // more relative weight than before.
+    const scalingStat = this.getScalingStat(attacker, move.scaling) * 0.5;
     let damage = move.damage + scalingStat;
 
     const frostStacks = attacker.getStatusStacks('frost');

@@ -271,6 +271,7 @@ export const MOVE_TEMPLATES = {
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
     debuffs: [{ effect: 'poison', stacksMin: 1, stacksMax: 2 }],
     trigger: 'fight_turn_start',
+    triggerInterval: 2,
   },
   bone_shards: {
     id: 'bone_shards',

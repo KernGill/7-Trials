@@ -35,6 +35,8 @@ const ATTACK_TRAVEL_RATIO = 0.85;
 // hit (or the brace) is what's causing the effect.
 const FIGHT_TURN_FLASH_MS = 1000;
 const INTER_TURN_GAP_MS = 1000; // pause after a turn ends, before the next one's first beat
+const SPEED_CHECK_MS = 1000; // holding both speeds on screen, winner highlighted, before their turn begins
+const TURN_END_SPEED_HOLD_MS = 600; // holding the post-loss speed once a turn ends, before the inter-turn gap
 const STATUS_TICK_MS = 500;
 const TURN_SKIP_MS = 600;
 const CONSUMABLE_BEAT_MS = 500;
@@ -81,9 +83,17 @@ const CATEGORY_LABEL_KEYS = {
  * Because the underlying mutations already happened by the time replay
  * starts, the two avatar boxes can't just re-render from `character
  * .currentHealth` — that's already the *final* post-cascade value. Each
- * step instead carries a snapshot of the exact health/energy it should
- * show once its beat arrives; `displayed` tracks the currently-revealed
- * value per character, fed by those snapshots as playback proceeds.
+ * step instead carries a snapshot of the exact health/energy/speed it
+ * should show once its beat arrives; `displayed`/`displayedSpeed` track
+ * the currently-revealed values per character, fed by those snapshots
+ * as playback proceeds.
+ *
+ * Turn order itself gets the same treatment: CombatManager decides who
+ * goes next instantly, but a `speedCheck` beat shows every combatant's
+ * current speed (highlighting the winner) *before* that character's
+ * turn plays, and `turnEnd` holds on their post-loss speed for a beat
+ * afterward — so the speed comparison that actually drives turn order
+ * is something you watch happen, not just a result you're told.
  */
 export class FightState {
   constructor(app) {
@@ -94,6 +104,7 @@ export class FightState {
     this.playing = false;
     this.lastStepKind = null;
     this.displayed = new Map();
+    this.displayedSpeed = new Map();
     this.pendingEndCallback = null;
     this.timers = [];
   }
@@ -105,6 +116,7 @@ export class FightState {
     this.playing = false;
     this.lastStepKind = null;
     this.displayed = new Map();
+    this.displayedSpeed = new Map();
     this.pendingEndCallback = null;
     this.timers.forEach((id) => clearTimeout(id));
     this.timers = [];
@@ -176,6 +188,7 @@ export class FightState {
     switch (step.kind) {
       case 'fightInit': return this.playFightInitStep(step);
       case 'fightTurn': return this.playFightTurnStep(step);
+      case 'speedCheck': return this.playSpeedCheckStep(step);
       case 'statusTick': return this.playStatusTickStep(step);
       case 'turnStart': return this.playTurnStartStep(step);
       case 'turnSkip': return this.playTurnSkipStep(step);
@@ -215,7 +228,10 @@ export class FightState {
   // --- Individual step players -------------------------------------------
 
   playFightInitStep(step) {
-    step.combatants.forEach(({ character, health, energy }) => this.setDisplayed(character, health, energy));
+    step.combatants.forEach(({ character, health, energy, speed }) => {
+      this.setDisplayed(character, health, energy);
+      this.setDisplayedSpeed(character, speed);
+    });
     this.renderAll();
     this.finishStep();
   }
@@ -229,6 +245,19 @@ export class FightState {
       this.els.flash.classList.add('hidden');
       this.finishStep();
     }, FIGHT_TURN_FLASH_MS));
+  }
+
+  /**
+   * Every combatant's current speed, side by side, with whoever's about
+   * to act highlighted — held on screen for a beat *before* that
+   * character's own turn starts, so the comparison that decided it is
+   * something the player actually watches rather than a result they're
+   * just told.
+   */
+  playSpeedCheckStep(step) {
+    step.combatants.forEach(({ character, speed }) => this.setDisplayedSpeed(character, speed));
+    this.renderMoveOrder(step.actor);
+    this.timers.push(setTimeout(() => this.finishStep(), SPEED_CHECK_MS));
   }
 
   playStatusTickStep(step) {
@@ -259,10 +288,13 @@ export class FightState {
     this.timers.push(setTimeout(() => this.finishStep(), CONSUMABLE_BEAT_MS));
   }
 
+  /** Holds on the character's just-reduced speed for a beat, so losing it from acting is actually visible before the next speedCheck compares again. */
   playTurnEndStep(step) {
     this.setDisplayed(step.character, step.health, step.energy);
+    this.setDisplayedSpeed(step.character, step.speed);
     this.renderCombatant(step.character);
-    this.finishStep();
+    this.renderMoveOrder(step.character);
+    this.timers.push(setTimeout(() => this.finishStep(), TURN_END_SPEED_HOLD_MS));
   }
 
   playMoveStep(step) {
@@ -321,6 +353,17 @@ export class FightState {
     return this.displayed.get(character);
   }
 
+  setDisplayedSpeed(character, speed) {
+    if (!character) return;
+    this.displayedSpeed.set(character, speed);
+  }
+
+  getDisplayedSpeed(character) {
+    if (!character) return 0;
+    if (!this.displayedSpeed.has(character)) this.displayedSpeed.set(character, character.battleSpeed);
+    return this.displayedSpeed.get(character);
+  }
+
   /** Full initial build for a combatant's box — only ever used before any animation is in flight (enter/pause/idle-settle), never mid-beat, since it replaces the whole node (and would wipe a running CSS animation). */
   renderAll() {
     const { app } = this;
@@ -346,9 +389,9 @@ export class FightState {
   renderMoveOrder(highlight = null) {
     if (!this.els) return;
     const combat = this.app.combatManager;
-    const order = [...combat.combatants].sort((a, b) => b.battleSpeed - a.battleSpeed);
+    const order = [...combat.combatants].sort((a, b) => this.getDisplayedSpeed(b) - this.getDisplayedSpeed(a));
     this.els.order.innerHTML = `<div class="order-title">${t('fight.move_order')}</div>` +
-      order.map((c) => `<div class="${c === highlight ? 'order-active' : ''}">${c.name}: ${Math.round(c.battleSpeed)}</div>`).join('');
+      order.map((c) => `<div class="${c === highlight ? 'order-active' : ''}">${c.name}: ${Math.round(this.getDisplayedSpeed(c))}</div>`).join('');
   }
 
   /**

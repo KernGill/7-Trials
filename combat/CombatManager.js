@@ -85,7 +85,7 @@ export class CombatManager {
     [player, ...enemies].forEach((c) => c.resetBattleState());
     this.record({
       kind: 'fightInit',
-      combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy })),
+      combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy, speed: c.battleSpeed })),
     });
     this.applyExplorationBuffs();
     this.triggerPassives('fight_start');
@@ -219,6 +219,14 @@ export class CombatManager {
     if (!actor) return;
 
     this.currentActor = actor;
+    // A distinct beat showing every combatant's current battleSpeed
+    // *before* revealing whose turn this is — so the comparison that
+    // decides the next actor is actually visible, not just its result.
+    this.record({
+      kind: 'speedCheck',
+      combatants: this.combatants.map((c) => ({ character: c, speed: c.battleSpeed })),
+      actor,
+    });
     const skip = this.turnOrder.onCharacterTurnStart(actor);
     if (skip.skipped) {
       this.logMessage(t('log.stunned_skip', { name: actor.name }));
@@ -249,7 +257,7 @@ export class CombatManager {
     this.turnOrder.onCharacterTurnEnd(actor);
     if (!actor.isPlayer) this.enemyAI.onTurnEnd();
     this.statusSystem.tickCharacterTurnEnd(actor, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'characterTurnEnd'));
-    this.record({ kind: 'turnEnd', character: actor, health: actor.currentHealth, energy: actor.energy });
+    this.record({ kind: 'turnEnd', character: actor, health: actor.currentHealth, energy: actor.energy, speed: actor.battleSpeed });
     this.advanceTurn();
   }
 
