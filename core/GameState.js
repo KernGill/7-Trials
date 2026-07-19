@@ -22,6 +22,7 @@ const DEFAULT_RUN = {
   inTreasureRoom: false,
   dungeonSeed: null,
   playerPosition: { x: 0, y: 0 },
+  facing: 'south',
   dungeon: null,
   consumables: [],
   materials: {},

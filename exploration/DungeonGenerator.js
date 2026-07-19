@@ -3,6 +3,16 @@ import { randomInt, shuffle } from '../utils/MathUtils.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
+const CARVE_DENSITY = 0.3125; // target carved-tile fraction of the grid
+
+/** Derives a 5:4-ish grid big enough to comfortably carve `tilesPerFloor` floor tiles. */
+function computeDungeonDimensions(tilesPerFloor) {
+  const area = tilesPerFloor / CARVE_DENSITY;
+  const width = Math.round(Math.sqrt(area * 1.25));
+  const height = Math.round(width * 0.8);
+  return { width, height };
+}
+
 /**
  * Organic dungeon: starts all-WALL, then random-walks a connected path
  * of `tilesPerFloor` floor tiles from the center. Only carved tiles are
@@ -17,8 +27,7 @@ export class DungeonGenerator {
   }
 
   generate(floor, seed = Date.now()) {
-    const width = 14;
-    const height = 10;
+    const { width, height } = computeDungeonDimensions(this.arcConfig.tilesPerFloor ?? 50);
     const tiles = [];
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {

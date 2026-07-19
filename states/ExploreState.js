@@ -1,20 +1,18 @@
 import { TILE_TYPES } from '../exploration/Tile.js';
 import { PauseOverlay } from './PauseOverlay.js';
-import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { t, tData } from '../ui/i18n.js';
+import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 
-const VIEW_W = 9;
-const VIEW_H = 7;
+const DIR_FROM_DELTA = { '0,-1': 'north', '0,1': 'south', '-1,0': 'west', '1,0': 'east' };
 
 /**
- * ExploreState — dungeon crawling. Top-level peer of FightState. Only
- * a VIEW_W x VIEW_H window around the player renders at once (the
- * floor is bigger than the screen, per design doc). Walking onto an
- * enemy tile calls app.startCombat(), which immediately transitions
- * to FIGHT — no intermediate flag.
+ * ExploreState — dungeon crawling. Top-level peer of FightState. Rendered
+ * as an oblique 3D scene by DungeonRenderer3D, mounted into `.dungeon-grid`.
+ * Walking onto an enemy tile calls app.startCombat(), which immediately
+ * transitions to FIGHT — no intermediate flag.
  */
 export class ExploreState {
   constructor(app) {
@@ -37,12 +35,34 @@ export class ExploreState {
       grid: root.querySelector('.dungeon-grid'),
       msg: root.querySelector('.floor-message'),
     };
+    this.renderer3d = new DungeonRenderer3D();
+    this.renderer3d.mount(this.els.grid);
+    this.syncDungeon3D();
+    this.syncPlayer3D();
     this.app.input.on('keydown', this._onKeydown);
-    this.renderAll();
+    this.renderHUD();
+  }
+
+  /** Rebuilds the 3D renderer's tile geometry when run.dungeon changes (new floor). No-op if already in sync. */
+  syncDungeon3D() {
+    if (!this.renderer3d) return;
+    const { dungeon } = this.app.gameState.run;
+    if (dungeon && dungeon !== this._synced3DDungeon) {
+      this.renderer3d.setDungeon(dungeon);
+      this._synced3DDungeon = dungeon;
+    }
+  }
+
+  /** Pushes the current position/facing to the 3D renderer's camera+sprite target. */
+  syncPlayer3D() {
+    if (!this.renderer3d) return;
+    const run = this.app.gameState.run;
+    this.renderer3d.setPlayerState({ x: run.playerPosition.x, y: run.playerPosition.y, facing: run.facing });
   }
 
   exit() {
     this.app.input.off('keydown', this._onKeydown);
+    this.renderer3d?.unmount();
     this.pause.unmount();
   }
 
@@ -79,7 +99,7 @@ export class ExploreState {
     this.app.trackConsumableUsed(id);
     this.app.gameState.run.savedHealth = this.player.currentHealth;
     this.app.saveSystem.save();
-    this.renderAll();
+    this.renderHUD();
   }
 
   tick(dt) {
@@ -116,6 +136,12 @@ export class ExploreState {
     const run = this.app.gameState.run;
     const dungeon = run.dungeon;
     if (!dungeon) return;
+    const dir = DIR_FROM_DELTA[`${dx},${dy}`];
+    if (dir) run.facing = dir;
+    // Push the turn to the 3D camera immediately, even if the move below
+    // ends up blocked — bumping a wall still turns the character to face
+    // it, per the early-return checks that follow.
+    this.syncPlayer3D();
     const nx = run.playerPosition.x + dx;
     const ny = run.playerPosition.y + dy;
     if (nx < 0 || ny < 0 || nx >= dungeon.width || ny >= dungeon.height) return;
@@ -123,7 +149,12 @@ export class ExploreState {
     if (!tile || !tile.isWalkable()) return;
 
     run.playerPosition = { x: nx, y: ny };
-    if (!tile.explored) { tile.explored = true; run.tilesExplored += 1; }
+    this.syncPlayer3D();
+    if (!tile.explored) {
+      tile.explored = true;
+      run.tilesExplored += 1;
+      this.renderer3d?.revealTile(tile);
+    }
 
     // Enemy tiles hand off to FightState immediately — nothing left on
     // this screen to render or save. Autosaving here would also let a
@@ -136,8 +167,10 @@ export class ExploreState {
     }
 
     this.handleTileEffect(tile);
+    this.syncDungeon3D(); // no-op unless handleTileEffect just generated a new floor (STAIRS)
+    this.syncPlayer3D(); // re-sync in case a floor transition just reset playerPosition to the new spawn
     this.app.saveSystem.save();
-    this.renderAll();
+    this.renderHUD();
   }
 
   handleTileEffect(tile) {
@@ -232,9 +265,8 @@ export class ExploreState {
     });
   }
 
-  renderAll() {
-    const { app } = this;
-    const run = app.gameState.run;
+  renderHUD() {
+    const run = this.app.gameState.run;
     const dungeon = run.dungeon;
 
     this.els.hud.innerHTML = `
@@ -243,38 +275,5 @@ export class ExploreState {
       <span>${t('explore.enemies_remaining', { n: run.enemiesRemaining })}</span>
       <span>${t('explore.hp', { current: this.player.currentHealth, max: this.player.getMaxHealth() })}</span>`;
     this.els.msg.textContent = run.floorMessage?.text ?? '';
-
-    if (!dungeon) return;
-    const px = run.playerPosition.x;
-    const py = run.playerPosition.y;
-    const startX = clamp(px - Math.floor(VIEW_W / 2), 0, Math.max(0, dungeon.width - VIEW_W));
-    const startY = clamp(py - Math.floor(VIEW_H / 2), 0, Math.max(0, dungeon.height - VIEW_H));
-
-    let html = '';
-    for (let y = startY; y < startY + VIEW_H; y += 1) {
-      for (let x = startX; x < startX + VIEW_W; x += 1) {
-        const tile = this.getTileAt(x, y);
-        html += this.tileHTML(tile, x === px && y === py);
-      }
-    }
-    this.els.grid.style.gridTemplateColumns = `repeat(${VIEW_W}, 1fr)`;
-    this.els.grid.innerHTML = html;
-  }
-
-  tileHTML(tile, isPlayer) {
-    if (!tile || tile.type === TILE_TYPES.WALL) return '<div class="dtile blank"></div>';
-    let label = '';
-    let cls = 'dtile';
-    if (tile.explored) {
-      if (tile.type === TILE_TYPES.ENEMY) { cls += ' t-enemy'; label = t('tile.enemy'); }
-      else if (tile.type === TILE_TYPES.STAIRS) { cls += ' t-stairs'; label = t('tile.stairs'); }
-      else if (tile.type === TILE_TYPES.LOCKED_DOOR) { cls += ' t-locked'; label = t('tile.locked_room'); }
-      else if (tile.type === TILE_TYPES.TREASURE) { cls += ' t-treasure'; label = t('tile.chest'); }
-      else cls += ' t-floor';
-    } else {
-      cls += ' t-unseen';
-    }
-    if (isPlayer) { cls += ' t-player'; label = t('tile.player'); }
-    return `<div class="${cls}">${label}</div>`;
   }
 }

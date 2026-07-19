@@ -279,6 +279,7 @@ export class StateManager {
       tilesExplored: 0,
       enemiesRemaining: arc.enemiesPerFloor,
       playerPosition: { x: 0, y: 0 },
+      facing: 'south',
       dungeon: null,
       consumables: { ...this.gameState.player.consumables },
       materials: {},
