@@ -5,8 +5,12 @@ import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { rollCardOffer } from '../data/cards.js';
 import { cardTileHTML } from '../ui/InfoFormatters.js';
+import { arrowIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
+import { CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
+import { randomInt } from '../utils/MathUtils.js';
+import { pickRandom } from '../utils/RandomUtils.js';
 
 const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
 const FACING_DELTAS = {
@@ -15,6 +19,18 @@ const FACING_DELTAS = {
   south: { dx: 0, dy: 1 },
   west: { dx: -1, dy: 0 },
 };
+
+const QTE_DIRECTIONS = ['up', 'down', 'left', 'right'];
+const QTE_DIRECTION_KEYS = {
+  w: 'up', arrowup: 'up',
+  s: 'down', arrowdown: 'down',
+  a: 'left', arrowleft: 'left',
+  d: 'right', arrowright: 'right',
+};
+const QTE_BASE_SECONDS = 5;
+const QTE_DEX_SECONDS_INTERVAL = 50;
+const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
+const REWARD_FLOOR_BONUS_PER_FLOOR = 0.10;
 
 /** Rotates a facing direction by `steps` 90-degree turns (+1 clockwise, -1 counterclockwise). */
 function rotateFacing(facing, steps) {
@@ -33,6 +49,7 @@ export class ExploreState {
     this.app = app;
     this._onKeydown = this.handleKeydown.bind(this);
     this.pause = new PauseOverlay(app);
+    this.qte = null;
   }
 
   enter(root) {
@@ -132,9 +149,22 @@ export class ExploreState {
         this.els.msg.textContent = '';
       }
     }
+
+    if (this.qte) {
+      this.qte.remaining -= dt;
+      if (this.qte.remaining <= 0) {
+        this.finishQTE(false);
+      } else {
+        this.updateQTETimerUI();
+      }
+    }
   }
 
   handleKeydown(e) {
+    if (this.qte) {
+      this.handleQTEKeydown(e);
+      return;
+    }
     if (this.app.gameState.paused || this.resultOpen) return;
     const key = e.key;
     // WASD moves relative to the current facing (forward/back/strafe) and
@@ -244,44 +274,14 @@ export class ExploreState {
       }
       case TILE_TYPES.LOCKED_DOOR: {
         if (tile.meta.resolved) break;
-        const result = app.trapSystem.attemptLockedRoom(this.player.getStat('dex'));
         tile.meta.resolved = true;
-        if (result.success) {
-          app.gameState.player.gold += result.reward.amount;
-          this.showResult(t('explore.locked_room_opened'), [
-            t('explore.success_chance', { n: Math.round(result.chance) }),
-            t('explore.reward_gold', { n: result.reward.amount }),
-          ]);
-        } else {
-          this.showResult(t('explore.locked_room_failed'), [
-            t('explore.success_chance', { n: Math.round(result.chance) }),
-            t('explore.lock_held'),
-          ]);
-        }
+        this.startQTE((success) => this.resolveLockedDoor(success));
         break;
       }
       case TILE_TYPES.TREASURE: {
         if (tile.meta.resolved) break;
-        const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
-        const result = app.trapSystem.attemptChest(this.player.getStat('dex'), materialPool);
         tile.meta.resolved = true;
-        if (result.success) {
-          app.inventory.addMaterial(result.reward.id, result.reward.amount, true);
-          const materialName = tData('material', result.reward.id, getMaterialConfig(result.reward.id)?.name ?? result.reward.id);
-          this.showResult(t('explore.chest_opened'), [
-            t('explore.success_chance', { n: Math.round(result.chance) }),
-            t('explore.reward_material', { n: result.reward.amount, material: materialName }),
-          ]);
-        } else {
-          const before = this.player.currentHealth;
-          this.player.currentHealth = Math.max(1, this.player.currentHealth - result.damage);
-          const dealt = before - this.player.currentHealth;
-          run.savedHealth = this.player.currentHealth;
-          this.showResult(t('explore.chest_trapped_title'), [
-            t('explore.success_chance', { n: Math.round(result.chance) }),
-            t('explore.chest_trapped_line', { n: dealt }),
-          ]);
-        }
+        this.startQTE((success) => this.resolveTreasure(success));
         break;
       }
       default:
@@ -352,6 +352,105 @@ export class ExploreState {
     this.player = app.createPlayer();
     this.syncDungeon3D();
     this.syncPlayer3D();
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /**
+   * Quick-time event gating locked doors and chests. Dex adds time (not
+   * success chance, per user request), and arrow count/rewards both scale
+   * with the current floor — see resolveLockedDoor/resolveTreasure.
+   */
+  startQTE(onResolve) {
+    const run = this.app.gameState.run;
+    const arrowCount = QTE_BASE_ARROWS + run.floor;
+    const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
+    const dex = this.player.getStat('dex');
+    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL);
+
+    this.resultOpen = true;
+    const modal = document.createElement('div');
+    modal.className = 'qte-overlay';
+    modal.innerHTML = `
+      <div class="qte-box">
+        <div class="qte-strip">
+          ${directions.map((d) => `<div class="qte-key" data-dir="${d}">${arrowIconSVG(d)}</div>`).join('')}
+        </div>
+        <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+      </div>`;
+    this.root.appendChild(modal);
+
+    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, onResolve };
+    this.updateQTETimerUI();
+  }
+
+  handleQTEKeydown(e) {
+    const dir = QTE_DIRECTION_KEYS[e.key];
+    if (!dir) return;
+    e.originalEvent?.preventDefault?.();
+    const expected = this.qte.directions[this.qte.index];
+    if (dir === expected) {
+      this.advanceQTE();
+    } else {
+      this.finishQTE(false);
+    }
+  }
+
+  advanceQTE() {
+    const keyEl = this.qte.modal.querySelector('.qte-key');
+    keyEl?.classList.add('correct');
+    setTimeout(() => keyEl?.remove(), 120);
+    this.qte.index += 1;
+    if (this.qte.index >= this.qte.directions.length) {
+      this.finishQTE(true);
+    }
+  }
+
+  updateQTETimerUI() {
+    if (!this.qte) return;
+    const fill = this.qte.modal.querySelector('.qte-timer-fill');
+    if (fill) fill.style.width = `${Math.max(0, (this.qte.remaining / this.qte.timeLimit) * 100)}%`;
+  }
+
+  finishQTE(success) {
+    const { onResolve, modal } = this.qte;
+    modal.remove();
+    this.qte = null;
+    this.resultOpen = false;
+    onResolve(success);
+  }
+
+  /** +10% reward per floor — floor 1 = +10%, floor 10 = +100%, matching enemy floor scaling's formula shape. */
+  resolveLockedDoor(success) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      const amount = Math.round(LOCKED_ROOM_GOLD_REWARD * (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor));
+      app.gameState.player.gold += amount;
+      this.showResult(t('explore.locked_room_opened'), [t('explore.reward_gold', { n: amount })]);
+    } else {
+      this.showResult(t('explore.locked_room_failed'), [t('explore.lock_held')]);
+    }
+    this.app.saveSystem.save();
+  }
+
+  resolveTreasure(success) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
+      const materialId = materialPool[randomInt(0, Math.max(0, materialPool.length - 1))];
+      const amount = Math.round(randomInt(2, 4) * (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor));
+      app.inventory.addMaterial(materialId, amount, true);
+      const materialName = tData('material', materialId, getMaterialConfig(materialId)?.name ?? materialId);
+      this.showResult(t('explore.chest_opened'), [t('explore.reward_material', { n: amount, material: materialName })]);
+    } else {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - CHEST_TRAP_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      run.savedHealth = this.player.currentHealth;
+      this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
+    }
     this.app.saveSystem.save();
     this.renderHUD();
   }

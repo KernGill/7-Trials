@@ -20,8 +20,6 @@ export const MOVE_CATEGORIES = {
 };
 
 export const CHEST_TRAP_DAMAGE = 30; // leaves party at 1 HP, never kills
-export const CHEST_SUCCESS_BASE = 50; // % + 0.25*dex
-export const LOCKED_ROOM_SUCCESS_BASE = 75; // % + 0.25*dex
 export const LOCKED_ROOM_GOLD_REWARD = 80;
 
 export const SINGLE_EQUIPMENT_SLOTS = [

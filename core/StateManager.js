@@ -13,7 +13,6 @@ import { InnSystem } from '../systems/InnSystem.js';
 import { BestiarySystem } from '../systems/BestiarySystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
-import { TrapSystem } from '../exploration/TrapSystem.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -59,7 +58,6 @@ export class StateManager {
     this.inn = new InnSystem(this.gameState);
     this.bestiary = new BestiarySystem(this.gameState);
     this.saveSystem = new SaveSystem(this.gameState);
-    this.trapSystem = new TrapSystem();
     this.screenRoot = screenRoot;
 
     this.states = {
