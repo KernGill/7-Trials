@@ -6,6 +6,7 @@ import { TurnOrderSystem } from './TurnOrderSystem.js';
 import { StatusEffectSystem } from './StatusEffectSystem.js';
 import { EnemyAI } from './EnemyAI.js';
 import { rollDrop } from '../utils/RandomUtils.js';
+import { rollChance } from '../utils/MathUtils.js';
 import { getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { t, tData } from '../ui/i18n.js';
@@ -293,8 +294,10 @@ export class CombatManager {
       return;
     }
 
-    const reduction = attacker.getCooldownReduction();
-    move.startCooldown(reduction);
+    if (!rollChance(attacker.getStat('noCooldownChance'))) {
+      const reduction = attacker.getCooldownReduction();
+      move.startCooldown(reduction);
+    }
     this.logMessage(t('log.uses_move', { name: attacker.name, move: move.name }));
 
     if (move.template.healMaxPercent) {

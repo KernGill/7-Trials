@@ -1,4 +1,4 @@
-import { GAME_STATES } from '../utils/Constants.js';
+import { GAME_STATES, STAT_KEYS } from '../utils/Constants.js';
 import { GameState } from './GameState.js';
 import { EventBus } from './EventBus.js';
 import { InputManager } from './InputManager.js';
@@ -286,6 +286,7 @@ export class StateManager {
       explorationBuffs: [],
       savedHealth: null,
       floorMessage: null,
+      cards: [],
     };
     this.generateFloor();
     this.saveSystem.save();
@@ -310,13 +311,16 @@ export class StateManager {
       this.gameState.meta.selectedCharacterId,
       this.inventory,
       savedHealth,
+      this.gameState.run.cards,
     );
   }
 
   /** Called by ExploreState the instant the player steps onto an enemy tile. */
   startCombat(enemyId) {
     const player = this.createPlayer();
-    const enemy = new Enemy(enemyId);
+    const mult = 1 + 0.05 * this.gameState.run.floor;
+    const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
+    const enemy = new Enemy(enemyId, { statMultipliers });
     // FightState has to be listening (via currentStateHandler) *before*
     // combatManager.startCombat() runs its first synchronous cascade —
     // otherwise the very first combat:sequence batch (e.g. the enemy

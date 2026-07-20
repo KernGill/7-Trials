@@ -139,11 +139,13 @@ export const TRANSLATIONS = {
     'explore.reward_material': 'Reward: {n}x {material}.',
     'explore.chest_trapped_line': 'The chest was trapped! Took {n} damage.',
     'explore.close': 'CLOSE',
+    'explore.choose_card': 'CHOOSE A CARD',
 
     // Pause overlay
     'pause.title': 'PAUSED',
     'pause.resume': 'RESUME (P)',
     'pause.view_loadout': 'VIEW LOADOUT',
+    'pause.view_cards': 'VIEW CARDS',
     'pause.use_consumables': 'USE CONSUMABLES',
     'pause.open_settings': 'OPEN SETTINGS',
     'pause.abandon_run': 'ABANDON RUN',
@@ -152,6 +154,8 @@ export const TRANSLATIONS = {
     'pause.use_item': 'Use {name} (x{amount})',
     'pause.loadout_title': 'LOADOUT',
     'pause.total_stats': 'Total Stats:',
+    'pause.cards_title': 'CARDS THIS RUN',
+    'pause.no_cards': 'No cards picked yet.',
 
     // Combat log
     'log.follow_up_missed': "{move}'s follow-up on {target} missed!",

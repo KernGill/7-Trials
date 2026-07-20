@@ -70,14 +70,21 @@ export class DamageCalculator {
     return clamp(100 - missChance, 0, 100);
   }
 
-  static applyDefense(damage, defender, move = null) {
-    const def = defender.getStat('def');
+  static applyDefense(damage, defender, move = null, attacker = null) {
+    let def = defender.getStat('def');
+    if (defender.isEnemy) {
+      def = Math.max(0, def - (attacker?.getStat('enemyDefenseReduction') ?? 0));
+    }
     let reductionPercent = (def / 2) * (DEF_DAMAGE_REDUCTION_PER_TWO * 100);
     if (move?.properties?.includes('physical') && defender.physicalDamageReductionPercent) {
       reductionPercent += defender.physicalDamageReductionPercent;
     }
     const reduction = Math.ceil(damage * (reductionPercent / 100));
-    return Math.max(1, damage - reduction);
+    let result = Math.max(1, damage - reduction);
+    if (attacker?.isEnemy) {
+      result = Math.max(1, Math.round(result * (1 - defender.getStat('enemyDamageReductionPercent') / 100)));
+    }
+    return result;
   }
 
   static applyDamageReductionState(damage, defender) {
@@ -143,14 +150,17 @@ export class DamageCalculator {
     const crit = this.rollCrit(attacker, move.critChance ?? 0);
     if (crit.isCrit) damage = Math.round(damage * crit.multiplier);
 
+    const bonusPct = attacker.getStat('damageBonusPercent');
+    if (bonusPct > 0) damage = Math.round(damage * (1 + bonusPct / 100));
+
     if (defender.reflectSplitPercent > 0) {
       const split = defender.reflectSplitPercent / 100;
       const taken = Math.round(damage * split);
       const returned = damage - taken;
       defender.reflectSplitPercent = 0;
       defender.reflectSplitTurnsRemaining = 0;
-      const takenAfterDefense = this.applyDefense(taken, defender, move);
-      const returnedAfterDefense = this.applyDefense(returned, attacker, move);
+      const takenAfterDefense = this.applyDefense(taken, defender, move, attacker);
+      const returnedAfterDefense = this.applyDefense(returned, attacker, move, defender);
       defender.takeDamage(takenAfterDefense);
       attacker.takeDamage(returnedAfterDefense);
       this.applyReactiveHeal(defender, takenAfterDefense);
@@ -158,7 +168,7 @@ export class DamageCalculator {
       return { hit: true, damage: taken, healed: 0, reflected: returned, isCrit: crit.isCrit, split: true };
     }
 
-    damage = this.applyDefense(damage, defender, move);
+    damage = this.applyDefense(damage, defender, move, attacker);
     damage = this.applyDamageReductionState(damage, defender);
     const thorns = this.applyThorns(attacker, defender, damage);
     defender.takeDamage(thorns.finalDamage);

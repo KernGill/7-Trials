@@ -2,7 +2,7 @@ import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getItemConfig } from '../data/items.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
-import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML } from '../ui/InfoFormatters.js';
+import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
 
 const LANGUAGE_OPTIONS = ['en', 'es'];
@@ -43,6 +43,7 @@ export class PauseOverlay {
     const view = app.gameState.pauseView ?? 'menu';
     if (view === 'settings') return this.renderSettings();
     if (view === 'loadout') return this.renderLoadout();
+    if (view === 'cards') return this.renderCards();
     if (view === 'consumables') return this.renderConsumables();
     return this.renderMenu();
   }
@@ -54,6 +55,7 @@ export class PauseOverlay {
         <h2>${t('pause.title')}</h2>
         <button data-a="resume">${t('pause.resume')}</button>
         <button data-a="loadout">${t('pause.view_loadout')}</button>
+        <button data-a="cards">${t('pause.view_cards')}</button>
         ${this.allowConsumables ? `<button data-a="consumables">${t('pause.use_consumables')}</button>` : ''}
         <button data-a="settings">${t('pause.open_settings')}</button>
         <button data-a="abandon" ${this.canAbandon ? '' : 'disabled'}>
@@ -62,6 +64,7 @@ export class PauseOverlay {
       </div>`;
     this.el.querySelector('[data-a="resume"]').addEventListener('click', () => app.togglePause());
     this.el.querySelector('[data-a="loadout"]').addEventListener('click', () => { app.gameState.pauseView = 'loadout'; this.render(); });
+    this.el.querySelector('[data-a="cards"]').addEventListener('click', () => { app.gameState.pauseView = 'cards'; this.render(); });
     this.el.querySelector('[data-a="settings"]').addEventListener('click', () => { app.gameState.pauseView = 'settings'; this.render(); });
     if (this.allowConsumables) {
       this.el.querySelector('[data-a="consumables"]').addEventListener('click', () => { app.gameState.pauseView = 'consumables'; this.render(); });
@@ -162,6 +165,23 @@ export class PauseOverlay {
         return config ? itemTooltipHTML(config) : '';
       });
     });
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
+  }
+
+  /** Lists every card picked so far this run — cards are wiped whenever the run ends, so this is always run-scoped. */
+  renderCards() {
+    const { app } = this;
+    const cards = app.gameState.run.cards ?? [];
+
+    this.el.innerHTML = `
+      <div class="pause-box cards-box">
+        <h2>${t('pause.cards_title')}</h2>
+        ${cards.length === 0
+          ? `<div class="pause-row">${t('pause.no_cards')}</div>`
+          : `<div class="cards-list">${cards.map((c) => cardTileHTML(c)).join('')}</div>`}
+        <button data-a="back">${t('common.back')}</button>
+      </div>`;
+
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 }

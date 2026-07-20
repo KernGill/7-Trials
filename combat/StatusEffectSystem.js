@@ -1,6 +1,7 @@
 import { FROST_MAX_STACKS } from '../utils/Constants.js';
 import { STATUS_EFFECTS as CONFIG } from '../data/statusEffectConfig.js';
 import { t, tData } from '../ui/i18n.js';
+import { rollChance } from '../utils/MathUtils.js';
 
 export class StatusEffectSystem {
   /**
@@ -88,6 +89,7 @@ export class StatusEffectSystem {
 
   applyDebuffs(target, debuffs, attacker) {
     debuffs?.forEach((debuff) => {
+      if (rollChance(target.getStat('statusResist'))) return;
       let stacks = debuff.stacks ?? (debuff.stacksMin
         ? Math.floor(Math.random() * ((debuff.stacksMax ?? debuff.stacksMin) - debuff.stacksMin + 1)) + debuff.stacksMin
         : 1);

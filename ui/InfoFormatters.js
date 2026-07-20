@@ -6,6 +6,8 @@
  */
 import { getMoveTemplate } from '../data/moves.js';
 import { getItemConfig } from '../data/items.js';
+import { CARDS, RARITIES, RARITY_COLORS } from '../data/cards.js';
+import { categoryIconSVG } from './CardIcons.js';
 import { t, tData } from './i18n.js';
 
 const STAT_DISPLAY_ORDER = ['con', 'dex', 'str', 'spd', 'def', 'int', 'critChance', 'critDamage'];
@@ -176,5 +178,28 @@ export function equipmentTotalsHTML(totals = {}) {
   return `
     <div class="loadout-totals-grid">
       ${STAT_DISPLAY_ORDER.map((k) => `<div class="tt-row"><span>${statLabel(k)}:</span><span>+${totals[k] ?? 0}</span></div>`).join('')}
+    </div>`;
+}
+
+/**
+ * One card tile: name, rarity-colored border, category icon (sword/
+ * shield/shoe) between name and description. Shared by the stairs
+ * card-pick modal (ExploreState) and the pause menu's View Cards panel.
+ * `index`, when given, is stamped as data-card-index so the caller can
+ * wire click handling positionally against the offer/list array.
+ */
+export function cardTileHTML(picked, index = null) {
+  const type = CARDS[picked.cardId];
+  if (!type) return '';
+  const rarity = RARITIES[picked.rarityIndex];
+  const color = RARITY_COLORS[rarity];
+  const name = tData('card', type.id, type.name);
+  const desc = `+${picked.value}${type.isPercent ? '%' : ''} ${name}`;
+  const indexAttr = index !== null ? ` data-card-index="${index}"` : '';
+  return `
+    <div class="card-tile" data-rarity="${rarity}" style="border-color:${color}"${indexAttr}>
+      <div class="card-name" style="color:${color}">${name}</div>
+      <div class="card-icon">${categoryIconSVG(type.category)}</div>
+      <div class="card-desc">${desc}</div>
     </div>`;
 }

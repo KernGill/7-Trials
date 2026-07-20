@@ -27,6 +27,7 @@ export class Character {
 
     this.baseStats = { ...config.baseStats };
     this.equipmentStats = config.equipmentStats ?? {};
+    this.cardBonusStats = config.cardBonusStats ?? {};
     this.battleBuffs = {};
     this.statusEffects = [];
     this.statBuffs = [];
@@ -78,15 +79,17 @@ export class Character {
     // normal stacking pipeline entirely.
     if (stat === 'dodge' || stat === 'accuracy') {
       const base = this.baseStats[stat] ?? 100;
+      const card = this.cardBonusStats[stat] ?? 0;
       const frostStacks = this.getStatusStacks('frost');
-      return Math.max(0, base - frostStacks * FROST_HIT_PENALTY * 100);
+      return Math.max(0, base + card - frostStacks * FROST_HIT_PENALTY * 100);
     }
 
     const base = this.baseStats[stat] ?? 0;
     const equip = this.equipmentStats[stat] ?? 0;
     const battle = this.battleBuffs[stat] ?? 0;
     const temp = this.temporaryStatModifiers[stat] ?? 0;
-    let value = base + equip + battle + temp;
+    const card = this.cardBonusStats[stat] ?? 0;
+    let value = base + equip + battle + temp + card;
 
     if (stat === 'critChance') {
       const dexBonus = Math.floor(this.getStat('dex') * DEX_CRIT_RATIO);
@@ -180,6 +183,7 @@ export class Character {
       const override = this.statusDamageMultipliers[statusId] ?? this.statusDamageMultipliers.default;
       if (override !== undefined) multiplier *= override;
     }
+    multiplier *= 1 - this.getStat('statusDamageReductionPercent') / 100;
     return multiplier;
   }
 
@@ -203,7 +207,8 @@ export class Character {
   }
 
   heal(amount) {
-    const actual = Math.max(0, Math.round(amount));
+    const boosted = amount * (1 + this.getStat('healingIncreasePercent') / 100);
+    const actual = Math.max(0, Math.round(boosted));
     this.currentHealth = clamp(this.currentHealth + actual, 0, this.getMaxHealth());
     return actual;
   }

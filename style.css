@@ -104,6 +104,25 @@ select {
 .result-line { color: #ddd; font-size: 13px; text-align: center; }
 .result-close { padding: 10px; font-size: 13px; margin-top: 8px; }
 
+/* ---------------- Cards (in-run progression) ---------------- */
+.card-pick-box { width: 640px; max-width: 94vw; }
+.card-pick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 8px; }
+.card-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: #16213e; border: 2px solid #9e9e9e; border-radius: 8px;
+  padding: 16px 10px; cursor: pointer; transition: transform 0.12s ease, background 0.12s ease;
+}
+.card-tile:hover { transform: translateY(-3px); background: #1c2b52; }
+.card-tile[data-card-index] { cursor: pointer; }
+.card-name { font-size: 13px; font-weight: bold; text-align: center; letter-spacing: 0.5px; }
+.card-icon { color: #ccc; display: flex; }
+.card-desc { font-size: 12px; color: #ddd; text-align: center; }
+
+.pause-box.cards-box { width: 640px; max-width: 92vw; max-height: 80vh; overflow-y: auto; }
+.cards-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 4px; }
+.cards-list .card-tile { cursor: default; }
+.cards-list .card-tile:hover { transform: none; background: #16213e; }
+
 /* ---------------- FIGHT ---------------- */
 .fight-screen {
   min-height: 100vh; display: flex; align-items: stretch;

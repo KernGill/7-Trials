@@ -1,6 +1,7 @@
 import { Character } from './Character.js';
 import { getCharacterConfig } from '../data/chracters.js';
 import { getMoveTemplate } from '../data/moves.js';
+import { getCardBonusStats } from '../data/cards.js';
 import { MOVE_PROPERTIES } from '../utils/Constants.js';
 import { Move } from './Move.js';
 
@@ -15,6 +16,7 @@ export class Player extends Character {
       name: config.name,
       isPlayer: true,
       equipmentStats,
+      cardBonusStats: extra.cardBonusStats,
       moveIds: config.moveIds,
       visual: config.visual,
       currentHealth: extra.currentHealth,
@@ -24,11 +26,12 @@ export class Player extends Character {
     this.initializeMoves((id) => Move.fromId(id, this));
   }
 
-  static create(characterId, inventorySystem, currentHealth) {
+  static create(characterId, inventorySystem, currentHealth, cards = []) {
     const equipmentStats = inventorySystem.getEquippedStatTotals();
+    const cardBonusStats = getCardBonusStats(cards);
     const baseMoveIds = [...new Set(getCharacterConfig(characterId).moveIds)];
     const equipmentMoveIds = inventorySystem.getEquippedMoveIds();
-    const player = new Player(characterId, equipmentStats, { currentHealth });
+    const player = new Player(characterId, equipmentStats, { currentHealth, cardBonusStats });
 
     // Passive moves granted by equipment stack: one independently-firing
     // Move per equipped copy (2x Flesh Eater's Palm = 2 separate

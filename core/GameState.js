@@ -27,6 +27,7 @@ const DEFAULT_RUN = {
   consumables: [],
   materials: {},
   runInventory: [],
+  cards: [],
 };
 
 const DEFAULT_PLAYER = {

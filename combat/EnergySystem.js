@@ -1,9 +1,11 @@
 import { COOLDOWN_TYPES } from '../utils/Constants.js';
 import { EnergyCalculator } from './DamageCalculator.js';
+import { rollChance } from '../utils/MathUtils.js';
 
 export class EnergySystem {
   gainEnergy(character) {
-    const gain = EnergyCalculator.rollEnergyGain(character);
+    let gain = EnergyCalculator.rollEnergyGain(character);
+    if (gain > 0 && rollChance(character.getStat('doubleEnergyChance'))) gain *= 2;
     const max = character.getMaxEnergy();
     character.energy = Math.min(max, character.energy + gain);
     return gain;

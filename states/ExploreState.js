@@ -3,6 +3,8 @@ import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
+import { rollCardOffer } from '../data/cards.js';
+import { cardTileHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 
@@ -237,11 +239,7 @@ export class ExploreState {
           run.floorMessage = { text: t('explore.enemies_wander'), timer: 2 };
           break;
         }
-        run.floor += 1;
-        run.savedHealth = this.player.currentHealth;
-        app.generateFloor();
-        app.gameState.addLog(t('log.descended', { n: run.floor }));
-        this.player = app.createPlayer();
+        this.showCardPick();
         break;
       }
       case TILE_TYPES.LOCKED_DOOR: {
@@ -311,6 +309,51 @@ export class ExploreState {
       modal.remove();
       this.resultOpen = false;
     });
+  }
+
+  /**
+   * Card-pick modal shown on every stairs descent — mirrors showResult()'s
+   * blocking pattern, but the floor advance/dungeon regen/player rebuild
+   * are deferred until a card is actually picked (see applyCardPick),
+   * so the new floor's stat scaling and the player's cardBonusStats are
+   * both in sync with the freshly-picked card from the moment it loads.
+   */
+  showCardPick() {
+    this.resultOpen = true;
+    const offer = rollCardOffer();
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box card-pick-box">
+        <h2>${t('explore.choose_card')}</h2>
+        <div class="card-pick-grid">
+          ${offer.map((card, i) => cardTileHTML(card, i)).join('')}
+        </div>
+      </div>`;
+    this.root.appendChild(modal);
+    modal.querySelectorAll('[data-card-index]').forEach((tile) => {
+      tile.addEventListener('click', () => {
+        const picked = offer[Number(tile.dataset.cardIndex)];
+        modal.remove();
+        this.resultOpen = false;
+        this.applyCardPick(picked);
+      });
+    });
+  }
+
+  applyCardPick(picked) {
+    const { app } = this;
+    const run = app.gameState.run;
+    run.cards.push(picked);
+    run.floor += 1;
+    run.savedHealth = this.player.currentHealth;
+    app.generateFloor();
+    app.gameState.addLog(t('log.descended', { n: run.floor }));
+    this.player = app.createPlayer();
+    this.syncDungeon3D();
+    this.syncPlayer3D();
+    this.app.saveSystem.save();
+    this.renderHUD();
   }
 
   renderHUD() {
