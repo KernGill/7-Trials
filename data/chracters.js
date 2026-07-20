@@ -18,10 +18,10 @@ export const CHARACTERS = {
     baseStats: {
       con: 600,
       dex: 14,
-      str: 13,
+      str: 20,
       spd: 13,
       def: 12,
-      int: 15,
+      int: 25,
       critChance: 8,
       critDamage: 33,
       dodge: 100,
