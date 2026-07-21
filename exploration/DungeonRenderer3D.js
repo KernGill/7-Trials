@@ -1,5 +1,6 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { TILE_TYPES } from './Tile.js';
+import { clamp } from '../utils/MathUtils.js';
 
 const BACKGROUND_COLOR = 0x0b0c10;
 const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho frustum
@@ -58,19 +59,31 @@ const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
 const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
 
-const CAMERA_PITCH = (30 * Math.PI) / 180; // raised from 20deg — steeper look-down angle so walls block the view less easily
-const CAMERA_HORIZONTAL_OFFSET = TILE_SIZE; // camera sits exactly 1 tile behind the player
-// Derived so the true camera->look-at angle is exactly CAMERA_PITCH: the
-// look-at target sits at LOOK_AT_HEIGHT, not ground level, so that offset
-// has to be folded in here too — otherwise the actual angle drifts from
-// CAMERA_PITCH once CAMERA_HORIZONTAL_OFFSET gets small (as it now is).
-const CAMERA_VERTICAL_OFFSET = LOOK_AT_HEIGHT + CAMERA_HORIZONTAL_OFFSET * Math.tan(CAMERA_PITCH);
-// Extra height added equally to the camera AND its look-at target — since it's
-// added to both, the view direction (and so the pitch) is unaffected; it just
-// aims the camera at a point above the character instead of straight at them,
+const CAMERA_HORIZONTAL_OFFSET = TILE_SIZE; // camera sits up to 1 tile behind the player at angle=0, shrinking toward 0 as angle approaches 90 (bird's eye)
+// Extra height added to the look-at target only (not the camera) — aims
+// the camera at a point above the character instead of straight at them,
 // so the character sits lower in frame rather than filling the whole screen.
 const CAMERA_LOOK_LIFT = TILE_SIZE * 1.5;
 const TWEEN_SPEED = 10; // per second; reaches ~95% of the way to target in ~300ms
+
+// Camera Angle setting: 0deg (horizontal, eye-level) - 90deg (bird's eye,
+// straight down). Camera Height setting: a multiplier on CAMERA_HEIGHT_BASE,
+// 1/3 - 1.5x. Both are independent — angle alone controls how far back the
+// camera sits (via cos), height alone controls how high up it sits — unlike
+// the old single fixed-pitch formula, which derived height from angle via
+// tan() and breaks down (divides by ~0) as angle approaches 90deg.
+const DEFAULT_CAMERA_ANGLE_DEG = 30;
+const DEFAULT_CAMERA_HEIGHT_MULT = 1;
+const CAMERA_ANGLE_MIN_DEG = 0;
+const CAMERA_ANGLE_MAX_DEG = 90;
+const CAMERA_HEIGHT_MULT_MIN = 1 / 3;
+const CAMERA_HEIGHT_MULT_MAX = 1.5;
+// The camera's actual world-space height under the old fixed 30deg config
+// (LOOK_AT_HEIGHT + CAMERA_HORIZONTAL_OFFSET*tan(30deg), plus CAMERA_LOOK_LIFT
+// which the old formula folded into the camera's own height too) — this is
+// the "100%"/1x baseline the new Camera Height setting scales from, so a
+// fresh save with both settings at their defaults looks exactly as before.
+const CAMERA_HEIGHT_BASE = LOOK_AT_HEIGHT + CAMERA_HORIZONTAL_OFFSET * Math.tan((DEFAULT_CAMERA_ANGLE_DEG * Math.PI) / 180) + CAMERA_LOOK_LIFT;
 
 // Maps run.facing to the world-space direction the player is walking
 // toward, matching the (tile.x, tile.y) -> world (x, z) mapping used
@@ -112,6 +125,10 @@ function blendColor(hex, keepFraction, towardHex) {
  * comment), so nothing else will ever call our per-frame update.
  */
 export class DungeonRenderer3D {
+  constructor(app) {
+    this.app = app;
+  }
+
   mount(container) {
     this.container = container;
     this.canvas = document.createElement('canvas');
@@ -224,8 +241,39 @@ export class DungeonRenderer3D {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** Smoothly tweens camera/player toward their latest setPlayerState() target. */
+  /**
+   * Reads the live Camera Angle/Height settings and recomputes where the
+   * camera wants to be — called every frame (not just on setPlayerState's
+   * discrete move/turn events) so dragging either slider in Settings or
+   * the pause overlay tweens smoothly and immediately, even while the
+   * player isn't moving. No-ops until the first setPlayerState() call has
+   * established a facing/position to compute from.
+   */
+  _updateCameraTarget() {
+    if (!this._facing) return;
+    const settings = this.app?.gameState?.settings ?? {};
+    const angleDeg = clamp(settings.cameraAngle ?? DEFAULT_CAMERA_ANGLE_DEG, CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG);
+    const heightMult = clamp(settings.cameraHeight ?? DEFAULT_CAMERA_HEIGHT_MULT, CAMERA_HEIGHT_MULT_MIN, CAMERA_HEIGHT_MULT_MAX);
+    const angleRad = (angleDeg * Math.PI) / 180;
+    // horizontal shrinks to 0 as angle approaches 90deg (camera moves directly
+    // overhead); height is fully independent, purely from the height setting.
+    const horizontal = CAMERA_HORIZONTAL_OFFSET * Math.cos(angleRad);
+    const height = CAMERA_HEIGHT_BASE * heightMult;
+
+    const facingVec = FACING_VECTORS[this._facing] ?? FACING_VECTORS.south;
+    this.desiredLookAt.set(
+      this.desiredPlayerPos.x,
+      LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT,
+      this.desiredPlayerPos.z,
+    );
+    this.desiredCameraPos.copy(this.desiredPlayerPos)
+      .addScaledVector(facingVec, -horizontal)
+      .add(new THREE.Vector3(0, height, 0));
+  }
+
+  /** Smoothly tweens camera/player toward their latest target — recomputed every frame so live setting changes (angle/height) are picked up immediately, not just on movement. */
   update(dt) {
+    this._updateCameraTarget();
     const t = 1 - Math.exp(-TWEEN_SPEED * dt);
     this.currentCameraPos.lerp(this.desiredCameraPos, t);
     this.currentLookAt.lerp(this.desiredLookAt, t);
@@ -386,25 +434,18 @@ export class DungeonRenderer3D {
   /**
    * Sets the camera/player target for the next tween step and recomputes
    * tile visibility immediately (visibility is tile-discrete, not tweened).
-   * The camera sits behind the player relative to `facing`
-   * (over-the-shoulder), looking toward the direction they're walking, at
-   * a fixed CAMERA_PITCH. On the very first call, snaps instantly instead
-   * of tweening in from the origin.
+   * The camera sits behind the player relative to `facing` (over-the-
+   * shoulder), looking toward the direction they're walking, at the live
+   * Camera Angle/Height settings (see _updateCameraTarget). On the very
+   * first call, snaps instantly instead of tweening in from the origin.
    */
   setPlayerState({ x, y, facing }) {
     this.updateVisibility(x, y);
     this._applyBehindWallOcclusion(x, y, facing);
 
-    const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
+    this._facing = facing;
     this.desiredPlayerPos.set(x * TILE_SIZE, 0, y * TILE_SIZE);
-    this.desiredLookAt.set(
-      this.desiredPlayerPos.x,
-      LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT,
-      this.desiredPlayerPos.z,
-    );
-    this.desiredCameraPos.copy(this.desiredPlayerPos)
-      .addScaledVector(facingVec, -CAMERA_HORIZONTAL_OFFSET)
-      .add(new THREE.Vector3(0, CAMERA_VERTICAL_OFFSET + CAMERA_LOOK_LIFT, 0));
+    this._updateCameraTarget();
 
     if (!this._playerStateInitialized) {
       this._playerStateInitialized = true;

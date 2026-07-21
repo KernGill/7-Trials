@@ -46,6 +46,8 @@ export const TRANSLATIONS = {
     'settings.fps': 'FPS (simulation rate)',
     'settings.sound': 'Sound: (no audio implemented yet)',
     'settings.fixed_minimap': 'Fixed Minimap',
+    'settings.camera_angle': 'Camera Angle: {deg}°',
+    'settings.camera_height': 'Camera Height: {percent}%',
     'settings.on': 'On',
     'settings.off': 'Off',
     'settings.language': 'Language',

@@ -121,6 +121,14 @@ export class PauseOverlay {
         </div>
         <div class="pause-row">${t('settings.sound')} <button data-a="sound">${s.sound ? t('settings.on') : t('settings.off')}</button></div>
         <div class="pause-row">${t('settings.fixed_minimap')} <button data-a="fixed-minimap">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button></div>
+        <div class="pause-row">
+          <span class="camera-angle-label">${t('settings.camera_angle', { deg: Math.round(s.cameraAngle ?? 30) })}</span>
+          <input type="range" min="0" max="90" step="1" value="${Math.round(s.cameraAngle ?? 30)}" class="camera-angle-slider">
+        </div>
+        <div class="pause-row">
+          <span class="camera-height-label">${t('settings.camera_height', { percent: Math.round((s.cameraHeight ?? 1) * 100) })}</span>
+          <input type="range" min="33" max="150" step="1" value="${Math.round((s.cameraHeight ?? 1) * 100)}" class="camera-height-slider">
+        </div>
         <button data-a="back">${t('common.back')}</button>
       </div>`;
     this.el.querySelector('.brightness-slider').addEventListener('change', () => app.saveSystem.save());
@@ -144,6 +152,16 @@ export class PauseOverlay {
       s.fixedMinimap = !s.fixedMinimap;
       app.saveSystem.save();
       this.render();
+    });
+    this.el.querySelector('.camera-angle-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-angle-slider').addEventListener('input', (e) => {
+      s.cameraAngle = clamp(Number(e.target.value), 0, 90);
+      this.el.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: Math.round(s.cameraAngle) });
+    });
+    this.el.querySelector('.camera-height-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-height-slider').addEventListener('input', (e) => {
+      s.cameraHeight = clamp(Number(e.target.value) / 100, 1 / 3, 1.5);
+      this.el.querySelector('.camera-height-label').textContent = t('settings.camera_height', { percent: Math.round(s.cameraHeight * 100) });
     });
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }

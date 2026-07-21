@@ -53,6 +53,14 @@ export class SettingsState {
       <div class="settings-row">
         <span>${t('settings.fixed_minimap')}</span>
         <button class="fixed-minimap-btn">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button>
+      </div>
+      <div class="settings-row">
+        <span class="camera-angle-label">${t('settings.camera_angle', { deg: Math.round(s.cameraAngle ?? 30) })}</span>
+        <input type="range" min="0" max="90" step="1" value="${Math.round(s.cameraAngle ?? 30)}" class="camera-angle-slider">
+      </div>
+      <div class="settings-row">
+        <span class="camera-height-label">${t('settings.camera_height', { percent: Math.round((s.cameraHeight ?? 1) * 100) })}</span>
+        <input type="range" min="33" max="150" step="1" value="${Math.round((s.cameraHeight ?? 1) * 100)}" class="camera-height-slider">
       </div>`;
     this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
@@ -79,6 +87,16 @@ export class SettingsState {
       s.fixedMinimap = !s.fixedMinimap;
       this.app.saveSystem.save();
       this.renderAll();
+    });
+    this.body.querySelector('.camera-angle-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.camera-angle-slider').addEventListener('input', (e) => {
+      s.cameraAngle = clamp(Number(e.target.value), 0, 90);
+      this.body.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: Math.round(s.cameraAngle) });
+    });
+    this.body.querySelector('.camera-height-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.camera-height-slider').addEventListener('input', (e) => {
+      s.cameraHeight = clamp(Number(e.target.value) / 100, 1 / 3, 1.5);
+      this.body.querySelector('.camera-height-label').textContent = t('settings.camera_height', { percent: Math.round(s.cameraHeight * 100) });
     });
   }
 }

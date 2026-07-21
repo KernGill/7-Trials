@@ -84,7 +84,7 @@ export class ExploreState {
       msg: root.querySelector('.floor-message'),
       descend: root.querySelector('.descend-prompt'),
     };
-    this.renderer3d = new DungeonRenderer3D();
+    this.renderer3d = new DungeonRenderer3D(this.app);
     // This ExploreState instance is a long-lived singleton (StateManager
     // creates it once), but a fresh DungeonRenderer3D is created on every
     // enter() — reset the sync guard so syncDungeon3D() below doesn't

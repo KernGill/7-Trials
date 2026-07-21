@@ -57,7 +57,14 @@ export class GameState {
     // for everyone, new and existing saves alike (loadSnapshot's merge
     // below only overwrites this if an already-saved settings object
     // explicitly has its own gameSpeed value).
-    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true };
+    this.settings = {
+      brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true,
+      // cameraAngle: 0 (horizontal) - 90 (bird's eye) degrees. cameraHeight: multiplier
+      // on the previous fixed camera height, 1/3 - 1.5. Both default to the values that
+      // reproduce the old fixed 30deg camera exactly, so existing saves look unchanged.
+      cameraAngle: 30,
+      cameraHeight: 1,
+    };
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;
