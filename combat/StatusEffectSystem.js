@@ -90,6 +90,11 @@ export class StatusEffectSystem {
   applyDebuffs(target, debuffs, attacker) {
     debuffs?.forEach((debuff) => {
       if (rollChance(target.getStat('statusResist'))) return;
+      // Status Reflection: each stack is a 10% chance for this specific
+      // debuff to land on the original attacker instead of the target.
+      const reflectChance = target.getStatusStacks('statusReflection') * 10;
+      const recipient = (attacker && attacker !== target && reflectChance > 0 && rollChance(reflectChance))
+        ? attacker : target;
       let stacks = debuff.stacks ?? (debuff.stacksMin
         ? Math.floor(Math.random() * ((debuff.stacksMax ?? debuff.stacksMin) - debuff.stacksMin + 1)) + debuff.stacksMin
         : 1);
@@ -97,16 +102,16 @@ export class StatusEffectSystem {
         stacks += Math.floor(attacker.getStat('dex') * debuff.bonusPerDex);
       }
       if (debuff.effect === 'frost') {
-        const current = target.getStatusStacks('frost') + stacks;
+        const current = recipient.getStatusStacks('frost') + stacks;
         if (current >= FROST_MAX_STACKS) {
-          target.removeStatusEffect('frost');
-          target.addStatusEffect('frostbite', 1);
+          recipient.removeStatusEffect('frost');
+          recipient.addStatusEffect('frostbite', 1);
         } else {
-          target.addStatusEffect('frost', stacks);
+          recipient.addStatusEffect('frost', stacks);
         }
         return;
       }
-      target.addStatusEffect(debuff.effect, stacks, {
+      recipient.addStatusEffect(debuff.effect, stacks, {
         durationFightTurns: debuff.durationFightTurns ?? -1,
       });
     });

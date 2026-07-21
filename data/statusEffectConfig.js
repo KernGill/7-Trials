@@ -97,4 +97,13 @@ export const STATUS_EFFECTS = {
     stacksDecrease: false,
     durationFightTurns: 3,
   },
+  statusReflection: {
+    id: 'statusReflection',
+    name: 'Status Reflection',
+    type: 'buff',
+    icon: 'SR',
+    color: '#00cec9',
+    reflectChancePercentPerStack: 10,
+    stacksDecrease: false,
+  },
 };

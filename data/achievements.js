@@ -50,6 +50,60 @@ export const ACHIEVEMENTS = {
     description: 'In one run, using only Arc0 equipment, defeat a skeleton-type enemy and a zombie-type enemy each in a single hit.',
     target: 1,
   },
+  beat_false_apparition_with_burn: {
+    id: 'beat_false_apparition_with_burn',
+    name: 'Burnt Offering',
+    description: 'Defeat a False Apparition with a damage instance from the Burn status effect.',
+    target: 1,
+  },
+  beat_ghost_with_2_frostbite: {
+    id: 'beat_ghost_with_2_frostbite',
+    name: 'Frozen Reckoning',
+    description: 'Beat a ghost while 2 stacks of Frostbite are inflicted on you.',
+    target: 1,
+  },
+  open_3_chests_in_run: {
+    id: 'open_3_chests_in_run',
+    name: 'Treasure Hunter',
+    description: 'Successfully open 3 chests in a single run.',
+    target: 3,
+  },
+  beat_all_species_one_floor: {
+    id: 'beat_all_species_one_floor',
+    name: 'Triple Threat',
+    description: 'On one floor, defeat a skeleton, a zombie, and a ghost.',
+    target: 1,
+  },
+  beat_zombie_after_chest_and_door: {
+    id: 'beat_zombie_after_chest_and_door',
+    name: 'Cleared the Room',
+    description: 'Defeat a Zombie after successfully opening a chest and a locked door on the same floor.',
+    target: 1,
+  },
+  beat_ghost_floor_5: {
+    id: 'beat_ghost_floor_5',
+    name: 'Fifth Floor Phantom',
+    description: 'Defeat a ghost on the 5th floor.',
+    target: 1,
+  },
+  burn_2_ghosts_with_spore_gear: {
+    id: 'burn_2_ghosts_with_spore_gear',
+    name: 'Spore-Born Cremation',
+    description: 'While wearing a Spore Cloak and Shrouded Footsteps, burn 2 ghosts to death in one run.',
+    target: 2,
+  },
+  beat_enemy_with_bleed: {
+    id: 'beat_enemy_with_bleed',
+    name: 'Death by a Thousand Cuts',
+    description: "Defeat an enemy with the Bleed status effect's damage instance.",
+    target: 1,
+  },
+  beat_enemy_with_status_while_stunned: {
+    id: 'beat_enemy_with_status_while_stunned',
+    name: 'Stunned Victory',
+    description: 'Defeat an enemy with status damage on a fight turn you were stunned.',
+    target: 1,
+  },
 };
 
 export function getAchievementConfig(id) {

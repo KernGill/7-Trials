@@ -323,7 +323,7 @@ export class CombatManager {
       this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker);
     }
     if (move.template.buffs) {
-      this.statusSystem.applyBuffs(attacker, move.template.buffs, attacker);
+      this.applySelfBuffs(attacker, move.template.buffs);
     }
 
     if (move.template.guardPercent) {
@@ -404,6 +404,10 @@ export class CombatManager {
     if (effect.buff) {
       this.statusSystem.applyBuffs(this.player, [effect.buff], this.player);
     }
+    if (effect.debuff) {
+      const target = this.aliveEnemies[0];
+      if (target) this.statusSystem.applyDebuffs(target, [effect.debuff], this.player);
+    }
 
     this.record({ kind: 'consumable', character: this.player, health: this.player.currentHealth, energy: this.player.energy });
     this.endActorTurn(this.player);
@@ -424,33 +428,58 @@ export class CombatManager {
           if (move.passiveCounter % move.template.triggerInterval !== 0) return;
         }
         if (move.template.buffs) {
-          this.statusSystem.applyBuffs(character, move.template.buffs, character);
+          this.applySelfBuffs(character, move.template.buffs);
         }
         if (move.template.debuffs) {
           const target = character.isPlayer ? this.aliveEnemies[0] : this.player;
-          if (target) this.statusSystem.applyDebuffs(target, move.template.debuffs, character);
+          const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
+          if (target && chanceOk) this.statusSystem.applyDebuffs(target, move.template.debuffs, character);
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
+        }
+        if (move.template.grantGoldFlat) {
+          character.pendingGoldBonus = (character.pendingGoldBonus ?? 0) + move.template.grantGoldFlat;
         }
         if (move.template.physicalDamageReductionPercent) {
           character.physicalDamageReductionPercent =
             (character.physicalDamageReductionPercent ?? 0) + move.template.physicalDamageReductionPercent;
         }
         if (move.template.statusDamageMultipliers) {
-          character.statusDamageMultipliers = {
-            ...(character.statusDamageMultipliers ?? {}),
-            ...move.template.statusDamageMultipliers,
-          };
+          // Multiplied (not overwritten) so two copies of the same passive
+          // (e.g. Formless from two equipped sources) genuinely compound.
+          const current = character.statusDamageMultipliers ?? {};
+          const next = { ...current };
+          Object.entries(move.template.statusDamageMultipliers).forEach(([key, mult]) => {
+            next[key] = (current[key] ?? 1) * mult;
+          });
+          character.statusDamageMultipliers = next;
         }
       });
     });
   }
 
+  /**
+   * Applies a self-buff (attacker buffing themselves, either via an
+   * active move or a passive) and — Thief's Envy — gives the opposing
+   * side a chance to steal the same buff for themselves.
+   */
+  applySelfBuffs(character, buffs) {
+    this.statusSystem.applyBuffs(character, buffs, character);
+    const opponent = character.isPlayer ? this.aliveEnemies[0] : this.player;
+    if (!opponent) return;
+    const stealChance = opponent.moves.reduce((max, m) => Math.max(max, m.template.stealBuffChance ?? 0), 0);
+    if (stealChance > 0 && rollChance(stealChance)) {
+      this.statusSystem.applyBuffs(opponent, buffs, opponent);
+    }
+  }
+
   finishVictory() {
     this.phase = COMBAT_PHASE.VICTORY;
+    this.triggerPassives('combat_victory', this.player);
     const totalHealth = this.enemies.reduce((sum, e) => sum + e.baseStats.con, 0);
-    const gold = Math.floor(totalHealth * GOLD_REWARD_RATIO);
+    const gold = Math.floor(totalHealth * GOLD_REWARD_RATIO) + (this.player.pendingGoldBonus ?? 0);
+    this.player.pendingGoldBonus = 0;
     const drops = { materials: {}, items: [], consumables: {} };
 
     this.enemies.forEach((enemy) => {

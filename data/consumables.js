@@ -21,6 +21,17 @@ export const CONSUMABLES = {
     moveId: 'strength_elixir_move',
     visual: { shape: 'square', color: '#f39c12', spriteId: 'strength_elixir' },
   },
+  soul_bomb: {
+    id: 'soul_bomb',
+    name: 'Soul Bomb',
+    flavour: 'Death spreads to all life.',
+    price: { gold: 500, materials: { mana_stone: 1, bones: 5, flesh: 3, jar_of_spores: 2 } },
+    unlock: null,
+    explorationEffect: { buff: { effect: 'statusReflection', stacks: 3 }, party: true, noStack: true },
+    combatEffect: { debuff: { effect: 'frostbite', stacks: 1 } },
+    moveId: 'soul_bomb_move',
+    visual: { shape: 'square', color: '#2d3436', spriteId: 'soul_bomb' },
+  },
 };
 
 export function getConsumableConfig(id) {

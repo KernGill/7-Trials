@@ -129,8 +129,12 @@ export class ExploreState {
     }
     if (effect.buff) {
       this.app.gameState.run.explorationBuffs = this.app.gameState.run.explorationBuffs ?? [];
-      this.app.gameState.run.explorationBuffs.push(effect.buff);
-      this.app.gameState.addLog(t('log.used_consumable_buff', { name }));
+      const alreadyQueued = effect.noStack
+        && this.app.gameState.run.explorationBuffs.some((b) => b.effect === effect.buff.effect);
+      if (!alreadyQueued) {
+        this.app.gameState.run.explorationBuffs.push(effect.buff);
+        this.app.gameState.addLog(t('log.used_consumable_buff', { name }));
+      }
     }
 
     this.app.inventory.useConsumable(id, 1);
@@ -188,6 +192,16 @@ export class ExploreState {
 
   getTileAt(x, y) {
     return this.app.gameState.run.dungeon?.tiles.find((t) => t.x === x && t.y === y) ?? null;
+  }
+
+  /** Sums a numeric passive template field across the player's equipped moves (e.g. Thief's Skill's qteBonusSeconds). */
+  getPassiveSum(field) {
+    return this.player.moves.reduce((sum, m) => sum + (m.template[field] ?? 0), 0);
+  }
+
+  /** True if any equipped move's template sets a truthy flag field (e.g. Thief's Experience's noQteFailDamage). */
+  hasPassiveFlag(field) {
+    return this.player.moves.some((m) => m.template[field]);
   }
 
   /** Turns facing by ±1 quarter-turn in place — no movement, no tile effects. */
@@ -366,7 +380,7 @@ export class ExploreState {
     const arrowCount = QTE_BASE_ARROWS + run.floor;
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
     const dex = this.player.getStat('dex');
-    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL);
+    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) + this.getPassiveSum('qteBonusSeconds');
 
     this.resultOpen = true;
     const modal = document.createElement('div');
@@ -420,13 +434,19 @@ export class ExploreState {
     onResolve(success);
   }
 
-  /** +10% reward per floor — floor 1 = +10%, floor 10 = +100%, matching enemy floor scaling's formula shape. */
+  /** Base reward multiplier: +10%/floor, plus any equipped reward-boost passive (e.g. Thief's Greed) — rounded up. */
+  getRewardMultiplier(run) {
+    return (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor) * (1 + this.getPassiveSum('rewardBonusPercent') / 100);
+  }
+
   resolveLockedDoor(success) {
     const { app } = this;
     const run = app.gameState.run;
     if (success) {
-      const amount = Math.round(LOCKED_ROOM_GOLD_REWARD * (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor));
+      const amount = Math.ceil(LOCKED_ROOM_GOLD_REWARD * this.getRewardMultiplier(run));
       app.gameState.player.gold += amount;
+      run.achievementProgress = run.achievementProgress ?? {};
+      run.achievementProgress.doorOpenedFloor = run.floor;
       this.showResult(t('explore.locked_room_opened'), [t('explore.reward_gold', { n: amount })]);
     } else {
       this.showResult(t('explore.locked_room_failed'), [t('explore.lock_held')]);
@@ -440,10 +460,15 @@ export class ExploreState {
     if (success) {
       const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
       const materialId = materialPool[randomInt(0, Math.max(0, materialPool.length - 1))];
-      const amount = Math.round(randomInt(2, 4) * (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor));
+      const amount = Math.ceil(randomInt(2, 4) * this.getRewardMultiplier(run));
       app.inventory.addMaterial(materialId, amount, true);
       const materialName = tData('material', materialId, getMaterialConfig(materialId)?.name ?? materialId);
+      run.achievementProgress = run.achievementProgress ?? {};
+      run.achievementProgress.chestOpenedFloor = run.floor;
+      run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
       this.showResult(t('explore.chest_opened'), [t('explore.reward_material', { n: amount, material: materialName })]);
+    } else if (this.hasPassiveFlag('noQteFailDamage')) {
+      this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
     } else {
       const before = this.player.currentHealth;
       this.player.currentHealth = Math.max(1, this.player.currentHealth - CHEST_TRAP_DAMAGE);

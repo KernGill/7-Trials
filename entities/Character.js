@@ -34,6 +34,7 @@ export class Character {
     this.temporaryStatModifiers = {};
 
     this.currentHealth = config.currentHealth ?? this.getMaxHealth();
+    this.diedFromStatusId = null;
     this.battleSpeed = config.battleSpeed ?? this.getStat('spd');
     this.storedSpeed = 0;
     this.energy = 0;
@@ -191,6 +192,9 @@ export class Character {
     let actual = Math.max(0, Math.round(amount));
     if (source) actual = Math.max(0, Math.round(actual * this.getStatusDamageMultiplier(source)));
     this.currentHealth = clamp(this.currentHealth - actual, 0, this.getMaxHealth());
+    // Tracks which status effect's tick landed the killing blow, if any —
+    // read by achievement checks (e.g. "defeat an enemy via Burn/Bleed").
+    if (source && actual > 0 && this.currentHealth <= 0) this.diedFromStatusId = source;
     // Fire's own tick doesn't count as "an instance of damage" for its
     // own decay — everything else that lands (attacks, other status
     // ticks) burns off 35% of the stacks.
@@ -228,6 +232,7 @@ export class Character {
 
   resetBattleState() {
     this.currentHealth = Math.min(this.currentHealth, this.getMaxHealth());
+    this.diedFromStatusId = null;
     this.battleSpeed = this.getStat('spd');
     this.storedSpeed = 0;
     this.energy = 0;

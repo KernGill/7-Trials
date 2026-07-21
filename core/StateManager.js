@@ -244,6 +244,10 @@ export class StateManager {
     const potionTarget = getAchievementConfig('use_10_potions_in_run')?.target ?? 10;
     if (potions >= potionTarget) this.achievements.setComplete('use_10_potions_in_run');
 
+    const chests = this.gameState.run?.achievementProgress?.chestsOpenedThisRun ?? 0;
+    const chestTarget = getAchievementConfig('open_3_chests_in_run')?.target ?? 3;
+    if (chests >= chestTarget) this.achievements.setComplete('open_3_chests_in_run');
+
     this.combatManager.reset();
     this.gameState.combat = null;
     this.gameState.paused = false;
@@ -316,7 +320,7 @@ export class StateManager {
   /** Called by ExploreState the instant the player steps onto an enemy tile. */
   startCombat(enemyId) {
     const player = this.createPlayer();
-    const mult = 1 + 0.05 * this.gameState.run.floor;
+    const mult = 1 + 0.10 * this.gameState.run.floor;
     const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
     const enemy = new Enemy(enemyId, { statMultipliers });
     // FightState has to be listening (via currentStateHandler) *before*
@@ -364,7 +368,45 @@ export class StateManager {
         this.achievements.recordProgress('kill_one_zombie', 1);
         progress.beatHollowedThisRun = true; // for Ossifying Chokehold's "die to IF after beating a Hollowed"
         if (oneHitKill && this.hasOnlyArc0EquipmentEquipped()) progress.oneHitZombieArc0 = true;
+        if (progress.chestOpenedFloor === this.gameState.run.floor && progress.doorOpenedFloor === this.gameState.run.floor) {
+          this.achievements.setComplete('beat_zombie_after_chest_and_door');
+        }
       }
+      if (config?.species === 'ghost') {
+        if (this.gameState.run.floor === 5) this.achievements.setComplete('beat_ghost_floor_5');
+        if (this.combatManager.player.getStatusStacks('frostbite') >= 2) {
+          this.achievements.setComplete('beat_ghost_with_2_frostbite');
+        }
+        if (enemy.diedFromStatusId === 'fire') {
+          this.achievements.setComplete('beat_false_apparition_with_burn');
+          if (this.inventory.countEquippedInstances('spore_cloak') > 0
+            && this.inventory.countEquippedInstances('shrouded_footsteps') > 0) {
+            progress.ghostsBurnedWithSporeGearThisRun = (progress.ghostsBurnedWithSporeGearThisRun ?? 0) + 1;
+            if (progress.ghostsBurnedWithSporeGearThisRun >= 2) {
+              this.achievements.setComplete('burn_2_ghosts_with_spore_gear');
+            }
+          }
+        }
+      }
+      if (enemy.diedFromStatusId === 'bleed') this.achievements.setComplete('beat_enemy_with_bleed');
+      if (enemy.diedFromStatusId && this.combatManager.player.getStatusStacks('stun') > 0) {
+        this.achievements.setComplete('beat_enemy_with_status_while_stunned');
+      }
+
+      // "On one floor defeat a skeleton, a zombie, and a ghost" — tracked
+      // per-floor, reset whenever the floor number changes.
+      if (config?.species) {
+        if (progress.speciesFloorTracker?.floor !== this.gameState.run.floor) {
+          progress.speciesFloorTracker = { floor: this.gameState.run.floor, species: [] };
+        }
+        if (!progress.speciesFloorTracker.species.includes(config.species)) {
+          progress.speciesFloorTracker.species.push(config.species);
+        }
+        if (['skeleton', 'zombie', 'ghost'].every((s) => progress.speciesFloorTracker.species.includes(s))) {
+          this.achievements.setComplete('beat_all_species_one_floor');
+        }
+      }
+
       if (progress.oneHitSkeletonArc0 && progress.oneHitZombieArc0) {
         this.achievements.setComplete('beat_both_in_one_hit_each');
       }
