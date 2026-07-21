@@ -15,6 +15,10 @@ const CARVE_DENSITY = 0.3125; // target carved-tile fraction of the grid
 // a blob later by *other*, unrelated carves that each individually look fine.
 const STRAIGHT_BIAS = 0.7;
 
+const LOCKED_DOOR_COUNT = 3;
+const TREASURE_COUNT = 2;
+const TEMPORAL_CHEST_COUNT = 1;
+
 /** True if carving (cx,cy) would complete any of the four 2x2 blocks it could be a corner of. */
 function wouldFormOpenBlock(at, cx, cy) {
   const isFloor = (x, y) => {
@@ -130,7 +134,7 @@ export class DungeonGenerator {
     stairsTile.type = TILE_TYPES.STAIRS;
 
     const remaining = shuffle(carved.filter((t) => t !== startTile && t !== stairsTile));
-    const enemyCount = Math.min(3, this.arcConfig.enemiesPerFloor ?? 3, remaining.length);
+    const enemyCount = Math.min(this.arcConfig.enemiesPerFloor ?? 5, remaining.length);
     for (let i = 0; i < enemyCount; i += 1) {
       remaining[i].type = TILE_TYPES.ENEMY;
       remaining[i].meta.enemySpawn = true;
@@ -147,20 +151,26 @@ export class DungeonGenerator {
       remaining[0].meta.isBoss = true;
     }
 
-    const lockedRoomTile = remaining[enemyCount];
-    if (lockedRoomTile) {
-      lockedRoomTile.type = TILE_TYPES.LOCKED_DOOR;
-      lockedRoomTile.meta.lockDifficulty = 10 + floor;
+    for (let i = 0; i < LOCKED_DOOR_COUNT; i += 1) {
+      const lockedRoomTile = remaining[enemyCount + i];
+      if (lockedRoomTile) {
+        lockedRoomTile.type = TILE_TYPES.LOCKED_DOOR;
+        lockedRoomTile.meta.lockDifficulty = 10 + floor;
+      }
     }
 
-    const treasureTile = remaining[enemyCount + 1];
-    if (treasureTile) {
-      treasureTile.type = TILE_TYPES.TREASURE;
+    for (let i = 0; i < TREASURE_COUNT; i += 1) {
+      const treasureTile = remaining[enemyCount + LOCKED_DOOR_COUNT + i];
+      if (treasureTile) {
+        treasureTile.type = TILE_TYPES.TREASURE;
+      }
     }
 
-    const temporalChestTile = remaining[enemyCount + 2];
-    if (temporalChestTile) {
-      temporalChestTile.type = TILE_TYPES.TEMPORAL_CHEST;
+    for (let i = 0; i < TEMPORAL_CHEST_COUNT; i += 1) {
+      const temporalChestTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + i];
+      if (temporalChestTile) {
+        temporalChestTile.type = TILE_TYPES.TEMPORAL_CHEST;
+      }
     }
 
     return {

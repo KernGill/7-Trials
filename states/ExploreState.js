@@ -8,7 +8,7 @@ import { cardTileHTML } from '../ui/InfoFormatters.js';
 import { arrowIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
-import { CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
+import { CHEST_TRAP_DAMAGE, TEMPORAL_CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
 import { randomInt } from '../utils/MathUtils.js';
 import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
 
@@ -531,8 +531,10 @@ export class ExploreState {
     } else if (this.hasPassiveFlag('noQteFailDamage')) {
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
     } else {
+      // Clamped to 1, never lethal — same "never kills" guarantee as a
+      // regular chest, just with a bigger bite at TEMPORAL_CHEST_TRAP_DAMAGE.
       const before = this.player.currentHealth;
-      this.player.currentHealth = Math.max(1, this.player.currentHealth - CHEST_TRAP_DAMAGE);
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - TEMPORAL_CHEST_TRAP_DAMAGE);
       const dealt = before - this.player.currentHealth;
       run.savedHealth = this.player.currentHealth;
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
