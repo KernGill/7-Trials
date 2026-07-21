@@ -36,9 +36,9 @@ const CARDINAL_DIRS = [
 // actual objects on a tile) are the opposite: they stay transparent,
 // brightening to full opacity within CLEAR_RADIUS and fading out (more
 // transparent + darker) toward FAINT_RADIUS.
-const CLEAR_RADIUS = 1;
-const DIM_RADIUS = 2;
-const FAINT_RADIUS = 3;
+const CLEAR_RADIUS = 2;
+const DIM_RADIUS = 4;
+const FAINT_RADIUS = 6;
 const WALL_CLEAR_KEEP = 0.55; // walls/floor within CLEAR_RADIUS: fraction of true color kept, rest blended to background
 const WALL_DIM_KEEP = 0.35; // walls/floor at the dim tier — between clear and faint
 const WALL_FAINT_KEEP = 0.06; // walls/floor at the faint tier: harder to see — mostly background
@@ -58,7 +58,7 @@ const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
 const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
 
-const CAMERA_PITCH = (20 * Math.PI) / 180; // 20 degrees from the ground — unchanged
+const CAMERA_PITCH = (30 * Math.PI) / 180; // raised from 20deg — steeper look-down angle so walls block the view less easily
 const CAMERA_HORIZONTAL_OFFSET = TILE_SIZE; // camera sits exactly 1 tile behind the player
 // Derived so the true camera->look-at angle is exactly CAMERA_PITCH: the
 // look-at target sits at LOOK_AT_HEIGHT, not ground level, so that offset
