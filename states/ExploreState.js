@@ -393,8 +393,14 @@ export class ExploreState {
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
       </div>`;
     this.root.appendChild(modal);
+    // Captured up front, by index, rather than re-querying '.qte-key' on
+    // every keypress — a querySelector re-grab would return the same
+    // still-in-DOM first element if two correct presses land faster than
+    // advanceQTE's 120ms removal animation, leaving the visual strip a
+    // step behind the (still-correct) internal index.
+    const keyElements = Array.from(modal.querySelectorAll('.qte-key'));
 
-    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, onResolve };
+    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, keyElements, onResolve };
     this.updateQTETimerUI();
   }
 
@@ -411,7 +417,7 @@ export class ExploreState {
   }
 
   advanceQTE() {
-    const keyEl = this.qte.modal.querySelector('.qte-key');
+    const keyEl = this.qte.keyElements[this.qte.index];
     keyEl?.classList.add('correct');
     setTimeout(() => keyEl?.remove(), 120);
     this.qte.index += 1;
