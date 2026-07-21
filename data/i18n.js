@@ -132,6 +132,7 @@ export const TRANSLATIONS = {
     'explore.locked_room_opened': 'LOCKED ROOM — OPENED',
     'explore.locked_room_failed': 'LOCKED ROOM — FAILED',
     'explore.chest_opened': 'CHEST — OPENED',
+    'explore.temporal_chest_opened': 'TEMPORAL CHEST — OPENED',
     'explore.chest_trapped_title': 'CHEST — TRAPPED',
     'explore.reward_gold': 'Reward: +{n} gold.',
     'explore.lock_held': 'The lock held. No harm done.',

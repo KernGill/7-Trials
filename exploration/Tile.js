@@ -6,6 +6,7 @@ export const TILE_TYPES = {
   TREASURE: 'treasure',
   TRAP: 'trap',
   LOCKED_DOOR: 'locked_door',
+  TEMPORAL_CHEST: 'temporal_chest',
 };
 
 export class Tile {

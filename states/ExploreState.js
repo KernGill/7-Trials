@@ -10,7 +10,7 @@ import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 import { CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
 import { randomInt } from '../utils/MathUtils.js';
-import { pickRandom } from '../utils/RandomUtils.js';
+import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
 
 const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
 const FACING_DELTAS = {
@@ -31,6 +31,10 @@ const QTE_BASE_SECONDS = 5;
 const QTE_DEX_SECONDS_INTERVAL = 50;
 const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
 const REWARD_FLOOR_BONUS_PER_FLOOR = 0.10;
+const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.25;
+const TEMPORAL_CHEST_REWARD_MULTIPLIER = 2;
+const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
+const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material pool
 
 /** Rotates a facing direction by `steps` 90-degree turns (+1 clockwise, -1 counterclockwise). */
 function rotateFacing(facing, steps) {
@@ -298,6 +302,12 @@ export class ExploreState {
         this.startQTE((success) => this.resolveTreasure(success));
         break;
       }
+      case TILE_TYPES.TEMPORAL_CHEST: {
+        if (tile.meta.resolved) break;
+        tile.meta.resolved = true;
+        this.startQTE((success) => this.resolveTemporalChest(success), { arrowMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
+        break;
+      }
       default:
         break;
     }
@@ -375,9 +385,9 @@ export class ExploreState {
    * success chance, per user request), and arrow count/rewards both scale
    * with the current floor — see resolveLockedDoor/resolveTreasure.
    */
-  startQTE(onResolve) {
+  startQTE(onResolve, { arrowMultiplier = 1 } = {}) {
     const run = this.app.gameState.run;
-    const arrowCount = QTE_BASE_ARROWS + run.floor;
+    const arrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * arrowMultiplier);
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
     const dex = this.player.getStat('dex');
     const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) + this.getPassiveSum('qteBonusSeconds');
@@ -473,6 +483,51 @@ export class ExploreState {
       run.achievementProgress.chestOpenedFloor = run.floor;
       run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
       this.showResult(t('explore.chest_opened'), [t('explore.reward_material', { n: amount, material: materialName })]);
+    } else if (this.hasPassiveFlag('noQteFailDamage')) {
+      this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
+    } else {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - CHEST_TRAP_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      run.savedHealth = this.player.currentHealth;
+      this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
+    }
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /**
+   * Temporal Chest: same failure behavior as a regular chest, but success
+   * grants BOTH gold (2x a locked room's) and materials (2x a regular
+   * chest's), with a real (if still minority) chance at a rare material
+   * regular chests never roll at all.
+   */
+  resolveTemporalChest(success) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      const mult = this.getRewardMultiplier(run);
+      const goldAmount = Math.ceil(LOCKED_ROOM_GOLD_REWARD * TEMPORAL_CHEST_REWARD_MULTIPLIER * mult);
+      app.gameState.player.gold += goldAmount;
+
+      const isRare = rollWeightedChoice([
+        { weight: TEMPORAL_CHEST_RARE_CHANCE, value: true },
+        { weight: 100 - TEMPORAL_CHEST_RARE_CHANCE, value: false },
+      ]);
+      const materialPool = isRare ? RARE_MATERIALS : (getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone']);
+      const materialId = materialPool[randomInt(0, Math.max(0, materialPool.length - 1))];
+      const materialAmount = Math.ceil(randomInt(2, 4) * TEMPORAL_CHEST_REWARD_MULTIPLIER * mult);
+      app.inventory.addMaterial(materialId, materialAmount, true);
+      const materialName = tData('material', materialId, getMaterialConfig(materialId)?.name ?? materialId);
+
+      run.achievementProgress = run.achievementProgress ?? {};
+      run.achievementProgress.chestOpenedFloor = run.floor;
+      run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
+
+      this.showResult(t('explore.temporal_chest_opened'), [
+        t('explore.reward_gold', { n: goldAmount }),
+        t('explore.reward_material', { n: materialAmount, material: materialName }),
+      ]);
     } else if (this.hasPassiveFlag('noQteFailDamage')) {
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
     } else {

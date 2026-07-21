@@ -91,6 +91,7 @@ const MARKER_COLORS = {
   [TILE_TYPES.STAIRS]: 0x7a5c1f,
   [TILE_TYPES.LOCKED_DOOR]: 0x3a1f7a,
   [TILE_TYPES.TREASURE]: 0x7a6a1f,
+  [TILE_TYPES.TEMPORAL_CHEST]: 0x1f5fd9,
 };
 
 function tileKey(x, y) {
@@ -299,6 +300,11 @@ export class DungeonRenderer3D {
       geo = this._geo.stairsMarker;
       height = TILE_SIZE * 0.15;
     } else if (tile.type === TILE_TYPES.ENEMY) {
+      geo = this._geo.enemyCube;
+      height = TILE_SIZE * 0.4;
+    } else if (tile.type === TILE_TYPES.TEMPORAL_CHEST) {
+      // A genuine cube (per user request "make it a blue cube"), not the
+      // flatter default marker block used for STAIRS/LOCKED_DOOR/TREASURE.
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
     }
