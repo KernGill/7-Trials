@@ -8,6 +8,8 @@ import { cardTileHTML } from '../ui/InfoFormatters.js';
 import { arrowIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
+import { Minimap } from '../exploration/Minimap.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
 import { CHEST_TRAP_DAMAGE, TEMPORAL_CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
 import { randomInt } from '../utils/MathUtils.js';
 import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
@@ -42,6 +44,15 @@ function rotateFacing(facing, steps) {
   return FACING_ORDER[(idx + steps + FACING_ORDER.length) % FACING_ORDER.length];
 }
 
+/** Hover-tooltip content for the HUD's events-remaining indicator. */
+function eventsBreakdownHTML(counts) {
+  return `
+    <div class="tt-row"><span>${t('explore.locked_rooms_remaining')}</span><span>${counts.lockedRooms}</span></div>
+    <div class="tt-row"><span>${t('explore.chests_remaining')}</span><span>${counts.chests}</span></div>
+    <div class="tt-row"><span>${t('explore.temporal_chests_remaining')}</span><span>${counts.temporalChests}</span></div>
+  `;
+}
+
 /**
  * ExploreState — dungeon crawling. Top-level peer of FightState. Rendered
  * as an oblique 3D scene by DungeonRenderer3D, mounted into `.dungeon-grid`.
@@ -64,11 +75,14 @@ export class ExploreState {
         <div class="explore-hud"></div>
         <div class="dungeon-grid"></div>
         <div class="floor-message"></div>
+        <div class="descend-prompt"></div>
       </div>`;
     this.els = {
+      screen: root.querySelector('.explore-screen'),
       hud: root.querySelector('.explore-hud'),
       grid: root.querySelector('.dungeon-grid'),
       msg: root.querySelector('.floor-message'),
+      descend: root.querySelector('.descend-prompt'),
     };
     this.renderer3d = new DungeonRenderer3D();
     // This ExploreState instance is a long-lived singleton (StateManager
@@ -79,6 +93,9 @@ export class ExploreState {
     // geometry never built.
     this._synced3DDungeon = null;
     this.renderer3d.mount(this.els.grid);
+    this.minimap = new Minimap(this.app);
+    this.minimap.mount(this.els.screen, { onClick: () => this.openMinimapExpanded() });
+    this.tooltip = new TooltipManager();
     this.syncDungeon3D();
     this.syncPlayer3D();
     this.app.input.on('keydown', this._onKeydown);
@@ -105,6 +122,8 @@ export class ExploreState {
   exit() {
     this.app.input.off('keydown', this._onKeydown);
     this.renderer3d?.unmount();
+    this.minimap?.unmount();
+    this.tooltip?.destroy();
     this.pause.unmount();
   }
 
@@ -283,11 +302,13 @@ export class ExploreState {
         break;
       }
       case TILE_TYPES.STAIRS: {
+        // No longer auto-descends — renderHUD() shows a "Descend?" prompt
+        // whenever the player is standing here with 0 enemies remaining,
+        // so stepping onto the stairs no longer forces an instant floor
+        // change and cuts a looting run short.
         if (run.enemiesRemaining > 0) {
           run.floorMessage = { text: t('explore.enemies_wander'), timer: 2 };
-          break;
         }
-        this.showCardPick();
         break;
       }
       case TILE_TYPES.LOCKED_DOOR: {
@@ -543,15 +564,53 @@ export class ExploreState {
     this.renderHUD();
   }
 
+  /** Unresolved locked-door/chest/temporal-chest tiles left on the current floor. */
+  getRemainingEventCounts() {
+    const tiles = this.app.gameState.run.dungeon?.tiles ?? [];
+    const lockedRooms = tiles.filter((t) => t.type === TILE_TYPES.LOCKED_DOOR && !t.meta.resolved).length;
+    const chests = tiles.filter((t) => t.type === TILE_TYPES.TREASURE && !t.meta.resolved).length;
+    const temporalChests = tiles.filter((t) => t.type === TILE_TYPES.TEMPORAL_CHEST && !t.meta.resolved).length;
+    return { lockedRooms, chests, temporalChests, total: lockedRooms + chests + temporalChests };
+  }
+
+  /** Full explored-so-far map, opened by clicking the corner minimap. Blocks movement like every other modal here. */
+  openMinimapExpanded() {
+    this.resultOpen = true;
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box minimap-expanded-box">
+        <h2>${t('explore.minimap_title')}</h2>
+        <div class="minimap-scroll"><canvas class="minimap-expanded-canvas"></canvas></div>
+        <button class="result-close">${t('explore.close')}</button>
+      </div>`;
+    this.root.appendChild(modal);
+    this.minimap.drawExpanded(modal.querySelector('.minimap-expanded-canvas'));
+    modal.querySelector('.result-close').addEventListener('click', () => {
+      modal.remove();
+      this.resultOpen = false;
+    });
+  }
+
   renderHUD() {
     const run = this.app.gameState.run;
     const dungeon = run.dungeon;
+    const counts = this.getRemainingEventCounts();
+    const currentTile = this.getTileAt(run.playerPosition.x, run.playerPosition.y);
+    const canDescend = currentTile?.type === TILE_TYPES.STAIRS && run.enemiesRemaining === 0;
 
     this.els.hud.innerHTML = `
       <span>${t('explore.floor', { n: run.floor })}</span>
       <span>${t('explore.explored', { explored: run.tilesExplored, total: dungeon?.tilesTotal ?? 0 })}</span>
       <span>${t('explore.enemies_remaining', { n: run.enemiesRemaining })}</span>
+      <span class="events-indicator" data-events>${t('explore.events_remaining', { n: counts.total })}</span>
       <span>${t('explore.hp', { current: this.player.currentHealth, max: this.player.getMaxHealth() })}</span>`;
     this.els.msg.textContent = run.floorMessage?.text ?? '';
+    this.tooltip.bind(this.els.hud.querySelector('[data-events]'), () => eventsBreakdownHTML(counts));
+
+    this.els.descend.innerHTML = canDescend ? `<button data-descend>${t('explore.descend')}</button>` : '';
+    this.els.descend.querySelector('[data-descend]')?.addEventListener('click', () => this.showCardPick());
+
+    this.minimap?.render();
   }
 }

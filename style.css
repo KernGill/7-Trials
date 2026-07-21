@@ -90,6 +90,22 @@ select {
   position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 5;
   color: #f1c40f; font-size: 16px; min-height: 20px;
 }
+.events-indicator { cursor: default; }
+
+.minimap {
+  position: absolute; top: 20px; right: 20px; z-index: 5;
+  border: 2px solid #444; border-radius: 4px; cursor: pointer;
+  background: #000; line-height: 0; overflow: hidden;
+}
+.minimap:hover { border-color: #e94560; }
+.minimap-expanded-box { align-items: center; width: auto; max-width: 94vw; }
+.minimap-scroll { max-width: 90vw; max-height: 70vh; overflow: auto; }
+.minimap-expanded-canvas { display: block; image-rendering: pixelated; }
+
+.descend-prompt {
+  position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); z-index: 5;
+}
+.descend-prompt button { padding: 14px 30px; font-size: 15px; letter-spacing: 1px; }
 
 .result-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.85);
