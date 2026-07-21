@@ -267,6 +267,9 @@ select {
 .pause-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #ccc; font-size: 13px; }
 
 .pause-box.loadout-box { width: 720px; max-width: 92vw; }
+.pause-box.settings-box { width: 440px; max-width: 92vw; }
+.pause-row, .settings-row { flex-wrap: wrap; }
+.fine-tune-row { padding-left: 16px; opacity: 0.9; }
 .loadout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .loadout-col { display: flex; flex-direction: column; gap: 10px; }
 .loadout-slot {

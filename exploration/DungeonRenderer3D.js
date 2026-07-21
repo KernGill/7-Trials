@@ -1,6 +1,10 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { TILE_TYPES } from './Tile.js';
 import { clamp } from '../utils/MathUtils.js';
+import {
+  CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
+  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT,
+} from '../ui/CameraSettings.js';
 
 const BACKGROUND_COLOR = 0x0b0c10;
 const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho frustum
@@ -71,13 +75,16 @@ const TWEEN_SPEED = 10; // per second; reaches ~95% of the way to target in ~300
 // 1/3 - 1.5x. Both are independent — angle alone controls how far back the
 // camera sits (via cos), height alone controls how high up it sits — unlike
 // the old single fixed-pitch formula, which derived height from angle via
-// tan() and breaks down (divides by ~0) as angle approaches 90deg.
-const DEFAULT_CAMERA_ANGLE_DEG = 30;
-const DEFAULT_CAMERA_HEIGHT_MULT = 1;
-const CAMERA_ANGLE_MIN_DEG = 0;
-const CAMERA_ANGLE_MAX_DEG = 90;
-const CAMERA_HEIGHT_MULT_MIN = 1 / 3;
-const CAMERA_HEIGHT_MULT_MAX = 1.5;
+// tan() and breaks down (divides by ~0) as angle approaches 90deg. Range/
+// default constants live in ui/CameraSettings.js (shared with the Settings
+// screens so the sliders there can't drift out of sync with what this
+// renderer actually accepts).
+const DEFAULT_CAMERA_ANGLE_DEG = DEFAULT_CAMERA_ANGLE;
+const DEFAULT_CAMERA_HEIGHT_MULT = DEFAULT_CAMERA_HEIGHT;
+const CAMERA_ANGLE_MIN_DEG = CAMERA_ANGLE_MIN;
+const CAMERA_ANGLE_MAX_DEG = CAMERA_ANGLE_MAX;
+const CAMERA_HEIGHT_MULT_MIN = CAMERA_HEIGHT_MIN_PERCENT / 100;
+const CAMERA_HEIGHT_MULT_MAX = CAMERA_HEIGHT_MAX_PERCENT / 100;
 // The camera's actual world-space height under the old fixed 30deg config
 // (LOOK_AT_HEIGHT + CAMERA_HORIZONTAL_OFFSET*tan(30deg), plus CAMERA_LOOK_LIFT
 // which the old formula folded into the camera's own height too) — this is
@@ -269,6 +276,15 @@ export class DungeonRenderer3D {
     this.desiredCameraPos.copy(this.desiredPlayerPos)
       .addScaledVector(facingVec, -horizontal)
       .add(new THREE.Vector3(0, height, 0));
+
+    // At angle=90 the view direction is exactly vertical, which makes the
+    // default (0,1,0) up-vector parallel to it — a degenerate case where
+    // lookAt() can't determine roll, so the screen silently stops rotating
+    // with facing. Blending up toward facingVec as angle approaches 90
+    // fixes that (and, as a bonus, makes bird's-eye view a proper
+    // heading-up rotation, matching the minimap's own convention) while
+    // leaving angle=0 exactly as before (cos(0)=1, sin(0)=0 — pure worldUp).
+    this.camera.up.set(0, Math.cos(angleRad), 0).addScaledVector(facingVec, Math.sin(angleRad)).normalize();
   }
 
   /** Smoothly tweens camera/player toward their latest target — recomputed every frame so live setting changes (angle/height) are picked up immediately, not just on movement. */

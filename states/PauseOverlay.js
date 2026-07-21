@@ -4,6 +4,10 @@ import { getItemConfig } from '../data/items.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
+import {
+  CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
+  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
+} from '../ui/CameraSettings.js';
 
 const LANGUAGE_OPTIONS = ['en', 'es'];
 
@@ -17,6 +21,7 @@ export class PauseOverlay {
   constructor(app) {
     this.app = app;
     this.el = null;
+    this.fineTuneOpen = false;
   }
 
   mount(root, { canAbandon, allowConsumables = false, onUseConsumable = null }) {
@@ -99,11 +104,81 @@ export class PauseOverlay {
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 
+  cameraSectionHTML(s) {
+    const angle = Math.round(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
+    const linkedHeight = Math.round(linkedHeightPercentForAngle(angle));
+    const height = Math.round((s.cameraHeight ?? DEFAULT_CAMERA_HEIGHT) * 100);
+    return `
+      <div class="pause-row">
+        <span class="camera-combined-label">${t('settings.camera_orientation', { angle, height: linkedHeight })}</span>
+        <input type="range" min="${CAMERA_ANGLE_MIN}" max="${CAMERA_ANGLE_MAX}" step="1" value="${angle}" class="camera-combined-slider">
+        <button class="fine-tune-btn">${t('settings.fine_tune')}</button>
+      </div>
+      ${this.fineTuneOpen ? `
+        <div class="pause-row fine-tune-row">
+          <span class="camera-angle-label">${t('settings.camera_angle', { deg: angle })}</span>
+          <input type="range" min="${CAMERA_ANGLE_MIN}" max="${CAMERA_ANGLE_MAX}" step="1" value="${angle}" class="camera-angle-slider">
+        </div>
+        <div class="pause-row fine-tune-row">
+          <span class="camera-height-label">${t('settings.camera_height', { percent: height })}</span>
+          <input type="range" min="${CAMERA_HEIGHT_MIN_PERCENT}" max="${CAMERA_HEIGHT_MAX_PERCENT}" step="1" value="${height}" class="camera-height-slider">
+        </div>
+        <div class="pause-row fine-tune-row">
+          <button class="camera-reset-btn">${t('settings.reset_default')}</button>
+        </div>
+      ` : ''}`;
+  }
+
+  /** Keeps the combined slider's label and (if open) the fine-tune sub-sliders' thumbs/labels all in sync, without a full re-render. */
+  syncCameraDisplays(s) {
+    const angle = Math.round(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
+    const linkedHeight = Math.round(linkedHeightPercentForAngle(angle));
+    const height = Math.round((s.cameraHeight ?? DEFAULT_CAMERA_HEIGHT) * 100);
+    this.el.querySelector('.camera-combined-label').textContent = t('settings.camera_orientation', { angle, height: linkedHeight });
+    this.el.querySelector('.camera-combined-slider').value = angle;
+    if (!this.fineTuneOpen) return;
+    this.el.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: angle });
+    this.el.querySelector('.camera-angle-slider').value = angle;
+    this.el.querySelector('.camera-height-label').textContent = t('settings.camera_height', { percent: height });
+    this.el.querySelector('.camera-height-slider').value = height;
+  }
+
+  bindCameraEvents(s) {
+    const { app } = this;
+    this.el.querySelector('.camera-combined-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-combined-slider').addEventListener('input', (e) => {
+      s.cameraAngle = clamp(Number(e.target.value), CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX);
+      s.cameraHeight = linkedHeightPercentForAngle(s.cameraAngle) / 100;
+      this.syncCameraDisplays(s);
+    });
+    this.el.querySelector('.fine-tune-btn').addEventListener('click', () => {
+      this.fineTuneOpen = !this.fineTuneOpen;
+      this.render();
+    });
+    if (!this.fineTuneOpen) return;
+    this.el.querySelector('.camera-angle-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-angle-slider').addEventListener('input', (e) => {
+      s.cameraAngle = clamp(Number(e.target.value), CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX);
+      this.syncCameraDisplays(s);
+    });
+    this.el.querySelector('.camera-height-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-height-slider').addEventListener('input', (e) => {
+      s.cameraHeight = clamp(Number(e.target.value) / 100, CAMERA_HEIGHT_MIN_PERCENT / 100, CAMERA_HEIGHT_MAX_PERCENT / 100);
+      this.syncCameraDisplays(s);
+    });
+    this.el.querySelector('.camera-reset-btn').addEventListener('click', () => {
+      s.cameraAngle = DEFAULT_CAMERA_ANGLE;
+      s.cameraHeight = DEFAULT_CAMERA_HEIGHT;
+      app.saveSystem.save();
+      this.render();
+    });
+  }
+
   renderSettings() {
     const { app } = this;
     const s = app.gameState.settings;
     this.el.innerHTML = `
-      <div class="pause-box">
+      <div class="pause-box settings-box">
         <h2>${t('settings.title')}</h2>
         <div class="pause-row">
           <span class="brightness-label">${t('settings.brightness', { percent: Math.round(s.brightness * 100) })}</span>
@@ -121,14 +196,7 @@ export class PauseOverlay {
         </div>
         <div class="pause-row">${t('settings.sound')} <button data-a="sound">${s.sound ? t('settings.on') : t('settings.off')}</button></div>
         <div class="pause-row">${t('settings.fixed_minimap')} <button data-a="fixed-minimap">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button></div>
-        <div class="pause-row">
-          <span class="camera-angle-label">${t('settings.camera_angle', { deg: Math.round(s.cameraAngle ?? 30) })}</span>
-          <input type="range" min="0" max="90" step="1" value="${Math.round(s.cameraAngle ?? 30)}" class="camera-angle-slider">
-        </div>
-        <div class="pause-row">
-          <span class="camera-height-label">${t('settings.camera_height', { percent: Math.round((s.cameraHeight ?? 1) * 100) })}</span>
-          <input type="range" min="33" max="150" step="1" value="${Math.round((s.cameraHeight ?? 1) * 100)}" class="camera-height-slider">
-        </div>
+        ${this.cameraSectionHTML(s)}
         <button data-a="back">${t('common.back')}</button>
       </div>`;
     this.el.querySelector('.brightness-slider').addEventListener('change', () => app.saveSystem.save());
@@ -153,16 +221,7 @@ export class PauseOverlay {
       app.saveSystem.save();
       this.render();
     });
-    this.el.querySelector('.camera-angle-slider').addEventListener('change', () => app.saveSystem.save());
-    this.el.querySelector('.camera-angle-slider').addEventListener('input', (e) => {
-      s.cameraAngle = clamp(Number(e.target.value), 0, 90);
-      this.el.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: Math.round(s.cameraAngle) });
-    });
-    this.el.querySelector('.camera-height-slider').addEventListener('change', () => app.saveSystem.save());
-    this.el.querySelector('.camera-height-slider').addEventListener('input', (e) => {
-      s.cameraHeight = clamp(Number(e.target.value) / 100, 1 / 3, 1.5);
-      this.el.querySelector('.camera-height-label').textContent = t('settings.camera_height', { percent: Math.round(s.cameraHeight * 100) });
-    });
+    this.bindCameraEvents(s);
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 
