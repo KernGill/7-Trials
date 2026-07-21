@@ -98,6 +98,8 @@ export class ExploreState {
     this.tooltip = new TooltipManager();
     this.syncDungeon3D();
     this.syncPlayer3D();
+    const { playerPosition } = this.app.gameState.run;
+    this.markNearbyExplored(playerPosition.x, playerPosition.y);
     this.app.input.on('keydown', this._onKeydown);
     this.renderHUD();
   }
@@ -227,12 +229,37 @@ export class ExploreState {
     return this.player.moves.some((m) => m.template[field]);
   }
 
+  /**
+   * Marks every tile in the 3x3 area around (cx,cy) as explored — not just
+   * the one actually stood on — so the minimap's "close" live-visibility
+   * ring (see Minimap.js) becomes permanent instead of reverting to
+   * unknown once the player walks away, making it much faster to fill in.
+   * Walls are marked too (so the minimap remembers corridor edges/shape)
+   * but only walkable tiles count toward the "Explored: X/Y" HUD total,
+   * since dungeon.tilesTotal itself only counts walkable tiles.
+   */
+  markNearbyExplored(cx, cy) {
+    const run = this.app.gameState.run;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const tile = this.getTileAt(cx + dx, cy + dy);
+        if (!tile || tile.explored) continue;
+        tile.explored = true;
+        if (tile.type !== TILE_TYPES.WALL) run.tilesExplored += 1;
+      }
+    }
+  }
+
   /** Turns facing by ±1 quarter-turn in place — no movement, no tile effects. */
   turnPlayer(steps) {
     const run = this.app.gameState.run;
     if (!run.dungeon) return;
     run.facing = rotateFacing(run.facing, steps);
     this.syncPlayer3D();
+    // Only the corner minimap can visually change from a turn alone (when
+    // "Fixed Minimap" is off it rotates with facing) — no other HUD stat
+    // does, so a full renderHUD() isn't needed here.
+    this.minimap?.render();
     this.app.saveSystem.save();
   }
 
@@ -265,13 +292,11 @@ export class ExploreState {
     run.playerPosition = { x: nx, y: ny };
     // syncPlayer3D() (below) already recomputes every tile's visibility
     // tier from the new position on every move — no separate reveal call
-    // needed; the "explored" flag here is purely the permanent HUD/save
-    // progress counter, unrelated to what's currently visible on screen.
+    // needed; the "explored" flag here is purely the permanent HUD/save/
+    // minimap progress marker, unrelated to what's currently visible
+    // on-screen in the live 3D view.
     this.syncPlayer3D();
-    if (!tile.explored) {
-      tile.explored = true;
-      run.tilesExplored += 1;
-    }
+    this.markNearbyExplored(nx, ny);
 
     // Enemy tiles hand off to FightState immediately — nothing left on
     // this screen to render or save. Autosaving here would also let a
@@ -397,6 +422,7 @@ export class ExploreState {
     this.player = app.createPlayer();
     this.syncDungeon3D();
     this.syncPlayer3D();
+    this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
     this.app.saveSystem.save();
     this.renderHUD();
   }

@@ -45,6 +45,7 @@ export const TRANSLATIONS = {
     'settings.game_speed': 'Game Speed: {mult}x',
     'settings.fps': 'FPS (simulation rate)',
     'settings.sound': 'Sound: (no audio implemented yet)',
+    'settings.fixed_minimap': 'Fixed Minimap',
     'settings.on': 'On',
     'settings.off': 'Off',
     'settings.language': 'Language',

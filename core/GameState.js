@@ -57,7 +57,7 @@ export class GameState {
     // for everyone, new and existing saves alike (loadSnapshot's merge
     // below only overwrites this if an already-saved settings object
     // explicitly has its own gameSpeed value).
-    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2 };
+    this.settings = { brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true };
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;

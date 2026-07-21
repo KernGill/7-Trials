@@ -120,6 +120,7 @@ export class PauseOverlay {
           </select>
         </div>
         <div class="pause-row">${t('settings.sound')} <button data-a="sound">${s.sound ? t('settings.on') : t('settings.off')}</button></div>
+        <div class="pause-row">${t('settings.fixed_minimap')} <button data-a="fixed-minimap">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button></div>
         <button data-a="back">${t('common.back')}</button>
       </div>`;
     this.el.querySelector('.brightness-slider').addEventListener('change', () => app.saveSystem.save());
@@ -139,6 +140,11 @@ export class PauseOverlay {
       this.render(); // full re-render — every label on this view needs the new language
     });
     this.el.querySelector('[data-a="sound"]').addEventListener('click', () => { s.sound = !s.sound; app.saveSystem.save(); this.render(); });
+    this.el.querySelector('[data-a="fixed-minimap"]').addEventListener('click', () => {
+      s.fixedMinimap = !s.fixedMinimap;
+      app.saveSystem.save();
+      this.render();
+    });
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 

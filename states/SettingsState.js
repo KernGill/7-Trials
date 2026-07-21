@@ -49,6 +49,10 @@ export class SettingsState {
       <div class="settings-row">
         <span>${t('settings.sound')}</span>
         <button class="sound-btn">${s.sound ? t('settings.on') : t('settings.off')}</button>
+      </div>
+      <div class="settings-row">
+        <span>${t('settings.fixed_minimap')}</span>
+        <button class="fixed-minimap-btn">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button>
       </div>`;
     this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
@@ -71,5 +75,10 @@ export class SettingsState {
       this.enter(this.root); // full re-render — every label on this screen needs the new language
     });
     this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; this.app.saveSystem.save(); this.renderAll(); });
+    this.body.querySelector('.fixed-minimap-btn').addEventListener('click', () => {
+      s.fixedMinimap = !s.fixedMinimap;
+      this.app.saveSystem.save();
+      this.renderAll();
+    });
   }
 }

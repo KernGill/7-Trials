@@ -17,6 +17,16 @@ const TILE_COLORS = {
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';
 
+// Rotation (radians) applied to the corner minimap so the given facing
+// direction always renders at the top — north needs none since world-north
+// (dy=-1) already draws at the top by default; the rest follow from there.
+const FACING_ANGLES = {
+  north: 0,
+  east: -Math.PI / 2,
+  south: Math.PI,
+  west: Math.PI / 2,
+};
+
 /**
  * Top-down minimap — a small always-on corner view (9x9 tiles, player
  * centered) plus a click-to-open expanded view of everything explored so
@@ -59,19 +69,33 @@ export class Minimap {
     return this._tileMap;
   }
 
-  /** Redraws the small corner minimap centered on the player's current position. */
+  /**
+   * Redraws the small corner minimap centered on the player's current
+   * position. North-up (no rotation) when the "Fixed Minimap" setting is
+   * on (the default); otherwise rotated so the direction the player is
+   * currently facing renders at the top — the expanded full-map view
+   * (drawExpanded) is never rotated, only this corner view.
+   */
   render() {
     if (!this.canvas) return;
     const run = this.app.gameState.run;
     const dungeon = run?.dungeon;
     const ctx = this.canvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = UNKNOWN_COLOR;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     if (!dungeon) return;
 
     const tileMap = this._ensureTileMap(dungeon);
     const { x: px, y: py } = run.playerPosition;
+    const center = RADIUS * CELL_SIZE + CELL_SIZE / 2;
+    const fixed = this.app.gameState.settings.fixedMinimap ?? true;
+    const angle = fixed ? 0 : (FACING_ANGLES[run.facing] ?? 0);
 
+    ctx.save();
+    ctx.translate(center, center);
+    ctx.rotate(angle);
+    ctx.translate(-center, -center);
     for (let dy = -RADIUS; dy <= RADIUS; dy += 1) {
       for (let dx = -RADIUS; dx <= RADIUS; dx += 1) {
         const tile = tileMap.get(`${px + dx},${py + dy}`);
@@ -82,8 +106,9 @@ export class Minimap {
         ctx.fillRect((dx + RADIUS) * CELL_SIZE, (dy + RADIUS) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
       }
     }
+    ctx.restore();
 
-    this._drawPlayerMarker(ctx, RADIUS * CELL_SIZE + CELL_SIZE / 2, RADIUS * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE);
+    this._drawPlayerMarker(ctx, center, center, CELL_SIZE);
   }
 
   /** Draws every explored tile of the current floor onto a caller-provided canvas (the expanded modal view). No "close" bonus — memory only. */
