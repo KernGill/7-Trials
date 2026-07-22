@@ -379,6 +379,11 @@ export class CombatManager {
         // a target's fire vulnerability (Formless) or fire resistance
         // applies to it too, not just literal burn ticks.
         defender.takeDamage(stacks * damagePerStack, { source: effect });
+        // diedFromStatusId alone can't tell "died to Erratic Combustion"
+        // apart from any other fire-tagged death (a burn tick, Chaotic
+        // Combustion) — achievement checks that need the specific move
+        // read this instead.
+        if (defender.currentHealth <= 0) defender.diedFromMoveId = move.template.id;
       }
     }
 
@@ -431,6 +436,14 @@ export class CombatManager {
 
     if (move.template.debuffs && (!result || result.hit)) {
       this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
+    }
+    // Unlike `debuffs` above (routed to the defender, gated on a hit),
+    // `selfDebuffs` on an active move always lands on its own caster —
+    // e.g. Ember Wisp singing the attacker's own fingers regardless of
+    // whether the bolt itself connects. Mirrors triggerPassives' handling
+    // of the same field for passive moves (Ash Eater, Ember Curse).
+    if (move.template.selfDebuffs) {
+      this.logDebuffResults(this.statusSystem.applyDebuffs(attacker, move.template.selfDebuffs, attacker));
     }
     if (move.template.buffs) {
       this.applySelfBuffs(attacker, move.template.buffs);

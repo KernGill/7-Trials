@@ -18,7 +18,7 @@ import { Tile } from '../exploration/Tile.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
-import { getEnemyConfig } from '../data/enemies.js';
+import { getEnemyConfig, getEnemiesForArc } from '../data/enemies.js';
 import { getItemConfig } from '../data/items.js';
 import { HomeState } from '../states/HomeState.js';
 import { ExploreState } from '../states/ExploreState.js';
@@ -459,12 +459,10 @@ export class StateManager {
 
       if (config?.species === 'skeleton') {
         this.achievements.recordProgress('kill_one_skeleton', 1);
-        if (oneHitKill && this.hasOnlyArc0EquipmentEquipped()) progress.oneHitSkeletonArc0 = true;
       }
       if (config?.species === 'zombie') {
         this.achievements.recordProgress('kill_one_zombie', 1);
         progress.beatHollowedThisRun = true; // for Ossifying Chokehold's "die to IF after beating a Hollowed"
-        if (oneHitKill && this.hasOnlyArc0EquipmentEquipped()) progress.oneHitZombieArc0 = true;
         if (progress.chestOpenedFloor === this.gameState.run.floor && progress.doorOpenedFloor === this.gameState.run.floor) {
           this.achievements.setComplete('beat_zombie_after_chest_and_door');
         }
@@ -504,8 +502,18 @@ export class StateManager {
         }
       }
 
-      if (progress.oneHitSkeletonArc0 && progress.oneHitZombieArc0) {
-        this.achievements.setComplete('beat_both_in_one_hit_each');
+      // "One-hit kill every Arc0 mob type at least once in a run" — Rage
+      // of Vitalire's gate. Tracked as a set of enemy ids so it doesn't
+      // matter which order or which single fight each one-hit came from.
+      if (oneHitKill && config?.arcs?.includes('arc0') && !config?.isBoss) {
+        progress.oneHitArc0MobsThisRun = progress.oneHitArc0MobsThisRun ?? [];
+        if (!progress.oneHitArc0MobsThisRun.includes(enemy.enemyId)) {
+          progress.oneHitArc0MobsThisRun.push(enemy.enemyId);
+        }
+        const allArc0Ids = getEnemiesForArc('arc0').map((e) => e.id);
+        if (allArc0Ids.every((id) => progress.oneHitArc0MobsThisRun.includes(id))) {
+          this.achievements.setComplete('one_hit_kill_all_arc0_mobs');
+        }
       }
       if (enemy.enemyId === 'indebted_fallen' || enemy.enemyId === 'indebted_fallen_boss') {
         progress.indebtedFallenKillsThisRun = (progress.indebtedFallenKillsThisRun ?? 0) + 1;
@@ -535,11 +543,11 @@ export class StateManager {
     this.setState(GAME_STATES.EXPLORE);
   }
 
-  /** Every currently-equipped item must be Arc0 gear — used by Rage of Vitalire's achievement gate. */
-  hasOnlyArc0EquipmentEquipped() {
+  /** True if any currently-equipped item grants the Formless passive — used by Unshielded Immolation's achievement gate. */
+  hasFormlessGearEquipped() {
     const equipped = this.inventory.getEquippedItems();
     const ids = Object.values(equipped).flatMap((v) => (Array.isArray(v) ? v : (v ? [v] : [])));
-    return ids.every((id) => getItemConfig(id)?.arc === 0);
+    return ids.some((id) => getItemConfig(id)?.moveIds?.includes('formless_gear'));
   }
 
   onCombatDefeat() {
@@ -547,13 +555,23 @@ export class StateManager {
     this.gameState.run.savedHealth = null;
     this.gameState.addLog(t('log.defeated'));
 
-    // Check before combatManager.reset() (called inside goHome) wipes `enemies`.
+    // Check before combatManager.reset() (called inside goHome) wipes `enemies`/`player`.
+    const player = this.combatManager.player;
     const diedToSkeleton = this.combatManager.enemies.some(
       (e) => getEnemyConfig(e.enemyId)?.species === 'skeleton',
+    );
+    const diedToGhost = this.combatManager.enemies.some(
+      (e) => getEnemyConfig(e.enemyId)?.species === 'ghost',
     );
     const beatHollowedThisRun = this.gameState.run.achievementProgress?.beatHollowedThisRun;
     if (diedToSkeleton && beatHollowedThisRun) {
       this.achievements.setComplete('die_to_indebted_fallen_after_hollowed');
+    }
+    if (player?.diedFromMoveId === 'erratic_combustion' && !this.hasFormlessGearEquipped()) {
+      this.achievements.setComplete('die_to_erratic_combustion_unshielded');
+    }
+    if (player?.diedFromStatusId === 'fire' && diedToGhost) {
+      this.achievements.setComplete('burn_to_death_vs_ghost');
     }
 
     this.goHome({ died: true });

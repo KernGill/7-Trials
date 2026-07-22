@@ -35,6 +35,11 @@ export class Character {
 
     this.currentHealth = config.currentHealth ?? this.getMaxHealth();
     this.diedFromStatusId = null;
+    // Tracks which move's own damage killed this character, when that
+    // move doesn't go through the normal status-tick path (e.g. Erratic
+    // Combustion's consumeStatusForDamage) — read by achievement checks
+    // that care about the specific move, not just the status it used.
+    this.diedFromMoveId = null;
     this.battleSpeed = config.battleSpeed ?? this.getStat('spd');
     this.storedSpeed = 0;
     this.energy = 0;
@@ -241,6 +246,7 @@ export class Character {
   resetBattleState() {
     this.currentHealth = Math.min(this.currentHealth, this.getMaxHealth());
     this.diedFromStatusId = null;
+    this.diedFromMoveId = null;
     this.battleSpeed = this.getStat('spd');
     this.storedSpeed = 0;
     this.energy = 0;

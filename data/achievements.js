@@ -44,10 +44,10 @@ export const ACHIEVEMENTS = {
     description: 'In one run, die to an Indebted Fallen after already beating a Hollowed.',
     target: 1,
   },
-  beat_both_in_one_hit_each: {
-    id: 'beat_both_in_one_hit_each',
+  one_hit_kill_all_arc0_mobs: {
+    id: 'one_hit_kill_all_arc0_mobs',
     name: "Vitalire's Wrath",
-    description: 'In one run, using only Arc0 equipment, defeat a skeleton-type enemy and a zombie-type enemy each in a single hit.',
+    description: 'In a single run, one-hit kill every Arc0 mob type at least once.',
     target: 1,
   },
   beat_false_apparition_with_burn: {
@@ -102,6 +102,18 @@ export const ACHIEVEMENTS = {
     id: 'beat_enemy_with_status_while_stunned',
     name: 'Stunned Victory',
     description: 'Defeat an enemy with status damage on a fight turn you were stunned.',
+    target: 1,
+  },
+  die_to_erratic_combustion_unshielded: {
+    id: 'die_to_erratic_combustion_unshielded',
+    name: 'Unshielded Immolation',
+    description: "Die to the Torch Eater's Erratic Combustion while wearing no gear with the Formless passive.",
+    target: 1,
+  },
+  burn_to_death_vs_ghost: {
+    id: 'burn_to_death_vs_ghost',
+    name: 'Ashen Farewell',
+    description: 'Burn to death from the Fire status effect while fighting a ghost-type enemy.',
     target: 1,
   },
 };

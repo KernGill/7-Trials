@@ -794,10 +794,11 @@ export const MOVE_TEMPLATES = {
     damage: 12,
     scaling: SCALING_TYPES.INT,
     critChance: 5,
-    energyCost: 3,
-    cooldown: 3,
+    energyCost: 0,
+    cooldown: 5,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    debuffs: [{ effect: 'frost', stacks: 4 }, { effect: 'fire', stacks: 2 }],
+    debuffs: [{ effect: 'frost', stacks: 4 }, { effect: 'fire', stacks: 4 }],
+    selfDebuffs: [{ effect: 'fire', stacks: 1 }],
   },
 };
 
