@@ -27,6 +27,18 @@ const FACING_ANGLES = {
   west: Math.PI / 2,
 };
 
+// Same exponential-decay tween speed the 3D renderer uses for its camera
+// turn, so the two rotations feel like the same animation.
+const TWEEN_SPEED = 10;
+
+/** Shortest signed angular delta from `from` to `to`, in (-PI, PI]. */
+function shortestAngleDelta(from, to) {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 /**
  * Top-down minimap — a small always-on corner view (9x9 tiles, player
  * centered) plus a click-to-open expanded view of everything explored so
@@ -39,6 +51,8 @@ export class Minimap {
     this.app = app;
     this._tileMapDungeon = null;
     this._tileMap = null;
+    this._currentAngle = 0;
+    this._targetAngle = 0;
   }
 
   mount(container, { onClick } = {}) {
@@ -52,6 +66,12 @@ export class Minimap {
     container.appendChild(this.wrapper);
     this._onClick = () => onClick?.();
     this.wrapper.addEventListener('click', this._onClick);
+    // Snap instantly to the current facing/fixed-setting rotation instead of
+    // animating in from north-up every time a new floor mounts a fresh Minimap.
+    const run = this.app.gameState.run;
+    const fixed = this.app.gameState.settings.fixedMinimap ?? true;
+    this._currentAngle = fixed ? 0 : (FACING_ANGLES[run?.facing] ?? 0);
+    this._targetAngle = this._currentAngle;
   }
 
   unmount() {
@@ -70,11 +90,30 @@ export class Minimap {
   }
 
   /**
+   * Advances the corner minimap's rotation tween toward the current
+   * facing/fixed-setting target (same exponential-decay speed the 3D
+   * camera uses, so the two turning animations feel identical), then
+   * redraws. Call every frame (e.g. from ExploreState.tick) so turning
+   * with "Fixed Minimap" off animates smoothly instead of snapping.
+   */
+  update(dt) {
+    if (!this.canvas) return;
+    const run = this.app.gameState.run;
+    const fixed = this.app.gameState.settings.fixedMinimap ?? true;
+    const rawAngle = fixed ? 0 : (FACING_ANGLES[run?.facing] ?? 0);
+    this._targetAngle = this._currentAngle + shortestAngleDelta(this._currentAngle, rawAngle);
+    const t = 1 - Math.exp(-TWEEN_SPEED * dt);
+    this._currentAngle += (this._targetAngle - this._currentAngle) * t;
+    this.render();
+  }
+
+  /**
    * Redraws the small corner minimap centered on the player's current
-   * position. North-up (no rotation) when the "Fixed Minimap" setting is
-   * on (the default); otherwise rotated so the direction the player is
-   * currently facing renders at the top — the expanded full-map view
-   * (drawExpanded) is never rotated, only this corner view.
+   * position, at the current (possibly mid-tween) rotation angle. North-up
+   * when the "Fixed Minimap" setting is on (the default); otherwise
+   * rotated so the direction the player is facing eases toward the top —
+   * the expanded full-map view (drawExpanded) is never rotated, only this
+   * corner view.
    */
   render() {
     if (!this.canvas) return;
@@ -89,8 +128,7 @@ export class Minimap {
     const tileMap = this._ensureTileMap(dungeon);
     const { x: px, y: py } = run.playerPosition;
     const center = RADIUS * CELL_SIZE + CELL_SIZE / 2;
-    const fixed = this.app.gameState.settings.fixedMinimap ?? true;
-    const angle = fixed ? 0 : (FACING_ANGLES[run.facing] ?? 0);
+    const angle = this._currentAngle;
 
     ctx.save();
     ctx.translate(center, center);

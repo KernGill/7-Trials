@@ -320,7 +320,7 @@ export class StateManager {
   /** Called by ExploreState the instant the player steps onto an enemy tile. */
   startCombat(enemyId) {
     const player = this.createPlayer();
-    const mult = 1 + 0.10 * this.gameState.run.floor;
+    const mult = 1 + 0.15 * this.gameState.run.floor;
     const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
     const enemy = new Enemy(enemyId, { statMultipliers });
     // FightState has to be listening (via currentStateHandler) *before*

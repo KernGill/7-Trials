@@ -170,6 +170,7 @@ export class ExploreState {
   }
 
   tick(dt) {
+    this.minimap?.update(dt);
     const run = this.app.gameState.run;
     if (run.floorMessage?.timer > 0) {
       run.floorMessage.timer -= dt;

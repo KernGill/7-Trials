@@ -102,6 +102,21 @@ const FACING_VECTORS = {
   west: new THREE.Vector3(-1, 0, 0),
 };
 
+// Continuous-angle equivalent of FACING_VECTORS (vec = (sin(a), 0, -cos(a))),
+// used so turning can be tweened as a single smoothly-interpolated angle
+// instead of lerping the Cartesian camera position directly (which cuts a
+// chord through the camera's orbit circle instead of tracing it, and can't
+// stay in sync with an up-vector derived from the same facing).
+const FACING_ANGLES = { north: 0, east: Math.PI / 2, south: Math.PI, west: -Math.PI / 2 };
+
+/** Shortest signed angular delta from `from` to `to`, in (-PI, PI]. */
+function shortestAngleDelta(from, to) {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 // Same palette as the old .dtile CSS classes, so the 3D view stays
 // visually consistent with the rest of the app during the transition.
 const COLOR_FLOOR = 0x222222;
@@ -160,10 +175,11 @@ export class DungeonRenderer3D {
     // smoothed toward in update(dt). `_playerStateInitialized` guards the
     // very first setPlayerState() call so the camera/sprite snap to the
     // spawn tile instead of lerping in from the origin.
-    this.currentCameraPos = new THREE.Vector3();
-    this.desiredCameraPos = new THREE.Vector3();
-    this.currentLookAt = new THREE.Vector3();
-    this.desiredLookAt = new THREE.Vector3();
+    this._cameraPos = new THREE.Vector3();
+    this._lookAtPos = new THREE.Vector3();
+    this._facingVec = new THREE.Vector3();
+    this._currentFacingAngle = undefined;
+    this._targetFacingAngle = undefined;
     this.currentPlayerPos = new THREE.Vector3();
     this.desiredPlayerPos = new THREE.Vector3();
     this._playerStateInitialized = false;
@@ -249,15 +265,19 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * Reads the live Camera Angle/Height settings and recomputes where the
-   * camera wants to be — called every frame (not just on setPlayerState's
-   * discrete move/turn events) so dragging either slider in Settings or
-   * the pause overlay tweens smoothly and immediately, even while the
-   * player isn't moving. No-ops until the first setPlayerState() call has
-   * established a facing/position to compute from.
+   * Reads the live Camera Angle/Height settings plus the smoothed player
+   * position and facing angle, and applies the resulting position/up/lookAt
+   * to the camera — called every frame. Driving both position and up off
+   * the SAME smoothed `_currentFacingAngle` keeps them in lockstep during a
+   * turn (previously `camera.up` snapped instantly while position eased in,
+   * which read as an inconsistent/wobbly turn), and computing the camera's
+   * offset from a smoothed angle (rather than lerping two Cartesian points)
+   * makes it trace a true constant-radius arc around the player instead of
+   * cutting a chord through its orbit circle. No-ops until the first
+   * setPlayerState() call has established a facing/position to compute from.
    */
-  _updateCameraTarget() {
-    if (!this._facing) return;
+  _applyCameraFromCurrentState() {
+    if (this._currentFacingAngle === undefined) return;
     const settings = this.app?.gameState?.settings ?? {};
     const angleDeg = clamp(settings.cameraAngle ?? DEFAULT_CAMERA_ANGLE_DEG, CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG);
     const heightMult = clamp(settings.cameraHeight ?? DEFAULT_CAMERA_HEIGHT_MULT, CAMERA_HEIGHT_MULT_MIN, CAMERA_HEIGHT_MULT_MAX);
@@ -267,15 +287,13 @@ export class DungeonRenderer3D {
     const horizontal = CAMERA_HORIZONTAL_OFFSET * Math.cos(angleRad);
     const height = CAMERA_HEIGHT_BASE * heightMult;
 
-    const facingVec = FACING_VECTORS[this._facing] ?? FACING_VECTORS.south;
-    this.desiredLookAt.set(
-      this.desiredPlayerPos.x,
-      LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT,
-      this.desiredPlayerPos.z,
-    );
-    this.desiredCameraPos.copy(this.desiredPlayerPos)
-      .addScaledVector(facingVec, -horizontal)
-      .add(new THREE.Vector3(0, height, 0));
+    // (sin, 0, -cos) of the smoothed angle — matches FACING_VECTORS exactly
+    // at the 4 cardinal angles, but varies continuously in between.
+    this._facingVec.set(Math.sin(this._currentFacingAngle), 0, -Math.cos(this._currentFacingAngle));
+
+    this._lookAtPos.set(this.currentPlayerPos.x, LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT, this.currentPlayerPos.z);
+    this._cameraPos.copy(this.currentPlayerPos).addScaledVector(this._facingVec, -horizontal);
+    this._cameraPos.y += height;
 
     // At angle=90 the view direction is exactly vertical, which makes the
     // default (0,1,0) up-vector parallel to it — a degenerate case where
@@ -284,19 +302,20 @@ export class DungeonRenderer3D {
     // fixes that (and, as a bonus, makes bird's-eye view a proper
     // heading-up rotation, matching the minimap's own convention) while
     // leaving angle=0 exactly as before (cos(0)=1, sin(0)=0 — pure worldUp).
-    this.camera.up.set(0, Math.cos(angleRad), 0).addScaledVector(facingVec, Math.sin(angleRad)).normalize();
+    this.camera.up.set(0, Math.cos(angleRad), 0).addScaledVector(this._facingVec, Math.sin(angleRad)).normalize();
+
+    this.camera.position.copy(this._cameraPos);
+    this.camera.lookAt(this._lookAtPos);
   }
 
-  /** Smoothly tweens camera/player toward their latest target — recomputed every frame so live setting changes (angle/height) are picked up immediately, not just on movement. */
+  /** Smoothly tweens player position and facing angle toward their latest target, then (re)applies the camera every frame so live setting changes (angle/height) are picked up immediately, not just on movement. */
   update(dt) {
-    this._updateCameraTarget();
     const t = 1 - Math.exp(-TWEEN_SPEED * dt);
-    this.currentCameraPos.lerp(this.desiredCameraPos, t);
-    this.currentLookAt.lerp(this.desiredLookAt, t);
     this.currentPlayerPos.lerp(this.desiredPlayerPos, t);
-
-    this.camera.position.copy(this.currentCameraPos);
-    this.camera.lookAt(this.currentLookAt);
+    if (this._targetFacingAngle !== undefined) {
+      this._currentFacingAngle += (this._targetFacingAngle - this._currentFacingAngle) * t;
+    }
+    this._applyCameraFromCurrentState();
     this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
   }
 
@@ -448,28 +467,34 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * Sets the camera/player target for the next tween step and recomputes
-   * tile visibility immediately (visibility is tile-discrete, not tweened).
-   * The camera sits behind the player relative to `facing` (over-the-
-   * shoulder), looking toward the direction they're walking, at the live
-   * Camera Angle/Height settings (see _updateCameraTarget). On the very
-   * first call, snaps instantly instead of tweening in from the origin.
+   * Sets the camera/player target for the next tween step (position lerps
+   * linearly; facing is tracked as a continuous angle that takes the
+   * shortest rotational path via shortestAngleDelta, then eases toward its
+   * new target the same way) and recomputes tile visibility immediately
+   * (visibility is tile-discrete, not tweened). The camera sits behind the
+   * player relative to `facing` (over-the-shoulder), looking toward the
+   * direction they're walking, at the live Camera Angle/Height settings
+   * (see _applyCameraFromCurrentState). On the very first call, snaps
+   * instantly instead of tweening in from the origin.
    */
   setPlayerState({ x, y, facing }) {
     this.updateVisibility(x, y);
     this._applyBehindWallOcclusion(x, y, facing);
 
-    this._facing = facing;
     this.desiredPlayerPos.set(x * TILE_SIZE, 0, y * TILE_SIZE);
-    this._updateCameraTarget();
+    const rawAngle = FACING_ANGLES[facing] ?? FACING_ANGLES.south;
+    if (this._currentFacingAngle === undefined) {
+      this._currentFacingAngle = rawAngle;
+      this._targetFacingAngle = rawAngle;
+    } else {
+      this._targetFacingAngle = this._currentFacingAngle + shortestAngleDelta(this._currentFacingAngle, rawAngle);
+    }
 
     if (!this._playerStateInitialized) {
       this._playerStateInitialized = true;
       this.currentPlayerPos.copy(this.desiredPlayerPos);
-      this.currentLookAt.copy(this.desiredLookAt);
-      this.currentCameraPos.copy(this.desiredCameraPos);
-      this.camera.position.copy(this.currentCameraPos);
-      this.camera.lookAt(this.currentLookAt);
+      this._currentFacingAngle = this._targetFacingAngle;
+      this._applyCameraFromCurrentState();
       this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
     }
   }
