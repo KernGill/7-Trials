@@ -87,7 +87,9 @@ export class StatusEffectSystem {
     });
   }
 
+  /** Returns one { recipient, effectId, stacks } entry per debuff that actually landed — resisted ones (statusResist) simply don't appear, so callers can log exactly what happened without re-deriving the resist roll. */
   applyDebuffs(target, debuffs, attacker) {
+    const applied = [];
     debuffs?.forEach((debuff) => {
       if (rollChance(target.getStat('statusResist'))) return;
       // Status Reflection: each stack is a 10% chance for this specific
@@ -106,18 +108,24 @@ export class StatusEffectSystem {
         if (current >= FROST_MAX_STACKS) {
           recipient.removeStatusEffect('frost');
           recipient.addStatusEffect('frostbite', 1);
+          applied.push({ recipient, effectId: 'frostbite', stacks: 1 });
         } else {
           recipient.addStatusEffect('frost', stacks);
+          applied.push({ recipient, effectId: 'frost', stacks });
         }
         return;
       }
       recipient.addStatusEffect(debuff.effect, stacks, {
         durationFightTurns: debuff.durationFightTurns ?? -1,
       });
+      applied.push({ recipient, effectId: debuff.effect, stacks });
     });
+    return applied;
   }
 
+  /** Returns one entry per buff actually granted — { type: 'stat', stat, amount } | { type: 'effect', effectId, stacks } | { type: 'conFromInt', amount } | { type: 'energyGainBonus', amount } — so callers can log exactly what happened. */
   applyBuffs(target, buffs, attacker) {
+    const applied = [];
     buffs?.forEach((buff) => {
       if (buff.effect) {
         const stacks = buff.stacks ?? (buff.stacksMin
@@ -126,6 +134,7 @@ export class StatusEffectSystem {
         target.addStatusEffect(buff.effect, stacks, {
           durationFightTurns: buff.durationFightTurns ?? -1,
         });
+        applied.push({ type: 'effect', effectId: buff.effect, stacks });
       }
       if (buff.type === 'stat') {
         target.statBuffs.push({
@@ -136,17 +145,21 @@ export class StatusEffectSystem {
         });
         target.temporaryStatModifiers[buff.stat] =
           (target.temporaryStatModifiers[buff.stat] ?? 0) + buff.amount;
+        applied.push({ type: 'stat', stat: buff.stat, amount: buff.amount });
       }
       if (buff.type === 'conFromInt') {
         const bonus = target.getStat('int');
         target.temporaryStatModifiers.con = (target.temporaryStatModifiers.con ?? 0) + bonus;
         target.currentHealth = Math.min(target.getMaxHealth(), target.currentHealth + bonus);
+        applied.push({ type: 'conFromInt', amount: bonus });
       }
       if (buff.type === 'energyGainBonus') {
         target.energyGainBonus = (target.energyGainBonus ?? 0) + buff.amount;
         target.energyGainBonusTurns = buff.durationFightTurns ?? 2;
+        applied.push({ type: 'energyGainBonus', amount: buff.amount });
       }
     });
+    return applied;
   }
 
   decayBuffDurations(character) {

@@ -18,7 +18,7 @@ const STAT_KEY_TO_TKEY = {
 const PERCENT_STATS = new Set(['critChance', 'critDamage']);
 const SCALING_TKEYS = { str: 'scaling.str', dex: 'scaling.dex', int: 'scaling.int' };
 
-function statLabel(key) {
+export function statLabel(key) {
   return t(STAT_KEY_TO_TKEY[key] ?? key);
 }
 

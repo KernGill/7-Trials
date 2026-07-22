@@ -9,6 +9,8 @@ import { rollDrop } from '../utils/RandomUtils.js';
 import { rollChance } from '../utils/MathUtils.js';
 import { getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
+import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
+import { statLabel } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
 
 export const COMBAT_PHASE = {
@@ -115,10 +117,50 @@ export class CombatManager {
     this.pendingExplorationBuffs = [];
   }
 
+  /**
+   * Pushed oldest-first (newest at the end) so FightState's battle log
+   * reads top-to-bottom in chronological order. Each entry is tagged with
+   * the fight turn and the currently-acting character it happened
+   * under — `this.currentActor` is set once per character-turn (in
+   * advanceTurn(), right before that actor's own turnStart/moves/turnEnd
+   * all run) and stays accurate for every logMessage() call in between,
+   * so FightState can group consecutive same-turn/same-actor lines
+   * together and insert separators when either changes.
+   */
   logMessage(message) {
-    this.log.unshift(message);
-    if (this.log.length > 30) this.log.pop();
+    this.log.push({ message, fightTurn: this.turnOrder.fightTurn, actor: this.currentActor });
+    if (this.log.length > 30) this.log.shift();
     this.eventBus.emit('combat:log', message);
+  }
+
+  /** One log line per debuff StatusEffectSystem.applyDebuffs actually landed (its return value already excludes anything blocked by statusResist). */
+  logDebuffResults(applied) {
+    applied.forEach(({ recipient, effectId, stacks }) => {
+      this.logMessage(t('log.debuff_applied', {
+        name: recipient.name,
+        n: stacks,
+        status: tData('status', effectId, STATUS_EFFECTS[effectId]?.name ?? effectId),
+      }));
+    });
+  }
+
+  /** One log line per buff StatusEffectSystem.applyBuffs actually granted. */
+  logBuffResults(target, applied) {
+    applied.forEach((buff) => {
+      if (buff.type === 'stat') {
+        this.logMessage(t('log.stat_buff', { name: target.name, n: buff.amount, stat: statLabel(buff.stat) }));
+      } else if (buff.type === 'effect') {
+        this.logMessage(t('log.buff_applied', {
+          name: target.name,
+          n: buff.stacks,
+          status: tData('status', buff.effectId, STATUS_EFFECTS[buff.effectId]?.name ?? buff.effectId),
+        }));
+      } else if (buff.type === 'energyGainBonus') {
+        this.logMessage(t('log.energy_buff', { name: target.name }));
+      } else if (buff.type === 'conFromInt') {
+        this.logMessage(t('log.health_buff', { name: target.name, n: buff.amount }));
+      }
+    });
   }
 
   getState() {
@@ -177,7 +219,7 @@ export class CombatManager {
         } else {
           const critText = result.isCrit ? t('log.crit_suffix') : '';
           this.logMessage(t('log.follow_up_damage', { move: dotMoveName, n: result.damage, target: dot.target.name, crit: critText }));
-          if (dot.move.debuffs) this.statusSystem.applyDebuffs(dot.target, dot.move.debuffs, attacker);
+          if (dot.move.debuffs) this.logDebuffResults(this.statusSystem.applyDebuffs(dot.target, dot.move.debuffs, attacker));
           this.eventBus.emit('combat:move_resolved', { attacker, defender: dot.target, move: dot.move, result });
         }
         this.record({
@@ -348,6 +390,12 @@ export class CombatManager {
         const critText = result.isCrit ? t('log.crit_suffix') : '';
         this.logMessage(t('log.deals_damage', { move: move.name, n: result.damage, crit: critText }));
         if (result.healed > 0) this.logMessage(t('log.lifesteals', { name: attacker.name, n: result.healed }));
+        if (result.reducedAmount > 0) {
+          this.logMessage(t('log.damage_negated', { n: result.reducedAmount, move: result.reducedByMoveName }));
+        }
+        if (result.reflected > 0) {
+          this.logMessage(t('log.thorns_reflected', { n: result.reflected, name: attacker.name }));
+        }
       }
     }
 
@@ -358,24 +406,32 @@ export class CombatManager {
     }
 
     if (move.template.debuffs && (!result || result.hit)) {
-      this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker);
+      this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
     }
     if (move.template.buffs) {
       this.applySelfBuffs(attacker, move.template.buffs);
     }
 
+    // The exact percent/flat amount varies per move (and isn't known
+    // until it actually blocks something — see result.reducedAmount in
+    // the damage-dealt branch above), so this just announces that a
+    // shield is now up, not how strong it is.
     if (move.template.guardPercent) {
-      attacker.guardState = { percent: move.template.guardPercent };
+      attacker.guardState = { percent: move.template.guardPercent, sourceMoveName: move.name };
+      this.logMessage(t('log.defensive_stance', { name: attacker.name }));
     }
     if (move.template.damageReductionNext) {
-      attacker.pendingDamageReduction = { flat: move.template.damageReductionNext };
+      attacker.pendingDamageReduction = { flat: move.template.damageReductionNext, sourceMoveName: move.name };
+      this.logMessage(t('log.defensive_stance', { name: attacker.name }));
     }
     if (move.template.damageReductionPercent) {
       attacker.pendingDamageReduction = {
         percent: move.template.damageReductionPercent,
         hits: move.template.damageReductionHits ?? 1,
         includesStatus: move.template.includesStatusDamage ?? false,
+        sourceMoveName: move.name,
       };
+      this.logMessage(t('log.defensive_stance', { name: attacker.name }));
     }
     if (move.template.reflectSplitPercent) {
       attacker.reflectSplitPercent = move.template.reflectSplitPercent;
@@ -443,11 +499,11 @@ export class CombatManager {
       this.logMessage(t('log.heals', { name: this.player.name, n: healed }));
     }
     if (effect.buff) {
-      this.statusSystem.applyBuffs(this.player, [effect.buff], this.player);
+      this.logBuffResults(this.player, this.statusSystem.applyBuffs(this.player, [effect.buff], this.player));
     }
     if (effect.debuff) {
       const target = this.aliveEnemies[0];
-      if (target) this.statusSystem.applyDebuffs(target, [effect.debuff], this.player);
+      if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, [effect.debuff], this.player));
     }
 
     this.record({ kind: 'consumable', character: this.player, health: this.player.currentHealth, energy: this.player.energy });
@@ -474,12 +530,12 @@ export class CombatManager {
         if (move.template.debuffs) {
           const target = character.isPlayer ? this.aliveEnemies[0] : this.player;
           const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
-          if (target && chanceOk) this.statusSystem.applyDebuffs(target, move.template.debuffs, character);
+          if (target && chanceOk) this.logDebuffResults(this.statusSystem.applyDebuffs(target, move.template.debuffs, character));
         }
         // Unlike `debuffs` (always routed to the opponent above),
         // `selfDebuffs` targets the passive's own owner — Ash Eater.
         if (move.template.selfDebuffs) {
-          this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character);
+          this.logDebuffResults(this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character));
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
@@ -511,12 +567,14 @@ export class CombatManager {
    * side a chance to steal the same buff for themselves.
    */
   applySelfBuffs(character, buffs) {
-    this.statusSystem.applyBuffs(character, buffs, character);
+    const applied = this.statusSystem.applyBuffs(character, buffs, character);
+    this.logBuffResults(character, applied);
     const opponent = character.isPlayer ? this.aliveEnemies[0] : this.player;
     if (!opponent) return;
     const stealChance = opponent.moves.reduce((max, m) => Math.max(max, m.template.stealBuffChance ?? 0), 0);
     if (stealChance > 0 && rollChance(stealChance)) {
-      this.statusSystem.applyBuffs(opponent, buffs, opponent);
+      const stolen = this.statusSystem.applyBuffs(opponent, buffs, opponent);
+      this.logBuffResults(opponent, stolen);
     }
   }
 

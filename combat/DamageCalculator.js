@@ -87,18 +87,35 @@ export class DamageCalculator {
     return result;
   }
 
+  /**
+   * Returns not just the post-reduction damage but how much a defensive
+   * move actually negated and which move granted it (`sourceMoveName`,
+   * stamped onto guardState/pendingDamageReduction in
+   * CombatManager.executeMove) — so callers can log e.g. "12 damage
+   * negated by Tomb Ward" instead of just the final number.
+   */
   static applyDamageReductionState(damage, defender) {
     let remaining = damage;
+    let reducedAmount = 0;
+    let reducedByMoveName = null;
 
     if (defender.guardState) {
+      const before = remaining;
       remaining = Math.max(1, Math.round(remaining * (1 - defender.guardState.percent / 100)));
+      reducedAmount += before - remaining;
+      if (before !== remaining) reducedByMoveName = defender.guardState.sourceMoveName ?? reducedByMoveName;
       defender.guardState = null;
     }
 
     if (defender.pendingDamageReduction) {
       const dr = defender.pendingDamageReduction;
+      const before = remaining;
       if (dr.flat) remaining = Math.max(0, remaining - dr.flat);
       if (dr.percent) remaining = Math.max(1, Math.round(remaining * (1 - dr.percent / 100)));
+      if (before !== remaining) {
+        reducedAmount += before - remaining;
+        reducedByMoveName = dr.sourceMoveName ?? reducedByMoveName;
+      }
       if (dr.hits) {
         dr.hits -= 1;
         if (dr.hits <= 0) defender.pendingDamageReduction = null;
@@ -107,7 +124,7 @@ export class DamageCalculator {
       }
     }
 
-    return remaining;
+    return { remaining, reducedAmount, reducedByMoveName };
   }
 
   static applyThorns(attacker, defender, damageAfterDef) {
@@ -177,7 +194,8 @@ export class DamageCalculator {
     }
 
     damage = this.applyDefense(damage, defender, move, attacker);
-    damage = this.applyDamageReductionState(damage, defender);
+    const reduction = this.applyDamageReductionState(damage, defender);
+    damage = reduction.remaining;
     const thorns = this.applyThorns(attacker, defender, damage);
     defender.takeDamage(thorns.finalDamage);
     this.applyReactiveHeal(defender, thorns.finalDamage);
@@ -185,6 +203,8 @@ export class DamageCalculator {
 
     return {
       hit: true,
+      reducedAmount: reduction.reducedAmount,
+      reducedByMoveName: reduction.reducedByMoveName,
       damage: thorns.finalDamage,
       healed,
       reflected: thorns.reflected,

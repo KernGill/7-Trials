@@ -402,9 +402,36 @@ export class FightState {
     if (app.gameState.paused) this.pause.render();
   }
 
+  /**
+   * Groups the flat (oldest-first, see CombatManager.logMessage) log
+   * array into blocks — a "------ Fight Turn N ------" header whenever
+   * the fight turn changes, then one block per consecutive run of
+   * same-actor messages within that turn — joined with blank-line gaps
+   * so a turn's structure (header, my moves, the opponent's moves, next
+   * header, ...) is visually obvious at a glance instead of a flat wall
+   * of lines. Auto-scrolls to the bottom since newest is now last.
+   */
   renderLog() {
     if (!this.els) return;
-    this.els.log.innerHTML = this.app.combatManager.log.map((line) => `<div class="log-line">${line}</div>`).join('');
+    const blocks = [];
+    let current = null;
+    this.app.combatManager.log.forEach((entry) => {
+      if (!current || entry.fightTurn !== current.fightTurn) {
+        blocks.push({ type: 'header', fightTurn: entry.fightTurn });
+        current = null;
+      }
+      if (!current || entry.actor !== current.actor) {
+        current = { type: 'group', fightTurn: entry.fightTurn, actor: entry.actor, lines: [] };
+        blocks.push(current);
+      }
+      current.lines.push(entry.message);
+    });
+
+    this.els.log.innerHTML = blocks.map((block) => (block.type === 'header'
+      ? `<div class="log-turn-separator">------ ${t('fight.turn', { n: block.fightTurn })} ------</div>`
+      : `<div class="log-group">${block.lines.map((line) => `<div class="log-line">${line}</div>`).join('')}</div>`
+    )).join('<div class="log-gap"></div>');
+    this.els.log.scrollTop = this.els.log.scrollHeight;
   }
 
   renderMoveOrder(highlight = null) {
