@@ -49,6 +49,10 @@ export class Character {
     this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
+    // Vine Trap-style "ignore the next melee attack" — consumed the
+    // instant a melee attack lands (see DamageCalculator.resolveAttack)
+    // or decremented to 0 after this many fight_turns, whichever first.
+    this.meleeBlockTurnsRemaining = 0;
     this.moveIds = [...(config.moveIds ?? [])];
     this.moves = [];
     this.combatLogTag = config.combatLogTag ?? this.name;
@@ -57,6 +61,10 @@ export class Character {
     this.passiveTriggers = [];
     this.energyGainBonus = 0;
     this.energyGainBonusTurns = 0;
+    // Set only on Player instances by Player.create() from live equipment —
+    // read by CombatManager.executeMove for the Torch item's fire-move
+    // energy discount. Always false on enemies.
+    this.hasTorchEquipped = false;
   }
 
   /**
@@ -247,6 +255,7 @@ export class Character {
     this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
+    this.meleeBlockTurnsRemaining = 0;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];

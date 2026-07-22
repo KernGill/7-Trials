@@ -1,5 +1,7 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { t } from '../ui/i18n.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
 
 /** HomeState — the only hub. Every other state can only return here. */
 export class HomeState {
@@ -9,6 +11,7 @@ export class HomeState {
 
   enter(root) {
     this.root = root;
+    this.tooltip = new TooltipManager();
     root.innerHTML = `
       <div class="home-screen">
         <h1 class="home-title">${t('home.title')}</h1>
@@ -27,7 +30,7 @@ export class HomeState {
       </div>`;
 
     const actions = {
-      battle: () => this.app.startRun(),
+      battle: () => this.handleBattleClick(),
       shop: () => this.app.setState(GAME_STATES.SHOP),
       bestiary: () => this.app.setState(GAME_STATES.BESTIARY),
       inn: () => this.app.setState(GAME_STATES.INN),
@@ -41,6 +44,10 @@ export class HomeState {
     });
   }
 
+  exit() {
+    this.tooltip?.destroy();
+  }
+
   flashSaved() {
     const btn = this.root?.querySelector('[data-a="save"]');
     if (!btn) return;
@@ -49,5 +56,43 @@ export class HomeState {
     setTimeout(() => { if (btn.isConnected) btn.textContent = original; }, 900);
   }
 
-  exit() {}
+  /** A voluntarily-abandoned run (see StateManager.abandonRun()) is offered back here instead of unconditionally starting fresh. */
+  handleBattleClick() {
+    const abandoned = this.app.gameState.abandonedRun;
+    if (abandoned) this.showRunChoiceModal(abandoned);
+    else this.app.startRun();
+  }
+
+  /** "Continue: Floor N" / "Begin Anew" choice, same result-overlay/result-box modal pattern used elsewhere (ExploreState's card pick, minimap expand, etc). Hovering Continue previews the current equipped loadout plus the cards the abandoned run had picked. */
+  showRunChoiceModal(snapshot) {
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box">
+        <h2>${t('home.resume_run_title')}</h2>
+        <button class="continue-run-btn">${t('home.continue_run', { floor: snapshot.floor })}</button>
+        <button class="begin-anew-btn">${t('home.begin_anew')}</button>
+      </div>`;
+    this.root.appendChild(modal);
+
+    const continueBtn = modal.querySelector('.continue-run-btn');
+    this.tooltip.bind(continueBtn, () => {
+      const equipped = this.app.inventory.getEquippedItems();
+      const totals = this.app.inventory.getEquippedStatTotals();
+      const cards = snapshot.cards ?? [];
+      const cardsHTML = cards.length
+        ? `<div class="tt-section-label">${t('pause.cards_title')}</div><div class="cards-list">${cards.map((c) => cardTileHTML(c)).join('')}</div>`
+        : '';
+      return `${equipmentGridHTML(equipped)}${equipmentTotalsHTML(totals)}${cardsHTML}`;
+    }, 'wide');
+
+    continueBtn.addEventListener('click', () => {
+      modal.remove();
+      this.app.continueRun();
+    });
+    modal.querySelector('.begin-anew-btn').addEventListener('click', () => {
+      modal.remove();
+      this.app.startRun();
+    });
+  }
 }

@@ -45,6 +45,10 @@ export class Player extends Character {
 
     player.moveIds = finalMoveIds;
     player.initializeMoves((id) => Move.fromId(id, player));
+    // Torch's fire-move energy discount (see CombatManager.executeMove)
+    // is read off this flag rather than re-querying InventorySystem from
+    // inside combat resolution.
+    player.hasTorchEquipped = inventorySystem.getEquippedItems().offHand === 'torch';
     return player;
   }
 }

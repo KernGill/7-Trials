@@ -142,6 +142,14 @@ export class DamageCalculator {
   }
 
   static resolveAttack({ attacker, defender, move, forceHit = false }) {
+    // Vine Trap-style block: a melee attack against a defender with an
+    // active meleeBlockTurnsRemaining is negated entirely — no damage, no
+    // debuffs (the CombatManager debuff guard checks result.hit) — and
+    // consumes the block immediately, before the hit-chance roll even runs.
+    if (defender.meleeBlockTurnsRemaining > 0 && move.properties.includes('melee')) {
+      defender.meleeBlockTurnsRemaining = 0;
+      return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false, blocked: true };
+    }
     if (!forceHit && !rollChance(this.calculateHitChance(attacker, defender))) {
       return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false };
     }

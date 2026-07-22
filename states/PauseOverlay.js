@@ -76,8 +76,7 @@ export class PauseOverlay {
     }
     if (this.canAbandon) {
       this.el.querySelector('[data-a="abandon"]').addEventListener('click', () => {
-        app.gameState.run.active = false;
-        app.goHome();
+        app.abandonRun();
       });
     }
   }

@@ -69,6 +69,11 @@ export class GameState {
     this.log = [];
     this.paused = false;
     this.enemyMoveFlash = null;
+    // Snapshot of a voluntarily-abandoned run (floor/cards/health/
+    // achievement progress — see StateManager.abandonRun()), offered back
+    // on the Home screen's Battle button as "Continue: Floor N" until
+    // consumed by continueRun() or discarded by starting a fresh run.
+    this.abandonedRun = null;
   }
 
   setState(nextState) {
@@ -93,11 +98,12 @@ export class GameState {
       bestiary: deepClone(this.bestiary),
       settings: deepClone(this.settings),
       run: this.run?.active ? deepClone(this.run) : null,
+      abandonedRun: this.abandonedRun ? deepClone(this.abandonedRun) : null,
     };
   }
 
   loadSnapshot(snapshot) {
-    const { meta, player, bestiary, settings, run } = deepClone(snapshot);
+    const { meta, player, bestiary, settings, run, abandonedRun } = deepClone(snapshot);
     if (meta) this.meta = meta;
     if (player) this.player = player;
     if (bestiary) this.bestiary = bestiary;
@@ -108,5 +114,6 @@ export class GameState {
       if (run.dungeon?.tiles) run.dungeon.tiles = run.dungeon.tiles.map((t) => Tile.fromJSON(t));
       this.run = run;
     }
+    this.abandonedRun = abandonedRun ?? null;
   }
 }

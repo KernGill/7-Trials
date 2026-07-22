@@ -1,4 +1,5 @@
 import { GAME_STATES, STAT_KEYS, enemyStatMultiplierForFloor } from '../utils/Constants.js';
+import { deepClone } from '../utils/MathUtils.js';
 import { GameState } from './GameState.js';
 import { EventBus } from './EventBus.js';
 import { InputManager } from './InputManager.js';
@@ -184,7 +185,7 @@ export class StateManager {
 
   bindInput() {
     const homeOnlyNav = {
-      navigate_battle: () => this.startRun(),
+      navigate_battle: () => this.states[GAME_STATES.HOME].handleBattleClick(),
       navigate_shop: () => this.setState(GAME_STATES.SHOP),
       navigate_inn: () => this.setState(GAME_STATES.INN),
       navigate_locker: () => this.setState(GAME_STATES.LOCKER),
@@ -209,6 +210,28 @@ export class StateManager {
     this.gameState.setState(stateId);
     this.screenRoot.innerHTML = '';
     this.currentStateHandler.enter(this.screenRoot);
+  }
+
+  /**
+   * Voluntary "Abandon Run" from the pause menu (ExploreState only —
+   * never available mid-fight). Snapshots just enough of the run
+   * (floor/cards/health/achievement progress, NOT the dungeon/position —
+   * continuing regenerates the floor fresh, same as any normal floor
+   * transition) so HomeState can later offer "Continue: Floor N" instead
+   * of only "Begin Anew". Death and arc-completion both also route
+   * through goHome() but deliberately do NOT call this — there's nothing
+   * to continue after either of those.
+   */
+  abandonRun() {
+    const run = this.gameState.run;
+    this.gameState.abandonedRun = {
+      floor: run.floor,
+      cards: deepClone(run.cards ?? []),
+      savedHealth: run.savedHealth ?? null,
+      achievementProgress: deepClone(run.achievementProgress ?? {}),
+    };
+    run.active = false;
+    this.goHome();
   }
 
   goHome({ died = false } = {}) {
@@ -273,7 +296,8 @@ export class StateManager {
 
   // --- Run lifecycle -----------------------------------------------------
 
-  startRun() {
+  /** `overrides` lets continueRun() resume at a saved floor/cards/health/achievementProgress instead of the fresh-start defaults below — everything else about starting into a floor (dungeon generation, working consumables/materials pools) is identical either way. */
+  startRun(overrides = {}) {
     const arc = this.progression.getCurrentArc();
     this.gameState.run = {
       active: true,
@@ -289,10 +313,26 @@ export class StateManager {
       savedHealth: null,
       floorMessage: null,
       cards: [],
+      ...overrides,
     };
+    // A fresh run (or one explicitly started over via "Begin Anew")
+    // discards any pending "Continue: Floor N" offer.
+    this.gameState.abandonedRun = null;
     this.generateFloor();
     this.saveSystem.save();
     this.setState(GAME_STATES.EXPLORE);
+  }
+
+  /** Resumes a voluntarily-abandoned run (see abandonRun()) at its saved floor/cards/health, on a freshly-generated layout for that floor. No-ops if there's nothing to continue. */
+  continueRun() {
+    const snapshot = this.gameState.abandonedRun;
+    if (!snapshot) return;
+    this.startRun({
+      floor: snapshot.floor,
+      cards: snapshot.cards,
+      savedHealth: snapshot.savedHealth,
+      achievementProgress: snapshot.achievementProgress,
+    });
   }
 
   generateFloor() {

@@ -628,6 +628,101 @@ export const MOVE_TEMPLATES = {
     consumableId: 'soul_bomb',
     debuffs: [{ effect: 'frostbite', stacks: 1 }],
   },
+
+  // --- Torch Eater (fire plant enemy) -----------------------------------
+  burning_will: {
+    id: 'burning_will',
+    name: 'Burning Will',
+    properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
+    damage: 0,
+    scaling: SCALING_TYPES.INT,
+    critChance: 25,
+    energyCost: 0,
+    cooldown: 1,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'fire', stacks: 3 }],
+  },
+  extreme_ignition: {
+    id: 'extreme_ignition',
+    name: 'Extreme Ignition',
+    properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.MELEE],
+    damage: 30,
+    scaling: SCALING_TYPES.STR,
+    critChance: 0,
+    energyCost: 6,
+    cooldown: 20,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'fire', stacks: 20 }],
+    // Only applied if the attack actually lands (see CombatManager.executeMove).
+    selfDamagePercentOnHit: 50,
+  },
+  vine_trap: {
+    id: 'vine_trap',
+    name: 'Vine Trap',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.DEFENCE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 4,
+    cooldown: 8,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'stun', stacks: 1 }],
+    // The caster ignores the next melee attack against them entirely (no
+    // damage, no debuffs from that attack) — expires after 3 fight_turns
+    // OR the instant a melee attack actually lands, whichever comes first.
+    meleeBlockFightTurns: 3,
+  },
+  flame_guard: {
+    id: 'flame_guard',
+    name: 'Flame Guard',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.DEFENCE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 1,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'fire', stacks: 1 }],
+    // damageReductionPercent already excludes status damage by design
+    // (see DamageCalculator.applyDamageReductionState — only ever
+    // consulted from the direct-hit path, never a status tick).
+    damageReductionPercent: 40,
+  },
+  erratic_combustion: {
+    id: 'erratic_combustion',
+    name: 'Erratic Combustion',
+    properties: [MOVE_PROPERTIES.DEBUFF],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 999,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
+    // Below-half-health priority special, one-time use — same pattern as
+    // the skeleton's final_rites (999 fight_turn cooldown never comes
+    // back around within a normal fight).
+    usePriorityBelowHealthPercent: 50,
+    // Consumed BEFORE the debuffs below apply (see CombatManager.executeMove):
+    // the defender loses all of their current fire stacks, taking 7 damage
+    // per stack lost, then gets hit with 3 fresh stacks from `debuffs`.
+    consumeStatusForDamage: { effect: 'fire', damagePerStack: 7 },
+    debuffs: [{ effect: 'fire', stacks: 3 }],
+  },
+  ash_eater: {
+    id: 'ash_eater',
+    name: 'Ash Eater',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    trigger: 'character_turn_start',
+    // selfDebuffs (unlike debuffs, which triggerPassives always routes to
+    // the opponent) applies to the passive's own owner — see triggerPassives.
+    selfDebuffs: [{ effect: 'fire', stacks: 1 }],
+  },
 };
 
 export function getMoveTemplate(id) {

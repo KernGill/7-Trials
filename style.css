@@ -119,6 +119,7 @@ select {
 .result-box h2 { margin: 0 0 4px; text-align: center; color: #f1c40f; letter-spacing: 1px; font-size: 18px; }
 .result-line { color: #ddd; font-size: 13px; text-align: center; }
 .result-close { padding: 10px; font-size: 13px; margin-top: 8px; }
+.continue-run-btn, .begin-anew-btn { padding: 12px; font-size: 13px; letter-spacing: 0.5px; }
 
 /* ---------------- Cards (in-run progression) ---------------- */
 .card-pick-box { width: 640px; max-width: 94vw; }

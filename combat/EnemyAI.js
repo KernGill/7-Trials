@@ -18,10 +18,15 @@ export class EnemyAI {
   }
 
   chooseMove(enemy, player) {
-    if (enemy.currentHealth / enemy.getMaxHealth() <= 0.1) {
-      const priority = enemy.moves.find((m) => isActiveMove(m) && m.template.usePriorityBelowHealthPercent);
-      if (priority?.isAvailable(enemy.energy)) return priority;
-    }
+    // Each priority move carries its OWN threshold (final_rites: 10%,
+    // Erratic Combustion: 50%) rather than one shared cutoff — checked
+    // per-move so different enemies' priority specials can trigger at
+    // different health percentages.
+    const healthPercent = (enemy.currentHealth / enemy.getMaxHealth()) * 100;
+    const priority = enemy.moves.find((m) => isActiveMove(m)
+      && m.template.usePriorityBelowHealthPercent
+      && healthPercent <= m.template.usePriorityBelowHealthPercent);
+    if (priority?.isAvailable(enemy.energy)) return priority;
 
     if (this.lockedMoveId && this.lockedTurnsRemaining > 0) {
       const locked = enemy.moves.find((m) => m.id === this.lockedMoveId);

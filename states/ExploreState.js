@@ -236,18 +236,21 @@ export class ExploreState {
   }
 
   /**
-   * Marks every tile in the 3x3 area around (cx,cy) as explored — not just
-   * the one actually stood on — so the minimap's "close" live-visibility
-   * ring (see Minimap.js) becomes permanent instead of reverting to
-   * unknown once the player walks away, making it much faster to fill in.
-   * Walls are marked too (so the minimap remembers corridor edges/shape)
-   * but only walkable tiles count toward the "Explored: X/Y" HUD total,
-   * since dungeon.tilesTotal itself only counts walkable tiles.
+   * Marks every tile in the (3x3, or 5x5 with Torch equipped) area around
+   * (cx,cy) as explored — not just the one actually stood on — so the
+   * minimap's "close" live-visibility ring (see Minimap.js) becomes
+   * permanent instead of reverting to unknown once the player walks away,
+   * making it much faster to fill in. Walls are marked too (so the
+   * minimap remembers corridor edges/shape) but only walkable tiles count
+   * toward the "Explored: X/Y" HUD total, since dungeon.tilesTotal itself
+   * only counts walkable tiles.
    */
   markNearbyExplored(cx, cy) {
     const run = this.app.gameState.run;
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    const hasTorch = this.app.inventory.getEquippedItems().offHand === 'torch';
+    const radius = hasTorch ? 2 : 1;
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
         const tile = this.getTileAt(cx + dx, cy + dy);
         if (!tile || tile.explored) continue;
         tile.explored = true;

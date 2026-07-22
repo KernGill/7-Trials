@@ -6,6 +6,8 @@ export const MATERIALS = {
   flesh: { id: 'flesh', name: 'Flesh', description: 'Rotting tissue from the hollowed.' },
   jar_of_spores: { id: 'jar_of_spores', name: 'Jar of Spores', description: 'A sealed jar humming faintly with spores.' },
   memory_fragment: { id: 'memory_fragment', name: 'Memory Fragment', description: "A sliver of someone else's memory, still warm." },
+  vines: { id: 'vines', name: 'Vines', description: 'Grasping tendrils, still faintly warm.' },
+  ashes: { id: 'ashes', name: 'Ashes', description: 'All that remains after the flame passes.' },
 };
 
 export const ITEMS = {
@@ -34,6 +36,22 @@ export const ITEMS = {
     unlock: { dropOnly: true },
     shopState: ITEM_STATES.BOUGHT,
     visual: { shape: 'rect', color: '#ecf0f1', spriteId: 'bone_sword' },
+  },
+  torch: {
+    id: 'torch',
+    name: 'Torch',
+    type: 'offHand',
+    arc: 0,
+    flavour: 'Dropped by a Torch Eater. Still burning.',
+    // Deliberately all-zero — its value is entirely in the two passive
+    // effects below (see combat/CombatManager.js's Torch fire-move
+    // discount, and states/ExploreState.js's markNearbyExplored).
+    stats: { str: 0, dex: 0, con: 0, def: 0, spd: 0, int: 0, critChance: 0, critDamage: 0 },
+    moveIds: [],
+    price: null,
+    unlock: { dropOnly: true },
+    shopState: ITEM_STATES.BOUGHT,
+    visual: { shape: 'rect', color: '#e67e22', spriteId: 'torch' },
   },
   skull_helmet: {
     id: 'skull_helmet',

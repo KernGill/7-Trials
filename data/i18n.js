@@ -23,6 +23,9 @@ export const TRANSLATIONS = {
     'home.save': 'Save Game',
     'home.saved': 'Saved!',
     'home.load': 'Load',
+    'home.resume_run_title': 'ABANDONED RUN FOUND',
+    'home.continue_run': 'CONTINUE: FLOOR {floor}',
+    'home.begin_anew': 'BEGIN ANEW',
 
     // Common
     'common.return_home': 'RETURN HOME',
@@ -184,6 +187,7 @@ export const TRANSLATIONS = {
     'log.uses_move': '{name} uses {move}.',
     'log.heals': '{name} heals {n} HP.',
     'log.missed': "{name}'s {move} missed!",
+    'log.melee_blocked': "{name}'s trap swallows {move} whole!",
     'log.splits_damage': '{move} splits damage between combatants.',
     'log.deals_damage': '{move} deals {n} damage{crit}.',
     'log.lifesteals': '{name} lifesteals {n} HP.',

@@ -179,5 +179,9 @@ export class StatusEffectSystem {
       character.pendingReactiveHealTurnsRemaining -= 1;
       if (character.pendingReactiveHealTurnsRemaining <= 0) character.pendingReactiveHeal = null;
     }
+
+    if (character.meleeBlockTurnsRemaining > 0) {
+      character.meleeBlockTurnsRemaining -= 1;
+    }
   }
 }

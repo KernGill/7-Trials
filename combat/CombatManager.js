@@ -298,7 +298,15 @@ export class CombatManager {
   }
 
   executeMove(attacker, defender, move) {
-    if (!this.energySystem.spendEnergy(attacker, move.energyCost)) {
+    // Torch's fire-move discount: any move that applies the 'fire' debuff
+    // costs 1 less energy for a player wielding it — data-driven off the
+    // move's own debuffs list (not a hardcoded move-id allowlist), so it
+    // covers Ignite plus anything else that applies fire, present or future.
+    const appliesFire = move.template.debuffs?.some((d) => d.effect === 'fire');
+    const energyCost = (attacker.isPlayer && attacker.hasTorchEquipped && appliesFire)
+      ? Math.max(0, move.energyCost - 1)
+      : move.energyCost;
+    if (!this.energySystem.spendEnergy(attacker, energyCost)) {
       this.logMessage(t('log.lacks_energy', { name: attacker.name, move: move.name }));
       return;
     }
@@ -314,11 +322,26 @@ export class CombatManager {
       this.logMessage(t('log.heals', { name: attacker.name, n: healed }));
     }
 
+    // Erratic Combustion: consumed BEFORE this move's own debuffs apply —
+    // the defender loses all stacks of the given status, taking flat
+    // damage per stack lost. Unconditional (no attack roll involved),
+    // same as the debuffs/buffs blocks below.
+    if (move.template.consumeStatusForDamage) {
+      const { effect, damagePerStack } = move.template.consumeStatusForDamage;
+      const stacks = defender.getStatusStacks(effect);
+      if (stacks > 0) {
+        defender.removeStatusEffect(effect);
+        defender.takeDamage(stacks * damagePerStack);
+      }
+    }
+
     let result = null;
     if (move.template.damage > 0 || move.scaling !== 'none') {
       result = DamageCalculator.resolveAttack({ attacker, defender, move });
       if (!result.hit) {
-        this.logMessage(t('log.missed', { name: attacker.name, move: move.name }));
+        this.logMessage(result.blocked
+          ? t('log.melee_blocked', { name: defender.name, move: move.name })
+          : t('log.missed', { name: attacker.name, move: move.name }));
       } else if (result.split) {
         this.logMessage(t('log.splits_damage', { move: move.name }));
       } else {
@@ -326,6 +349,12 @@ export class CombatManager {
         this.logMessage(t('log.deals_damage', { move: move.name, n: result.damage, crit: critText }));
         if (result.healed > 0) this.logMessage(t('log.lifesteals', { name: attacker.name, n: result.healed }));
       }
+    }
+
+    // Only if the attack actually landed (never on a miss or a Vine Trap
+    // block) — Extreme Ignition's self-harm cost.
+    if (move.template.selfDamagePercentOnHit && result?.hit) {
+      attacker.takeDamage(attacker.currentHealth * (move.template.selfDamagePercentOnHit / 100));
     }
 
     if (move.template.debuffs && (!result || result.hit)) {
@@ -358,6 +387,9 @@ export class CombatManager {
     if (move.template.reactiveHealMultiplier) {
       attacker.pendingReactiveHeal = { multiplier: move.template.reactiveHealMultiplier };
       attacker.pendingReactiveHealTurnsRemaining = move.template.reactiveHealDurationFightTurns ?? -1;
+    }
+    if (move.template.meleeBlockFightTurns) {
+      attacker.meleeBlockTurnsRemaining = move.template.meleeBlockFightTurns;
     }
 
     if (move.template.repeatInstances) {
@@ -443,6 +475,11 @@ export class CombatManager {
           const target = character.isPlayer ? this.aliveEnemies[0] : this.player;
           const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
           if (target && chanceOk) this.statusSystem.applyDebuffs(target, move.template.debuffs, character);
+        }
+        // Unlike `debuffs` (always routed to the opponent above),
+        // `selfDebuffs` targets the passive's own owner — Ash Eater.
+        if (move.template.selfDebuffs) {
+          this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character);
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
