@@ -2,6 +2,7 @@ import { GAME_STATES } from '../utils/Constants.js';
 import { t } from '../ui/i18n.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
+import { InventorySystem } from '../systems/InventorySystem.js';
 
 /** HomeState — the only hub. Every other state can only return here. */
 export class HomeState {
@@ -63,7 +64,7 @@ export class HomeState {
     else this.app.startRun();
   }
 
-  /** "Continue: Floor N" / "Begin Anew" choice, same result-overlay/result-box modal pattern used elsewhere (ExploreState's card pick, minimap expand, etc). Hovering Continue previews the current equipped loadout plus the cards the abandoned run had picked. */
+  /** "Continue: Floor N" / "Begin Anew" choice, same result-overlay/result-box modal pattern used elsewhere (ExploreState's card pick, minimap expand, etc). Hovering Continue previews the loadout the abandoned run actually had equipped (which Continue restores — not necessarily what's equipped right now) plus the cards it had picked. */
   showRunChoiceModal(snapshot) {
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
@@ -77,8 +78,13 @@ export class HomeState {
 
     const continueBtn = modal.querySelector('.continue-run-btn');
     this.tooltip.bind(continueBtn, () => {
-      const equipped = this.app.inventory.getEquippedItems();
-      const totals = this.app.inventory.getEquippedStatTotals();
+      // A throwaway InventorySystem over just the snapshot's equipped
+      // set — same "peek without touching live state" trick SaveSlotsState
+      // uses for its own hover preview — so this shows what Continue will
+      // actually restore, not whatever's currently equipped at Home.
+      const snapshotInventory = new InventorySystem({ player: { equipped: snapshot.equipped ?? {} }, run: { materials: {} } });
+      const equipped = snapshotInventory.getEquippedItems();
+      const totals = snapshotInventory.getEquippedStatTotals();
       const cards = snapshot.cards ?? [];
       const cardsHTML = cards.length
         ? `<div class="tt-section-label">${t('pause.cards_title')}</div><div class="cards-list">${cards.map((c) => cardTileHTML(c)).join('')}</div>`

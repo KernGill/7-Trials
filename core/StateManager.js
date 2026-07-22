@@ -215,12 +215,18 @@ export class StateManager {
   /**
    * Voluntary "Abandon Run" from the pause menu (ExploreState only —
    * never available mid-fight). Snapshots just enough of the run
-   * (floor/cards/health/achievement progress, NOT the dungeon/position —
-   * continuing regenerates the floor fresh, same as any normal floor
-   * transition) so HomeState can later offer "Continue: Floor N" instead
-   * of only "Begin Anew". Death and arc-completion both also route
-   * through goHome() but deliberately do NOT call this — there's nothing
-   * to continue after either of those.
+   * (floor/cards/health/achievement progress/equipped, NOT the dungeon/
+   * position — continuing regenerates the floor fresh, same as any
+   * normal floor transition) so HomeState can later offer "Continue:
+   * Floor N" instead of only "Begin Anew". Death and arc-completion both
+   * also route through goHome() but deliberately do NOT call this —
+   * there's nothing to continue after either of those.
+   *
+   * `equipped` is captured from whatever is LIVE right now, which is
+   * correct whether this run was fresh (live == the player's normal
+   * loadout) or itself a continued run (live == the frozen loadout
+   * continueRun() swapped in) — either way, that's genuinely what this
+   * run was played with.
    */
   abandonRun() {
     const run = this.gameState.run;
@@ -229,6 +235,7 @@ export class StateManager {
       cards: deepClone(run.cards ?? []),
       savedHealth: run.savedHealth ?? null,
       achievementProgress: deepClone(run.achievementProgress ?? {}),
+      equipped: deepClone(this.gameState.player.equipped),
     };
     run.active = false;
     this.goHome();
@@ -270,6 +277,17 @@ export class StateManager {
     const chests = this.gameState.run?.achievementProgress?.chestsOpenedThisRun ?? 0;
     const chestTarget = getAchievementConfig('open_3_chests_in_run')?.target ?? 3;
     if (chests >= chestTarget) this.achievements.setComplete('open_3_chests_in_run');
+
+    // If this run was a continued one (see continueRun()), it was played
+    // on a loadout frozen from the abandoned run rather than the player's
+    // live one — restore whatever was actually equipped before Continue
+    // was pressed, now that this run is over (death, abandon, or
+    // victory), so continuing a run never permanently alters the
+    // player's build.
+    if (this.gameState.preContinueEquipped) {
+      this.gameState.player.equipped = this.gameState.preContinueEquipped;
+      this.gameState.preContinueEquipped = null;
+    }
 
     this.combatManager.reset();
     this.gameState.combat = null;
@@ -323,10 +341,22 @@ export class StateManager {
     this.setState(GAME_STATES.EXPLORE);
   }
 
-  /** Resumes a voluntarily-abandoned run (see abandonRun()) at its saved floor/cards/health, on a freshly-generated layout for that floor. No-ops if there's nothing to continue. */
+  /**
+   * Resumes a voluntarily-abandoned run (see abandonRun()) at its saved
+   * floor/cards/health, on a freshly-generated layout for that floor.
+   * No-ops if there's nothing to continue.
+   *
+   * Continuing must not silently change the player's build: it swaps in
+   * whatever was equipped at the moment of abandon (which may differ from
+   * what's equipped right now, e.g. gear bought/equipped since then),
+   * remembering the current loadout in preContinueEquipped so goHome()
+   * can restore it the instant this continued run ends, however it ends.
+   */
   continueRun() {
     const snapshot = this.gameState.abandonedRun;
     if (!snapshot) return;
+    this.gameState.preContinueEquipped = deepClone(this.gameState.player.equipped);
+    this.gameState.player.equipped = deepClone(snapshot.equipped ?? {});
     this.startRun({
       floor: snapshot.floor,
       cards: snapshot.cards,

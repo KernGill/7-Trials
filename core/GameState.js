@@ -70,10 +70,18 @@ export class GameState {
     this.paused = false;
     this.enemyMoveFlash = null;
     // Snapshot of a voluntarily-abandoned run (floor/cards/health/
-    // achievement progress — see StateManager.abandonRun()), offered back
-    // on the Home screen's Battle button as "Continue: Floor N" until
-    // consumed by continueRun() or discarded by starting a fresh run.
+    // achievement progress/equipped — see StateManager.abandonRun()),
+    // offered back on the Home screen's Battle button as "Continue: Floor
+    // N" until consumed by continueRun() or discarded by starting a fresh
+    // run.
     this.abandonedRun = null;
+    // Set only while a continued run is in progress: the loadout the
+    // player actually had equipped at Home right before hitting Continue
+    // (which may differ from what the abandoned run itself had equipped —
+    // see StateManager.continueRun()). Restored the moment that continued
+    // run ends (death, abandon, or victory — see StateManager.goHome()),
+    // so continuing a run never permanently alters the player's build.
+    this.preContinueEquipped = null;
   }
 
   setState(nextState) {
@@ -99,11 +107,12 @@ export class GameState {
       settings: deepClone(this.settings),
       run: this.run?.active ? deepClone(this.run) : null,
       abandonedRun: this.abandonedRun ? deepClone(this.abandonedRun) : null,
+      preContinueEquipped: this.preContinueEquipped ? deepClone(this.preContinueEquipped) : null,
     };
   }
 
   loadSnapshot(snapshot) {
-    const { meta, player, bestiary, settings, run, abandonedRun } = deepClone(snapshot);
+    const { meta, player, bestiary, settings, run, abandonedRun, preContinueEquipped } = deepClone(snapshot);
     if (meta) this.meta = meta;
     if (player) this.player = player;
     if (bestiary) this.bestiary = bestiary;
@@ -115,5 +124,6 @@ export class GameState {
       this.run = run;
     }
     this.abandonedRun = abandonedRun ?? null;
+    this.preContinueEquipped = preContinueEquipped ?? null;
   }
 }
