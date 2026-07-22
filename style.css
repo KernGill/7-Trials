@@ -299,6 +299,11 @@ select {
 .shop-item-flavour { color: #777; font-size: 11px; flex: 1; }
 .shop-owned { color: #f1c40f; font-size: 11px; white-space: nowrap; }
 .shop-buy-btn { padding: 8px 14px; font-size: 12px; max-width: 220px; text-align: center; white-space: normal; }
+.shop-sell-btn { padding: 8px 14px; font-size: 12px; max-width: 220px; text-align: center; white-space: normal; background: #1e3a2f; border-color: #2ecc71; color: #7fdba0; }
+.shop-mode-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
+.shop-tab-btn { padding: 8px 20px; font-size: 12px; letter-spacing: 1px; background: #14151f; border: 1px solid #222; color: #888; }
+.shop-tab-btn.active { border-color: #e94560; color: #e94560; }
+.shop-empty { text-align: center; color: #666; margin-top: 40px; }
 .bestiary-stats { color: #888; font-size: 11px; }
 .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }
 

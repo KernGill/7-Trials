@@ -65,6 +65,11 @@ export const TRANSLATIONS = {
     'shop.flash_gold': 'NOT ENOUGH GOLD',
     'shop.flash_materials': 'NOT ENOUGH MATERIALS',
     'shop.purchased': 'Purchased.',
+    'shop.tab_buy': 'BUY',
+    'shop.tab_sell': 'SELL',
+    'shop.sold': 'Sold.',
+    'shop.sell_empty': 'You have nothing to sell.',
+    'shop.sell_worthless': 'Worthless',
 
     // Bestiary
     'bestiary.title': 'BESTIARY',
@@ -188,6 +193,7 @@ export const TRANSLATIONS = {
     'log.battle_won': 'Battle won.',
     'log.defeated': 'You were defeated.',
     'log.purchased_item': 'Purchased {name}.',
+    'log.sold_item': 'Sold {name}.',
     'log.used_consumable_heal': 'Used {name}, healed {n} HP.',
     'log.used_consumable_buff': 'Used {name}. Its effect will apply at the start of your next fight.',
     'log.descended': 'Descended to floor {n}.',

@@ -83,6 +83,20 @@ export class InventorySystem {
     this.player.ownedEquipment[itemId] = (this.player.ownedEquipment[itemId] ?? 0) + amount;
   }
 
+  /** Selling an item decreases how many copies you own (floors at 0), auto-unequipping any now-unowned copies so equipped state never outpaces ownership. */
+  removeItem(itemId, amount = 1) {
+    const next = Math.max(0, this.getOwnedCount(itemId) - amount);
+    this.player.ownedEquipment[itemId] = next;
+    this.ensureEquippedStructure();
+    while (this.countEquippedInstances(itemId) > next) {
+      const singleSlot = SINGLE_EQUIPMENT_SLOTS.find((slot) => this.player.equipped[slot] === itemId);
+      if (singleSlot) { this.player.equipped[singleSlot] = null; continue; }
+      const multiSlot = Object.keys(MULTI_EQUIPMENT_SLOTS).find((slot) => this.player.equipped[slot].includes(itemId));
+      if (multiSlot) { this.unequipSlot(multiSlot, itemId); continue; }
+      break; // shouldn't happen — safety valve against an infinite loop
+    }
+  }
+
   addMaterial(materialId, amount, toRun = false) {
     const target = toRun ? this.gameState.run.materials : this.player.backpackMaterials;
     target[materialId] = (target[materialId] ?? 0) + amount;

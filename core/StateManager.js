@@ -1,4 +1,4 @@
-import { GAME_STATES, STAT_KEYS } from '../utils/Constants.js';
+import { GAME_STATES, STAT_KEYS, enemyStatMultiplierForFloor } from '../utils/Constants.js';
 import { GameState } from './GameState.js';
 import { EventBus } from './EventBus.js';
 import { InputManager } from './InputManager.js';
@@ -320,7 +320,7 @@ export class StateManager {
   /** Called by ExploreState the instant the player steps onto an enemy tile. */
   startCombat(enemyId) {
     const player = this.createPlayer();
-    const mult = 1 + 0.15 * this.gameState.run.floor;
+    const mult = enemyStatMultiplierForFloor(this.gameState.run.floor);
     const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
     const enemy = new Enemy(enemyId, { statMultipliers });
     // FightState has to be listening (via currentStateHandler) *before*

@@ -191,6 +191,10 @@ export function getEnemyConfig(id) {
   return ENEMIES[id] ?? null;
 }
 
+export function getAllEnemies() {
+  return Object.values(ENEMIES);
+}
+
 export function getEnemiesForArc(arcId) {
   return Object.values(ENEMIES).filter(
     (enemy) => enemy.arcs.includes(arcId) && !enemy.isBoss,

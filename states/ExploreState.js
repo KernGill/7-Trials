@@ -32,7 +32,12 @@ const QTE_DIRECTION_KEYS = {
 const QTE_BASE_SECONDS = 5;
 const QTE_DEX_SECONDS_INTERVAL = 50;
 const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
-const REWARD_FLOOR_BONUS_PER_FLOOR = 0.10;
+// Base door/chest/temporal-chest reward amounts (LOCKED_ROOM_GOLD_REWARD,
+// the chest randomInt(2,4) material roll, etc) are quartered via
+// REWARD_INITIAL_SCALE, then grown back +15%/floor *compounding* (not
+// additive) via REWARD_FLOOR_BONUS_PER_FLOOR — see getRewardMultiplier.
+const REWARD_INITIAL_SCALE = 0.25;
+const REWARD_FLOOR_BONUS_PER_FLOOR = 0.15;
 const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.25;
 const TEMPORAL_CHEST_REWARD_MULTIPLIER = 2;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
@@ -498,9 +503,9 @@ export class ExploreState {
     onResolve(success);
   }
 
-  /** Base reward multiplier: +10%/floor, plus any equipped reward-boost passive (e.g. Thief's Greed) — rounded up. */
+  /** Base reward multiplier: initial (floor-independent) amounts are quartered, then grown back +15%/floor *compounding*, plus any equipped reward-boost passive (e.g. Thief's Greed) — rounded up. */
   getRewardMultiplier(run) {
-    return (1 + REWARD_FLOOR_BONUS_PER_FLOOR * run.floor) * (1 + this.getPassiveSum('rewardBonusPercent') / 100);
+    return REWARD_INITIAL_SCALE * (1 + REWARD_FLOOR_BONUS_PER_FLOOR) ** run.floor * (1 + this.getPassiveSum('rewardBonusPercent') / 100);
   }
 
   resolveLockedDoor(success) {
