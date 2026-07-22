@@ -57,10 +57,10 @@ export class HomeState {
     setTimeout(() => { if (btn.isConnected) btn.textContent = original; }, 900);
   }
 
-  /** A voluntarily-abandoned run (see StateManager.abandonRun()) is offered back here instead of unconditionally starting fresh. */
+  /** A voluntarily-abandoned run (see StateManager.abandonRun()) is offered back here instead of unconditionally starting fresh. Guards against a malformed/stale snapshot (e.g. an older save written under a previous abandonedRun shape) rather than letting showRunChoiceModal throw and silently eat the click. */
   handleBattleClick() {
     const abandoned = this.app.gameState.abandonedRun;
-    if (abandoned) this.showRunChoiceModal(abandoned);
+    if (abandoned?.run) this.showRunChoiceModal(abandoned);
     else this.app.startRun();
   }
 

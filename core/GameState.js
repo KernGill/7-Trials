@@ -123,7 +123,16 @@ export class GameState {
       if (run.dungeon?.tiles) run.dungeon.tiles = run.dungeon.tiles.map((t) => Tile.fromJSON(t));
       this.run = run;
     }
-    this.abandonedRun = abandonedRun ?? null;
+    // Validate shape, not just presence — abandonedRun's schema changed
+    // shape mid-development (from a handful of top-level fields to
+    // { run, equipped }) while this feature was already shipping to save
+    // files. A save written under the old shape has no `.run` here, and
+    // HomeState reads `snapshot.run.floor` unconditionally — trusting it
+    // as-is would throw the instant the Battle button is clicked (an old
+    // dungeon/tile layout couldn't be restored correctly even if it
+    // didn't throw), so just discard anything that doesn't match today's
+    // shape rather than trying to migrate it.
+    this.abandonedRun = abandonedRun?.run ? abandonedRun : null;
     this.preContinueEquipped = preContinueEquipped ?? null;
   }
 }
