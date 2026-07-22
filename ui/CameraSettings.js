@@ -23,7 +23,7 @@ export function linkedHeightPercentForAngle(angleDeg) {
     + (angleDeg / CAMERA_ANGLE_MAX) * (LINKED_HEIGHT_MAX_PERCENT - LINKED_HEIGHT_MIN_PERCENT);
 }
 
-export const DEFAULT_CAMERA_ANGLE = 20;
-// Derived from linkedHeightPercentForAngle(20) (~92.2%, displayed as 20/92) so the
+export const DEFAULT_CAMERA_ANGLE = 28;
+// Derived from linkedHeightPercentForAngle(28) (~97.1%, displayed as 28/97) so the
 // default stays exactly on the combined slider's correspondence line.
 export const DEFAULT_CAMERA_HEIGHT = linkedHeightPercentForAngle(DEFAULT_CAMERA_ANGLE) / 100;
