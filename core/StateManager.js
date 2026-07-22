@@ -265,6 +265,13 @@ export class StateManager {
       const hits = this.gameState.run?.achievementProgress?.finalRitesHits ?? 0;
       const target = getAchievementConfig('survive_final_rites')?.target ?? 3;
       if (hits >= target) this.achievements.setComplete('survive_final_rites');
+    } else {
+      // Dying ends the run permanently — there's nothing left to offer
+      // "Continue: Floor N" on next time, even if this death happened
+      // mid-way through an already-continued run (see continueRun()).
+      // Only the explicit pause-menu Abandon button (abandonRun()) is
+      // ever allowed to leave a fresh continue offer behind.
+      this.gameState.abandonedRun = null;
     }
 
     // These two don't require surviving — just doing the thing within one run.
