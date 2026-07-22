@@ -382,6 +382,25 @@ export class CombatManager {
       }
     }
 
+    // Chaotic Combustion: consumes the given status from BOTH sides
+    // independently — each side's damage comes from its OWN removed
+    // stacks (your own pile of self-inflicted fire hurts you, not them),
+    // unlike consumeStatusForDamage above which only ever touches the
+    // defender.
+    if (move.template.consumeStatusForDamageBothSides) {
+      const { effect, damagePerStack } = move.template.consumeStatusForDamageBothSides;
+      const defenderStacks = defender.getStatusStacks(effect);
+      if (defenderStacks > 0) {
+        defender.removeStatusEffect(effect);
+        defender.takeDamage(defenderStacks * damagePerStack, { source: effect });
+      }
+      const attackerStacks = attacker.getStatusStacks(effect);
+      if (attackerStacks > 0) {
+        attacker.removeStatusEffect(effect);
+        attacker.takeDamage(attackerStacks * damagePerStack, { source: effect });
+      }
+    }
+
     let result = null;
     if (move.template.damage > 0 || move.scaling !== 'none') {
       result = DamageCalculator.resolveAttack({ attacker, defender, move });

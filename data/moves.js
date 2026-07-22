@@ -748,6 +748,57 @@ export const MOVE_TEMPLATES = {
     // the opponent) applies to the passive's own owner — see triggerPassives.
     selfDebuffs: [{ effect: 'fire', stacks: 1 }],
   },
+
+  // --- New Torch Eater-material equipment -------------------------------
+  // Ashbound Charm / Smoldering Roots share this exact passive — each
+  // equipped copy fires independently and stacks (see
+  // CombatManager.triggerPassives), same as Formless/Ash Eater.
+  ember_curse: {
+    id: 'ember_curse',
+    name: 'Ember Curse',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    trigger: 'character_turn_start',
+    debuffs: [{ effect: 'fire', stacks: 2 }],
+    selfDebuffs: [{ effect: 'fire', stacks: 1 }],
+  },
+  // Chaosbloom Grips — an active version of Erratic Combustion that burns
+  // away BOTH combatants' fire stacks at once (see
+  // consumeStatusForDamageBothSides in CombatManager.executeMove),
+  // 4 damage per stack instead of Erratic Combustion's 7 — a genuine
+  // risk/reward tool: it cleanses your own stacked-up fire (e.g. from
+  // Ember Curse) but you take damage for whatever you had built up too.
+  chaotic_combustion: {
+    id: 'chaotic_combustion',
+    name: 'Chaotic Combustion',
+    properties: [MOVE_PROPERTIES.DEBUFF],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 4,
+    cooldown: 4,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    consumeStatusForDamageBothSides: { effect: 'fire', damagePerStack: 4 },
+  },
+  // Ashen Remembrance — a hybrid ghost/fire bolt, applying both frost and
+  // fire in a single cast.
+  ember_wisp: {
+    id: 'ember_wisp',
+    name: 'Ember Wisp',
+    properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
+    damage: 12,
+    scaling: SCALING_TYPES.INT,
+    critChance: 5,
+    energyCost: 3,
+    cooldown: 3,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'frost', stacks: 4 }, { effect: 'fire', stacks: 2 }],
+  },
 };
 
 export function getMoveTemplate(id) {
