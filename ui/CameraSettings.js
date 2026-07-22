@@ -17,11 +17,13 @@ export const CAMERA_HEIGHT_MAX_PERCENT = 150;
 export const LINKED_HEIGHT_MIN_PERCENT = 80;
 export const LINKED_HEIGHT_MAX_PERCENT = 135;
 
-export const DEFAULT_CAMERA_ANGLE = 30;
-export const DEFAULT_CAMERA_HEIGHT = 1; // multiplier (100%)
-
 /** The linked height percent for a given angle, per the fixed 0/80 - 90/135 correspondence. */
 export function linkedHeightPercentForAngle(angleDeg) {
   return LINKED_HEIGHT_MIN_PERCENT
     + (angleDeg / CAMERA_ANGLE_MAX) * (LINKED_HEIGHT_MAX_PERCENT - LINKED_HEIGHT_MIN_PERCENT);
 }
+
+export const DEFAULT_CAMERA_ANGLE = 20;
+// Derived from linkedHeightPercentForAngle(20) (~92.2%, displayed as 20/92) so the
+// default stays exactly on the combined slider's correspondence line.
+export const DEFAULT_CAMERA_HEIGHT = linkedHeightPercentForAngle(DEFAULT_CAMERA_ANGLE) / 100;

@@ -1,6 +1,7 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { deepClone } from '../utils/MathUtils.js';
 import { Tile } from '../exploration/Tile.js';
+import { DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT } from '../ui/CameraSettings.js';
 
 const DEFAULT_META = {
   currentArc: 0,
@@ -60,10 +61,10 @@ export class GameState {
     this.settings = {
       brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true,
       // cameraAngle: 0 (horizontal) - 90 (bird's eye) degrees. cameraHeight: multiplier
-      // on the previous fixed camera height, 1/3 - 1.5. Both default to the values that
-      // reproduce the old fixed 30deg camera exactly, so existing saves look unchanged.
-      cameraAngle: 30,
-      cameraHeight: 1,
+      // on the previous fixed camera height, 1/3 - 1.5. Sourced from ui/CameraSettings.js
+      // so this stays in sync with the Camera Orientation slider's own default.
+      cameraAngle: DEFAULT_CAMERA_ANGLE,
+      cameraHeight: DEFAULT_CAMERA_HEIGHT,
     };
     this.log = [];
     this.paused = false;
