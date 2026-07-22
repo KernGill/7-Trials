@@ -71,7 +71,7 @@ export class HomeState {
     modal.innerHTML = `
       <div class="result-box">
         <h2>${t('home.resume_run_title')}</h2>
-        <button class="continue-run-btn">${t('home.continue_run', { floor: snapshot.floor })}</button>
+        <button class="continue-run-btn">${t('home.continue_run', { floor: snapshot.run.floor })}</button>
         <button class="begin-anew-btn">${t('home.begin_anew')}</button>
       </div>`;
     this.root.appendChild(modal);
@@ -85,7 +85,7 @@ export class HomeState {
       const snapshotInventory = new InventorySystem({ player: { equipped: snapshot.equipped ?? {} }, run: { materials: {} } });
       const equipped = snapshotInventory.getEquippedItems();
       const totals = snapshotInventory.getEquippedStatTotals();
-      const cards = snapshot.cards ?? [];
+      const cards = snapshot.run.cards ?? [];
       const cardsHTML = cards.length
         ? `<div class="tt-section-label">${t('pause.cards_title')}</div><div class="cards-list">${cards.map((c) => cardTileHTML(c)).join('')}</div>`
         : '';

@@ -14,6 +14,7 @@ import { InnSystem } from '../systems/InnSystem.js';
 import { BestiarySystem } from '../systems/BestiarySystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
+import { Tile } from '../exploration/Tile.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -214,13 +215,18 @@ export class StateManager {
 
   /**
    * Voluntary "Abandon Run" from the pause menu (ExploreState only —
-   * never available mid-fight). Snapshots just enough of the run
-   * (floor/cards/health/achievement progress/equipped, NOT the dungeon/
-   * position — continuing regenerates the floor fresh, same as any
-   * normal floor transition) so HomeState can later offer "Continue:
-   * Floor N" instead of only "Begin Anew". Death and arc-completion both
-   * also route through goHome() but deliberately do NOT call this —
-   * there's nothing to continue after either of those.
+   * never available mid-fight). Snapshots the ENTIRE run — dungeon
+   * (including which chests/doors are already resolved via each Tile's
+   * meta.resolved), player position/facing, enemiesRemaining,
+   * tilesExplored, cards, health, achievement progress — not just a
+   * cherry-picked subset. Without the full dungeon, continuing used to
+   * regenerate a brand-new (unseeded-random) floor layout every time,
+   * which both threw away real exploration progress AND let a player
+   * repeatedly abandon+continue to re-roll a floor full of fresh,
+   * unopened chests/doors for infinite rewards. So HomeState can later
+   * offer "Continue: Floor N" instead of only "Begin Anew". Death and
+   * arc-completion both also route through goHome() but deliberately do
+   * NOT call this — there's nothing to continue after either of those.
    *
    * `equipped` is captured from whatever is LIVE right now, which is
    * correct whether this run was fresh (live == the player's normal
@@ -229,15 +235,11 @@ export class StateManager {
    * run was played with.
    */
   abandonRun() {
-    const run = this.gameState.run;
     this.gameState.abandonedRun = {
-      floor: run.floor,
-      cards: deepClone(run.cards ?? []),
-      savedHealth: run.savedHealth ?? null,
-      achievementProgress: deepClone(run.achievementProgress ?? {}),
+      run: deepClone(this.gameState.run),
       equipped: deepClone(this.gameState.player.equipped),
     };
-    run.active = false;
+    this.gameState.run.active = false;
     this.goHome();
   }
 
@@ -314,8 +316,7 @@ export class StateManager {
 
   // --- Run lifecycle -----------------------------------------------------
 
-  /** `overrides` lets continueRun() resume at a saved floor/cards/health/achievementProgress instead of the fresh-start defaults below — everything else about starting into a floor (dungeon generation, working consumables/materials pools) is identical either way. */
-  startRun(overrides = {}) {
+  startRun() {
     const arc = this.progression.getCurrentArc();
     this.gameState.run = {
       active: true,
@@ -331,7 +332,6 @@ export class StateManager {
       savedHealth: null,
       floorMessage: null,
       cards: [],
-      ...overrides,
     };
     // A fresh run (or one explicitly started over via "Begin Anew")
     // discards any pending "Continue: Floor N" offer.
@@ -342,27 +342,47 @@ export class StateManager {
   }
 
   /**
-   * Resumes a voluntarily-abandoned run (see abandonRun()) at its saved
-   * floor/cards/health, on a freshly-generated layout for that floor.
-   * No-ops if there's nothing to continue.
+   * Resumes a voluntarily-abandoned run (see abandonRun()) exactly where
+   * it left off — same dungeon layout, same already-resolved chests/
+   * doors, same position/facing/enemiesRemaining/tilesExplored/cards/
+   * health — by restoring the whole snapshotted run object directly
+   * (skipping generateFloor() entirely, unlike startRun()). No-ops if
+   * there's nothing to continue.
    *
-   * Continuing must not silently change the player's build: it swaps in
-   * whatever was equipped at the moment of abandon (which may differ from
-   * what's equipped right now, e.g. gear bought/equipped since then),
-   * remembering the current loadout in preContinueEquipped so goHome()
-   * can restore it the instant this continued run ends, however it ends.
+   * Two fields are deliberately NOT restored as-snapshotted:
+   *  - materials: the snapshot's run.materials was already banked into
+   *    player.backpackMaterials by the goHome() that ran right after
+   *    abandonRun() captured it — restoring it too would double-count
+   *    those materials the next time this run ends and banks again.
+   *  - consumables: re-seeded fresh from the player's CURRENT permanent
+   *    stock (same as a normal startRun()) rather than the stale
+   *    snapshot, so potions bought/used while at Home in between are
+   *    reflected instead of silently overwritten away next time goHome()
+   *    mirrors run.consumables back onto player.consumables.
+   *
+   * Continuing must not silently change the player's build either: it
+   * swaps in whatever was equipped at the moment of abandon (which may
+   * differ from what's equipped right now, e.g. gear bought/equipped
+   * since then), remembering the current loadout in preContinueEquipped
+   * so goHome() can restore it the instant this continued run ends,
+   * however it ends.
    */
   continueRun() {
     const snapshot = this.gameState.abandonedRun;
     if (!snapshot) return;
     this.gameState.preContinueEquipped = deepClone(this.gameState.player.equipped);
     this.gameState.player.equipped = deepClone(snapshot.equipped ?? {});
-    this.startRun({
-      floor: snapshot.floor,
-      cards: snapshot.cards,
-      savedHealth: snapshot.savedHealth,
-      achievementProgress: snapshot.achievementProgress,
-    });
+
+    const run = deepClone(snapshot.run);
+    run.active = true;
+    run.materials = {};
+    run.consumables = { ...this.gameState.player.consumables };
+    if (run.dungeon?.tiles) run.dungeon.tiles = run.dungeon.tiles.map((tile) => Tile.fromJSON(tile));
+    this.gameState.run = run;
+    this.gameState.abandonedRun = null;
+
+    this.saveSystem.save();
+    this.setState(GAME_STATES.EXPLORE);
   }
 
   generateFloor() {

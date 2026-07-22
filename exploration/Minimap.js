@@ -17,6 +17,12 @@ const TILE_COLORS = {
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';
 
+/** A resolved chest/door (already opened — see ExploreState.handleTileEffect's meta.resolved gate) reads as plain floor, since it no longer does anything when walked onto. */
+function tileColor(tile) {
+  if (tile.meta?.resolved) return TILE_COLORS[TILE_TYPES.FLOOR];
+  return TILE_COLORS[tile.type] ?? '#222222';
+}
+
 // Rotation (radians) applied to the corner minimap so the given facing
 // direction always renders at the top — north needs none since world-north
 // (dy=-1) already draws at the top by default; the rest follow from there.
@@ -140,7 +146,7 @@ export class Minimap {
         if (!tile) continue;
         const close = Math.max(Math.abs(dx), Math.abs(dy)) <= CLOSE_RADIUS;
         if (!tile.explored && !close) continue;
-        ctx.fillStyle = TILE_COLORS[tile.type] ?? '#222222';
+        ctx.fillStyle = tileColor(tile);
         ctx.fillRect((dx + RADIUS) * CELL_SIZE, (dy + RADIUS) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
       }
     }
@@ -163,7 +169,7 @@ export class Minimap {
 
     dungeon.tiles.forEach((tile) => {
       if (!tile.explored) return;
-      ctx.fillStyle = TILE_COLORS[tile.type] ?? '#222222';
+      ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * cellSize, tile.y * cellSize, cellSize, cellSize);
     });
 

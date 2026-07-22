@@ -387,6 +387,11 @@ export class DungeonRenderer3D {
   }
 
   _applyMarker(tile, entry) {
+    // A resolved chest/door (already opened — see ExploreState.handleTileEffect's
+    // meta.resolved gate) is functionally inert; skip its marker so a
+    // restored/continued run doesn't show a chest that no longer does
+    // anything when walked onto.
+    if (tile.meta?.resolved) return;
     const markerMats = this._mat.markerByDist[tile.type];
     if (!markerMats || entry.marker) return;
     let geo = this._geo.marker;
