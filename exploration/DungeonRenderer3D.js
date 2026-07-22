@@ -26,30 +26,37 @@ const CARDINAL_DIRS = [
 ];
 
 // Tile visibility is a live radius around the player, recomputed on every
-// move — not a persistent "once seen, always shown" memory. CLEAR_RADIUS
-// is a Chebyshev (grid, not Euclidean) distance so it reads as a clean
-// square ring: dist<=1 is the 3x3 block centered on the player (the
-// player's own tile plus its 8 neighbors), dist<=2 is one ring out (dim),
-// dist<=3 is one further ring out still (faint), and anything past
-// FAINT_RADIUS isn't rendered at all — true darkness. All three tiers are
-// visually distinct — a genuine 3-step gradient, dim sitting between
-// clear and faint — rather than clear/dim sharing one look.
+// move — not a persistent "once seen, always shown" memory — using
+// Chebyshev (grid, not Euclidean) distance so it reads as clean square
+// rings. Every individual tile distance (0..VISIBLE_RADIUS) gets its own
+// point on a smooth continuous falloff curve rather than a handful of
+// discrete bands, so the fade reads as gradual rather than stepped;
+// anything past VISIBLE_RADIUS isn't rendered at all — true darkness.
 //
-// Walls/floor stay fully OPAQUE at every tier — they fade by blending
+// Walls/floor stay fully OPAQUE at every distance — they fade by blending
 // their color toward the background color instead, so a distant wall
 // still fully occludes what's behind it (no see-through). Markers (the
 // actual objects on a tile) are the opposite: they stay transparent,
-// brightening to full opacity within CLEAR_RADIUS and fading out (more
-// transparent + darker) toward FAINT_RADIUS.
-const CLEAR_RADIUS = 2;
-const DIM_RADIUS = 4;
-const FAINT_RADIUS = 6;
-const WALL_CLEAR_KEEP = 0.55; // walls/floor within CLEAR_RADIUS: fraction of true color kept, rest blended to background
-const WALL_DIM_KEEP = 0.35; // walls/floor at the dim tier — between clear and faint
-const WALL_FAINT_KEEP = 0.06; // walls/floor at the faint tier: harder to see — mostly background
-const DIM_OPACITY = 0.25; // markers only, from here down
-const FAINT_OPACITY = 0.06; // harder to see than before — more transparent than DIM_OPACITY
-const FAINT_COLOR_KEEP = 0.3; // marker faint tier also darkens more than before: mostly blended to black
+// fading via opacity instead of color.
+const VISIBLE_RADIUS = 7; // max distance (tiles) anything renders at all
+// >1 keeps the falloff gentle for the first few tiles and steep from
+// ~5 tiles out — visibilityStrength(5..7) drops off much faster than
+// visibilityStrength(0..4) does, matching "hard to see from 5 onward".
+const VISIBILITY_FALLOFF_POWER = 2.5;
+const MAX_FLOOR_KEEP = 0.55; // floor color-keep fraction at distance 0 (rest blended to background) — floor stays legible as "the path"
+const MAX_WALL_KEEP = 0.2; // wall color-keep fraction at distance 0 — deliberately low so even nearby walls sit close to the background color
+const MAX_MARKER_OPACITY = 1; // marker opacity at distance 0
+
+/**
+ * Smooth per-tile-distance visibility strength in [0,1]: 1 at distance 0,
+ * gently tapering through the first few tiles, then dropping steeply from
+ * ~5 tiles out, reaching (but never quite hitting) 0 at VISIBLE_RADIUS —
+ * every individual integer distance gets a distinct point on the curve.
+ */
+function visibilityStrength(dist) {
+  const t = clamp(dist / (VISIBLE_RADIUS + 1), 0, 1);
+  return (1 - t) ** VISIBILITY_FALLOFF_POWER;
+}
 
 // The camera sits behind the player relative to facing, so a wall directly
 // behind the player (the tile one step opposite of facing) can sit right
@@ -193,9 +200,10 @@ export class DungeonRenderer3D {
     // Shared geometries/materials, reused across every tile mesh —
     // cheap to keep alive for the renderer's lifetime, disposed in unmount().
     // Walls/floor fade purely by color (toward the background, staying
-    // opaque — see WALL_CLEAR_KEEP / WALL_DIM_KEEP / WALL_FAINT_KEEP
-    // above); markers fade via transparency instead, staying fully
-    // opaque/bright only within CLEAR_RADIUS.
+    // opaque — see MAX_FLOOR_KEEP / MAX_WALL_KEEP above); markers fade via
+    // transparency instead. One material per integer distance
+    // (0..VISIBLE_RADIUS) is precomputed here so updateVisibility() can
+    // just index into it every move, rather than allocating per-frame.
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
       // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
@@ -208,27 +216,31 @@ export class DungeonRenderer3D {
       // Enemy tiles get their own plain cube for now (placeholder, per design).
       enemyCube: new THREE.BoxGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8, TILE_SIZE * 0.8),
     };
+    // Opaque — no `transparent`/`opacity` at all, so a distant wall/floor
+    // still fully blocks whatever's behind it; only the color shifts
+    // toward the background as distance increases. floorByDist[d] /
+    // wallByDist[d] / markerByDist[type][d] hold the distance-`d` material.
+    const floorByDist = [];
+    const wallByDist = [];
+    for (let d = 0; d <= VISIBLE_RADIUS; d += 1) {
+      const v = visibilityStrength(d);
+      floorByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, MAX_FLOOR_KEEP * v, BACKGROUND_COLOR) }));
+      wallByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, MAX_WALL_KEEP * v, BACKGROUND_COLOR) }));
+    }
+    const markerByDist = Object.fromEntries(
+      Object.entries(MARKER_COLORS).map(([type, color]) => [
+        type,
+        Array.from({ length: VISIBLE_RADIUS + 1 }, (_, d) => new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity: MAX_MARKER_OPACITY * visibilityStrength(d),
+        })),
+      ]),
+    );
     this._mat = {
-      // Opaque — no `transparent`/`opacity` at all, so a distant wall/floor
-      // still fully blocks whatever's behind it; only the color shifts
-      // toward the background as distance increases.
-      clearFloor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_CLEAR_KEEP, BACKGROUND_COLOR) }),
-      floor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_DIM_KEEP, BACKGROUND_COLOR) }),
-      faintFloor: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
-      clearWall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_CLEAR_KEEP, BACKGROUND_COLOR) }),
-      wall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_DIM_KEEP, BACKGROUND_COLOR) }),
-      faintWall: new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, WALL_FAINT_KEEP, BACKGROUND_COLOR) }),
+      floorByDist,
+      wallByDist,
+      markerByDist,
       // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above.
       behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, opacity: BEHIND_WALL_OPACITY }),
-      markers: Object.fromEntries(
-        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color })]),
-      ),
-      transparentMarkers: Object.fromEntries(
-        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: DIM_OPACITY })]),
-      ),
-      faintMarkers: Object.fromEntries(
-        Object.entries(MARKER_COLORS).map(([type, color]) => [type, new THREE.MeshBasicMaterial({ color: blendColor(color, FAINT_COLOR_KEEP, 0x000000), transparent: true, opacity: FAINT_OPACITY })]),
-      ),
     };
 
     this._onResize = () => this.resize();
@@ -344,7 +356,7 @@ export class DungeonRenderer3D {
           const neighbor = tilesByKey.get(tileKey(tile.x + dx, tile.y + dy));
           if (!neighbor || neighbor.type === TILE_TYPES.WALL) return; // no panel toward another wall or off-grid
           const isNS = side === 'north' || side === 'south';
-          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, this._mat.wall);
+          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, this._mat.wallByDist[VISIBLE_RADIUS]);
           panel.position.set(
             worldX + (dx * TILE_SIZE) / 2,
             WALL_HEIGHT / 2,
@@ -357,7 +369,7 @@ export class DungeonRenderer3D {
         return;
       }
 
-      const floor = new THREE.Mesh(this._geo.floor, this._mat.floor);
+      const floor = new THREE.Mesh(this._geo.floor, this._mat.floorByDist[VISIBLE_RADIUS]);
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(worldX, 0, worldZ);
       this.dungeonGroup.add(floor);
@@ -375,8 +387,8 @@ export class DungeonRenderer3D {
   }
 
   _applyMarker(tile, entry) {
-    const markerMat = this._mat.markers[tile.type];
-    if (!markerMat || entry.marker) return;
+    const markerMats = this._mat.markerByDist[tile.type];
+    if (!markerMats || entry.marker) return;
     let geo = this._geo.marker;
     let height = TILE_SIZE * 0.3;
     if (tile.type === TILE_TYPES.STAIRS) {
@@ -391,31 +403,31 @@ export class DungeonRenderer3D {
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
     }
-    const marker = new THREE.Mesh(geo, markerMat);
+    const marker = new THREE.Mesh(geo, markerMats[VISIBLE_RADIUS]);
     marker.position.set(tile.x * TILE_SIZE, height, tile.y * TILE_SIZE);
     this.dungeonGroup.add(marker);
     entry.marker = marker;
   }
 
   /**
-   * Recomputes every tile's visibility tier from the player's current grid
-   * position: clear (dist<=CLEAR_RADIUS), dim (dist<=DIM_RADIUS, a genuine
-   * middle step between clear and faint), faint (dist<=FAINT_RADIUS,
-   * fading further toward invisible/background), and hidden beyond that.
-   * Walls/floor fade by shifting color toward the background while staying
-   * fully opaque; markers fade via transparency instead. Runs on every
-   * move — this is live sight, not a permanent "once seen" reveal.
+   * Recomputes every tile's visibility from the player's current grid
+   * position: each integer distance 0..VISIBLE_RADIUS has its own
+   * precomputed material (see visibilityStrength above), so the fade reads
+   * as continuous per-tile rather than a few discrete bands; anything
+   * beyond VISIBLE_RADIUS is hidden entirely. Walls/floor fade by shifting
+   * color toward the background while staying fully opaque; markers fade
+   * via transparency instead. Runs on every move — this is live sight, not
+   * a permanent "once seen" reveal.
    */
   updateVisibility(px, py) {
     this.tileMeshes.forEach((entry, key) => {
       const [txStr, tyStr] = key.split(',');
       const dist = Math.max(Math.abs(Number(txStr) - px), Math.abs(Number(tyStr) - py));
-      const visible = dist <= FAINT_RADIUS;
-      const clear = dist <= CLEAR_RADIUS;
-      const faint = dist > DIM_RADIUS; // implies dist <= FAINT_RADIUS given `visible` above
+      const visible = dist <= VISIBLE_RADIUS;
+      const distIdx = Math.min(dist, VISIBLE_RADIUS);
 
       if (entry.walls) {
-        const mat = clear ? this._mat.clearWall : faint ? this._mat.faintWall : this._mat.wall;
+        const mat = this._mat.wallByDist[distIdx];
         entry.walls.forEach(({ mesh }) => {
           mesh.visible = visible;
           mesh.material = mat;
@@ -423,12 +435,10 @@ export class DungeonRenderer3D {
         return;
       }
       entry.floor.visible = visible;
-      entry.floor.material = clear ? this._mat.clearFloor : faint ? this._mat.faintFloor : this._mat.floor;
+      entry.floor.material = this._mat.floorByDist[distIdx];
       if (entry.marker) {
         entry.marker.visible = visible;
-        entry.marker.material = clear ? this._mat.markers[entry.type]
-          : faint ? this._mat.faintMarkers[entry.type]
-          : this._mat.transparentMarkers[entry.type];
+        entry.marker.material = this._mat.markerByDist[entry.type]?.[distIdx];
       }
     });
   }
@@ -503,10 +513,16 @@ export class DungeonRenderer3D {
     if (this._rafId) cancelAnimationFrame(this._rafId);
     if (this._onResize) window.removeEventListener('resize', this._onResize);
     Object.values(this._geo ?? {}).forEach((g) => g.dispose());
-    Object.values(this._mat ?? {}).forEach((m) => {
-      if (m.dispose) m.dispose();
-      else Object.values(m).forEach((mm) => mm.dispose());
-    });
+    // _mat holds a mix of shapes: plain materials (behindWall), flat arrays
+    // indexed by distance (floorByDist/wallByDist), and nested per-type
+    // arrays of arrays (markerByDist) — recurse until something disposable
+    // is found rather than assuming a fixed depth.
+    const disposeDeep = (value) => {
+      if (!value) return;
+      if (typeof value.dispose === 'function') value.dispose();
+      else Object.values(value).forEach(disposeDeep);
+    };
+    disposeDeep(this._mat);
     this.playerSprite?.material.map?.dispose();
     this.playerSprite?.material.dispose();
     this.renderer?.dispose();

@@ -241,7 +241,16 @@ export class CombatManager {
     if (this.checkFightEnd()) return;
     this.triggerPassives('character_turn_start', actor);
     const gained = this.energySystem.gainEnergy(actor);
-    if (gained > 0) this.logMessage(t('log.gains_energy', { name: actor.name, n: gained }));
+    if (gained > 0) {
+      this.logMessage(t('log.gains_energy', { name: actor.name, n: gained }));
+      // Turn-start energy gain has no animated beat of its own — the
+      // `turnStart` step above was recorded (and will display) *before*
+      // this ran, so without this the x/max energy readout stays stuck on
+      // the pre-gain value until some unrelated later step happens to
+      // resnapshot this character. Record it so FightState refreshes the
+      // display immediately once this reaches the player.
+      this.record({ kind: 'energyGain', character: actor, health: actor.currentHealth, energy: actor.energy });
+    }
 
     if (actor.isPlayer) {
       this.phase = COMBAT_PHASE.PLAYER_TURN;

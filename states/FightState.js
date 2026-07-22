@@ -203,6 +203,7 @@ export class FightState {
       case 'speedCheck': return this.playSpeedCheckStep(step);
       case 'statusTick': return this.playStatusTickStep(step);
       case 'turnStart': return this.playTurnStartStep(step);
+      case 'energyGain': return this.playEnergyGainStep(step);
       case 'turnSkip': return this.playTurnSkipStep(step);
       case 'move': return this.playMoveStep(step);
       case 'consumable': return this.playConsumableStep(step);
@@ -284,6 +285,13 @@ export class FightState {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
     this.renderMoveOrder(step.character);
+    this.finishStep();
+  }
+
+  /** Turn-start energy gain has no beat of its own — refresh the display immediately (no delay) right after it happens, so x/max energy doesn't stay stuck on the pre-gain value shown by the turnStart step above. */
+  playEnergyGainStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
     this.finishStep();
   }
 
