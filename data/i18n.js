@@ -572,6 +572,7 @@ export const DATA_TRANSLATIONS = {
       flashback: 'Destello',
       mind_erosion: 'Erosión Mental',
       formless: 'Sin Forma',
+      formless_gear: 'Sin Forma',
     },
     item: {
       wooden_sword: 'Espada de Madera',

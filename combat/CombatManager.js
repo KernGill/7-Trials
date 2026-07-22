@@ -373,7 +373,12 @@ export class CombatManager {
       const stacks = defender.getStatusStacks(effect);
       if (stacks > 0) {
         defender.removeStatusEffect(effect);
-        defender.takeDamage(stacks * damagePerStack);
+        // Tagged with the consumed effect as its damage source (e.g.
+        // 'fire' for Erratic Combustion) so it correctly scales with
+        // getStatusDamageMultiplier — same as any other status tick — so
+        // a target's fire vulnerability (Formless) or fire resistance
+        // applies to it too, not just literal burn ticks.
+        defender.takeDamage(stacks * damagePerStack, { source: effect });
       }
     }
 

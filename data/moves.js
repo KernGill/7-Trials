@@ -450,6 +450,8 @@ export const MOVE_TEMPLATES = {
     // to the attacker rather than the owner's fixed opponent slot.
     trigger: 'melee_hit_taken',
   },
+  // False Apparition's own copy — untouched, the ghost's fire vulnerability
+  // stays exactly as designed.
   formless: {
     id: 'formless',
     name: 'Formless',
@@ -464,6 +466,29 @@ export const MOVE_TEMPLATES = {
     statusDamageMultipliers: { fire: 2, default: 0.7 },
     // Fires exactly once, since triggerPassives('fight_start') is only
     // ever called once per combat (in CombatManager.startCombat).
+    trigger: 'fight_start',
+  },
+  // Player-equipment copy (shrouded_footsteps, spore_cloak) — same ability,
+  // but a gentler fire multiplier (1.5x per equipped source, instead of
+  // the ghost's 2x) since a player wearing formless gear having a large
+  // extra fire vulnerability made fights against fire-heavy enemies (Torch
+  // Eater) too punishing. Passive equipment moves stack — one instance per
+  // equipped copy, each multiplying the running total (see
+  // CombatManager.triggerPassives) — so wearing both pieces compounds to
+  // 1.5 * 1.5 = 2.25x (still meaningfully weaker than 2x * 2x = 4x under
+  // the old shared template).
+  formless_gear: {
+    id: 'formless_gear',
+    name: 'Formless',
+    properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
+    physicalDamageReductionPercent: 20,
+    statusDamageMultipliers: { fire: 1.5, default: 0.7 },
     trigger: 'fight_start',
   },
   seeping_dread: {
