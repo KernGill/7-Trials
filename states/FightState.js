@@ -5,6 +5,8 @@ import { getConsumableConfig } from '../data/consumables.js';
 import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 import { getCharacterSprite, getEnemySprite, CHARACTER_BORDER } from '../data/sprites.js';
 import { t, tData, tReason } from '../ui/i18n.js';
+import { TooltipManager } from '../ui/TooltipManager.js';
+import { abilityDetailHTML } from '../ui/InfoFormatters.js';
 
 const STAT_KEY_TO_TKEY = { con: 'tooltip.con', dex: 'tooltip.dex', str: 'tooltip.str', spd: 'tooltip.spd', def: 'tooltip.def', int: 'tooltip.int' };
 function statLabel(key) { return t(STAT_KEY_TO_TKEY[key] ?? key); }
@@ -144,11 +146,13 @@ export class FightState {
       order: root.querySelector('.move-order'),
       panel: root.querySelector('.category-panel'),
     };
+    this.tooltip = new TooltipManager();
     this.renderAll();
   }
 
   exit() {
     this.pause.unmount();
+    this.tooltip?.destroy();
     this.timers.forEach((id) => clearTimeout(id));
     this.timers = [];
   }
@@ -662,6 +666,10 @@ export class FightState {
         this.openCategory = null;
         this.renderCategoryPanel();
       });
+      // So a new player can see exactly what a move does (damage,
+      // debuffs, special effects) without a separate trip to the Inn.
+      const move = moves.find((m) => m.id === btn.dataset.move);
+      if (move) this.tooltip.bind(btn, () => abilityDetailHTML(move.template));
     });
   }
 

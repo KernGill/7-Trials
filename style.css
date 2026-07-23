@@ -50,6 +50,7 @@ select {
 .hover-tooltip .tt-section-label { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); }
 .hover-tooltip .tt-ability { margin-top: 4px; }
 .hover-tooltip .tt-ability-name { color: #ffd9a0; font-weight: bold; }
+.hover-tooltip .tt-desc { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); color: #f5e6d8; }
 
 /* ---------------- HOME ---------------- */
 .home-screen {

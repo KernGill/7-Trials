@@ -4,6 +4,7 @@ export const MOVE_TEMPLATES = {
   challengers_mettle: {
     id: 'challengers_mettle',
     name: "Challenger's Mettle",
+    description: 'Every other turn, gains +3 Strength for that turn.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -21,6 +22,7 @@ export const MOVE_TEMPLATES = {
   golden_calling: {
     id: 'golden_calling',
     name: 'Golden Calling',
+    description: 'Deals damage and permanently gains +2 Strength.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.BUFF],
     damage: 15,
     scaling: SCALING_TYPES.STR,
@@ -33,6 +35,7 @@ export const MOVE_TEMPLATES = {
   strike: {
     id: 'strike',
     name: 'Strike',
+    description: 'A basic melee strike.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE],
     damage: 8,
     scaling: SCALING_TYPES.STR,
@@ -44,6 +47,7 @@ export const MOVE_TEMPLATES = {
   stance_shatter: {
     id: 'stance_shatter',
     name: 'Stance Shatter',
+    description: "Lowers the target's Defense for 3 turns.",
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.STR,
@@ -56,6 +60,7 @@ export const MOVE_TEMPLATES = {
   deliberate_blow: {
     id: 'deliberate_blow',
     name: 'Deliberate Blow',
+    description: 'Deals damage and reduces the next hit you take by 40 flat damage.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEFENCE],
     damage: 10,
     scaling: SCALING_TYPES.STR,
@@ -68,6 +73,7 @@ export const MOVE_TEMPLATES = {
   ignite: {
     id: 'ignite',
     name: 'Ignite',
+    description: 'Deals damage, applies 5 stacks of Burn, and grants bonus energy for 2 turns.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.DEBUFF],
     damage: 20,
     scaling: SCALING_TYPES.INT,
@@ -81,6 +87,7 @@ export const MOVE_TEMPLATES = {
   guard: {
     id: 'guard',
     name: 'Guard',
+    description: 'Blocks 85% of the next incoming hit.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -93,6 +100,7 @@ export const MOVE_TEMPLATES = {
   minor_heal: {
     id: 'minor_heal',
     name: 'Minor Heal',
+    description: 'Heals 33% of missing health.',
     properties: [MOVE_PROPERTIES.HEALING],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -105,6 +113,7 @@ export const MOVE_TEMPLATES = {
   arcane_split: {
     id: 'arcane_split',
     name: 'Arcane Split',
+    description: 'For the next few turns, you only take half of any damage aimed at you — the other half bounces back onto the attacker instead.',
     properties: [MOVE_PROPERTIES.DEFENCE, MOVE_PROPERTIES.MAGIC],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -121,6 +130,7 @@ export const MOVE_TEMPLATES = {
   shard_stab: {
     id: 'shard_stab',
     name: 'Shard Stab',
+    description: 'A quick, low-damage jab.',
     properties: [MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.PHYSICAL],
     damage: 3,
     scaling: SCALING_TYPES.STR,
@@ -132,6 +142,7 @@ export const MOVE_TEMPLATES = {
   bone_zone: {
     id: 'bone_zone',
     name: 'Bone Zone',
+    description: 'Strikes 5 times across the next several turns, applying a stack of Frost with each hit that lands.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.AOE, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.STR,
@@ -148,6 +159,7 @@ export const MOVE_TEMPLATES = {
   undead_fury: {
     id: 'undead_fury',
     name: 'Undead Fury',
+    description: 'A quick strike with a short cooldown.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE],
     damage: 4,
     scaling: SCALING_TYPES.STR,
@@ -159,6 +171,7 @@ export const MOVE_TEMPLATES = {
   bone_barrier: {
     id: 'bone_barrier',
     name: 'Bone Barrier',
+    description: 'Starting next turn, reduces damage taken by 90% and reflects damage back at attackers, for 2 turns.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -174,6 +187,7 @@ export const MOVE_TEMPLATES = {
   hollow_stance: {
     id: 'hollow_stance',
     name: 'Hollow Stance',
+    description: 'Reduces the damage of the next hit you take by 70%.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -186,6 +200,7 @@ export const MOVE_TEMPLATES = {
   final_rites: {
     id: 'final_rites',
     name: 'Final Rites',
+    description: 'A desperate last resort used below 10% health: deals damage, applies 5 stacks of Bleed, and heals 25% of missing health.',
     properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.HEALING, MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.AOE],
     damage: 20,
     scaling: SCALING_TYPES.STR,
@@ -200,6 +215,7 @@ export const MOVE_TEMPLATES = {
   pocket_flesh: {
     id: 'pocket_flesh',
     name: 'Pocket Flesh',
+    description: 'A weak jab that applies 1 stack of Poison.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.PHYSICAL],
     damage: 2,
     scaling: SCALING_TYPES.STR,
@@ -212,6 +228,7 @@ export const MOVE_TEMPLATES = {
   necro_claw: {
     id: 'necro_claw',
     name: 'Necro Claw',
+    description: 'A precise, high-crit-chance claw strike that applies 2 stacks of Poison.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.MELEE],
     damage: 5,
     scaling: SCALING_TYPES.STR,
@@ -224,6 +241,7 @@ export const MOVE_TEMPLATES = {
   virulent_tear: {
     id: 'virulent_tear',
     name: 'Virulent Tear',
+    description: 'Applies 4 stacks of Poison.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE],
     damage: 0,
     scaling: SCALING_TYPES.STR,
@@ -236,6 +254,7 @@ export const MOVE_TEMPLATES = {
   tomb_ward: {
     id: 'tomb_ward',
     name: 'Tomb Ward',
+    description: 'Reduces the damage of the next hit you take by 60%.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -248,6 +267,7 @@ export const MOVE_TEMPLATES = {
   rotten_bulwark: {
     id: 'rotten_bulwark',
     name: 'Rotten Bulwark',
+    description: 'Reduces all damage taken, including from status effects, by 70% for the next 3 hits.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -262,6 +282,7 @@ export const MOVE_TEMPLATES = {
   spore_assault: {
     id: 'spore_assault',
     name: 'Spore Assault',
+    description: 'Every other fight turn, automatically applies 1-2 stacks of Poison to the opponent.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.AOE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -276,6 +297,7 @@ export const MOVE_TEMPLATES = {
   bone_shards: {
     id: 'bone_shards',
     name: 'Bone Shards',
+    description: 'Deals damage and applies 2 stacks of Bleed.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 5,
     scaling: SCALING_TYPES.STR,
@@ -288,6 +310,7 @@ export const MOVE_TEMPLATES = {
   skelebrain: {
     id: 'skelebrain',
     name: 'Skelebrain',
+    description: "Permanently converts the user's current Intelligence into an equal amount of Constitution.",
     properties: [MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -300,6 +323,7 @@ export const MOVE_TEMPLATES = {
   corpse_poison: {
     id: 'corpse_poison',
     name: 'Corpse Poison',
+    description: "Applies 5 stacks of Poison, plus more based on the user's Dexterity.",
     properties: [MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -312,6 +336,7 @@ export const MOVE_TEMPLATES = {
   accumulating_mana: {
     id: 'accumulating_mana',
     name: 'Accumulating Mana',
+    description: 'Every fight turn, temporarily gains +3 Strength for that turn.',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -325,6 +350,7 @@ export const MOVE_TEMPLATES = {
   gluttonous_maw: {
     id: 'gluttonous_maw',
     name: 'Gluttonous Maw',
+    description: 'Every 4th fight turn, gains 1-2 stacks of Lifesteal.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -341,6 +367,7 @@ export const MOVE_TEMPLATES = {
   potion_maniac: {
     id: 'potion_maniac',
     name: 'Potion Maniac',
+    description: 'Grants 2 Minor Potions at the start of combat.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.CONSUMABLE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -354,6 +381,7 @@ export const MOVE_TEMPLATES = {
   minor_potion_move: {
     id: 'minor_potion_move',
     name: 'Minor Potion',
+    description: 'Heals 30% of missing health.',
     properties: [MOVE_PROPERTIES.CONSUMABLE, MOVE_PROPERTIES.HEALING],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -367,6 +395,7 @@ export const MOVE_TEMPLATES = {
   strength_elixir_move: {
     id: 'strength_elixir_move',
     name: 'Strength Elixir',
+    description: 'Permanently increases Strength by 10.',
     properties: [MOVE_PROPERTIES.CONSUMABLE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -380,6 +409,7 @@ export const MOVE_TEMPLATES = {
   echo_memory: {
     id: 'echo_memory',
     name: 'Echo Memory',
+    description: 'Deals damage and Stuns the opponent for 1 turn.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC],
     damage: 15,
     scaling: SCALING_TYPES.INT,
@@ -392,6 +422,7 @@ export const MOVE_TEMPLATES = {
   consume_memory: {
     id: 'consume_memory',
     name: 'Consume Memory',
+    description: 'A quick, high-crit-chance bolt that applies 1 stack of Frost.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.RANGED],
     damage: 5,
     scaling: SCALING_TYPES.INT,
@@ -404,6 +435,7 @@ export const MOVE_TEMPLATES = {
   ethereal_form: {
     id: 'ethereal_form',
     name: 'Ethereal Form',
+    description: 'For the next few turns, guarantees dodging every attack and takes 50% less status effect damage.',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -419,6 +451,7 @@ export const MOVE_TEMPLATES = {
   flashback: {
     id: 'flashback',
     name: 'Flashback',
+    description: 'For the next couple of turns, heals for double the damage taken from the next attack against you.',
     properties: [MOVE_PROPERTIES.HEALING],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -437,6 +470,7 @@ export const MOVE_TEMPLATES = {
   mind_erosion: {
     id: 'mind_erosion',
     name: 'Mind Erosion',
+    description: 'Whenever the user is hit by a melee attack, applies 2 stacks of Frost to the attacker.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -455,6 +489,7 @@ export const MOVE_TEMPLATES = {
   formless: {
     id: 'formless',
     name: 'Formless',
+    description: 'Takes 20% less physical damage and 30% less damage from most status effects for the whole fight, but takes double damage from Burn.',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -480,6 +515,7 @@ export const MOVE_TEMPLATES = {
   formless_gear: {
     id: 'formless_gear',
     name: 'Formless',
+    description: 'Takes 20% less physical damage and 30% less damage from most status effects for the whole fight, but takes 50% more damage from Burn.',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -494,6 +530,7 @@ export const MOVE_TEMPLATES = {
   seeping_dread: {
     id: 'seeping_dread',
     name: 'Seeping Dread',
+    description: 'Every other fight turn, automatically applies 1 stack of Frost to the opponent.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -508,6 +545,7 @@ export const MOVE_TEMPLATES = {
   swift_fear: {
     id: 'swift_fear',
     name: 'Swift Fear',
+    description: 'Applies 8 stacks of Frost to the opponent at the very start of combat.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -523,6 +561,7 @@ export const MOVE_TEMPLATES = {
   thiefs_wit: {
     id: 'thiefs_wit',
     name: "Thief's Wit",
+    description: 'Grants 40 bonus gold upon winning the fight.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -537,6 +576,7 @@ export const MOVE_TEMPLATES = {
   thiefs_skill: {
     id: 'thiefs_skill',
     name: "Thief's Skill",
+    description: 'Grants 1 extra second on locked door and chest quick-time events.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -550,6 +590,7 @@ export const MOVE_TEMPLATES = {
   thiefs_greed: {
     id: 'thiefs_greed',
     name: "Thief's Greed",
+    description: 'Increases gold and material rewards from chests and locked rooms by 20%.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -563,6 +604,7 @@ export const MOVE_TEMPLATES = {
   thiefs_experience: {
     id: 'thiefs_experience',
     name: "Thief's Experience",
+    description: 'Prevents damage from failing a chest or locked door quick-time event.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -576,6 +618,7 @@ export const MOVE_TEMPLATES = {
   ghosts_thought: {
     id: 'ghosts_thought',
     name: "Ghost's Thought",
+    description: 'At the start of combat, gains 2 stacks of Status Reflection, giving debuffs applied to you a chance to bounce back onto whoever cast them.',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -590,6 +633,7 @@ export const MOVE_TEMPLATES = {
   retaliatory_soul: {
     id: 'retaliatory_soul',
     name: 'Retaliatory Soul',
+    description: 'Whenever the user is hit by a melee attack, has a 50% chance to apply 1 stack of Bleed to the attacker.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -605,6 +649,7 @@ export const MOVE_TEMPLATES = {
   maddening_creation: {
     id: 'maddening_creation',
     name: 'Maddening Creation',
+    description: 'Deals heavy damage and Stuns the opponent for 3 turns.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.RANGED],
     damage: 20,
     scaling: SCALING_TYPES.INT,
@@ -617,6 +662,7 @@ export const MOVE_TEMPLATES = {
   thiefs_envy: {
     id: 'thiefs_envy',
     name: "Thief's Envy",
+    description: 'Whenever the opponent gains a buff, has a 10% chance to also gain a copy of that same buff.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -630,6 +676,7 @@ export const MOVE_TEMPLATES = {
   flashback_ring: {
     id: 'flashback_ring',
     name: 'Flashback',
+    description: 'For the next couple of turns, heals for double the damage taken from the next attack against you.',
     properties: [MOVE_PROPERTIES.HEALING],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -643,6 +690,7 @@ export const MOVE_TEMPLATES = {
   soul_bomb_move: {
     id: 'soul_bomb_move',
     name: 'Soul Bomb',
+    description: 'Applies 1 stack of Frostbite to the opponent.',
     properties: [MOVE_PROPERTIES.CONSUMABLE, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -658,6 +706,7 @@ export const MOVE_TEMPLATES = {
   burning_will: {
     id: 'burning_will',
     name: 'Burning Will',
+    description: 'A high-crit-chance bolt that applies 3 stacks of Burn.',
     properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.INT,
@@ -670,6 +719,7 @@ export const MOVE_TEMPLATES = {
   extreme_ignition: {
     id: 'extreme_ignition',
     name: 'Extreme Ignition',
+    description: "A devastating strike that applies 20 stacks of Burn to the opponent — but burns the user for 50% of their own current health if the hit lands.",
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.MELEE],
     damage: 30,
     scaling: SCALING_TYPES.STR,
@@ -684,6 +734,7 @@ export const MOVE_TEMPLATES = {
   vine_trap: {
     id: 'vine_trap',
     name: 'Vine Trap',
+    description: 'Stuns the opponent and ignores the next melee attack against the user, for up to 3 turns.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -700,6 +751,7 @@ export const MOVE_TEMPLATES = {
   flame_guard: {
     id: 'flame_guard',
     name: 'Flame Guard',
+    description: 'Applies 1 stack of Burn to the opponent and reduces the damage of the next hit the user takes by 40%.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -716,6 +768,7 @@ export const MOVE_TEMPLATES = {
   erratic_combustion: {
     id: 'erratic_combustion',
     name: 'Erratic Combustion',
+    description: "Used below 50% health: burns away all of the opponent's current Burn stacks for 7 damage each, then applies 3 fresh stacks.",
     properties: [MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -736,6 +789,7 @@ export const MOVE_TEMPLATES = {
   ash_eater: {
     id: 'ash_eater',
     name: 'Ash Eater',
+    description: 'Every turn, applies 1 stack of Burn to the user.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -756,6 +810,7 @@ export const MOVE_TEMPLATES = {
   ember_curse: {
     id: 'ember_curse',
     name: 'Ember Curse',
+    description: 'Every turn, applies 2 stacks of Burn to the opponent and 1 stack of Burn to the user.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -776,6 +831,7 @@ export const MOVE_TEMPLATES = {
   chaotic_combustion: {
     id: 'chaotic_combustion',
     name: 'Chaotic Combustion',
+    description: "Burns away all current Burn stacks from both the user and the opponent — 4 damage per stack removed, dealt to whichever side had them.",
     properties: [MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -790,6 +846,7 @@ export const MOVE_TEMPLATES = {
   ember_wisp: {
     id: 'ember_wisp',
     name: 'Ember Wisp',
+    description: 'Deals damage and applies 4 stacks of Frost and 4 stacks of Burn to the opponent, but also applies 1 stack of Burn to the user.',
     properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
     damage: 12,
     scaling: SCALING_TYPES.INT,

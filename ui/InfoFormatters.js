@@ -26,10 +26,6 @@ function propertyLabel(word) {
   return t(`property.${word}`);
 }
 
-function statusLabel(id) {
-  return tData('status', id, id.charAt(0).toUpperCase() + id.slice(1));
-}
-
 export function statsListHTML(stats = {}) {
   return STAT_DISPLAY_ORDER
     .filter((key) => stats[key] !== undefined)
@@ -37,72 +33,29 @@ export function statsListHTML(stats = {}) {
     .join('');
 }
 
-function debuffsText(move) {
-  if (!move.debuffs?.length) return t('tooltip.none');
-  return `${move.debuffs.map((d) => `${statusLabel(d.effect)} x${d.stacks ?? 1}`).join(', ')}.`;
-}
-
-function buffsText(move) {
-  if (!move.buffs?.length) return t('tooltip.none');
-  return `${move.buffs.map((b) => (b.type === 'stat' ? `+${b.amount} ${statLabel(b.stat)}` : statusLabel(b.effect ?? b.type))).join(', ')}.`;
-}
-
-function healingDefenceText(move) {
-  const parts = [];
-  if (move.healMaxPercent) parts.push(t('ability.heals_missing', { n: move.healMaxPercent }));
-  if (move.guardPercent) parts.push(t('ability.guards_next', { n: move.guardPercent }));
-  if (move.damageReductionPercent) {
-    parts.push(move.damageReductionHits
-      ? t('ability.reduces_damage_taken_hits', { n: move.damageReductionPercent, hits: move.damageReductionHits })
-      : t('ability.reduces_damage_taken', { n: move.damageReductionPercent }));
-  }
-  if (move.damageReductionNext) parts.push(t('ability.reduces_next_flat', { n: move.damageReductionNext }));
-  if (move.reflectSplitPercent) parts.push(t('ability.splits_incoming', { n: move.reflectSplitPercent }));
-  if (move.guaranteedDodgeFightTurns) parts.push(t('ability.guaranteed_dodge'));
-  if (move.reactiveHealMultiplier) parts.push(t('ability.reactive_heal', { n: move.reactiveHealMultiplier }));
-  return parts.length ? parts.join(' ') : t('tooltip.none');
-}
-
-function specialEffectsText(move) {
-  const parts = [];
-  if (move.repeatInstances) parts.push(t('ability.repeats', { n: move.repeatInstances }));
-  if (move.trigger) {
-    const suffix = move.triggerInterval === 2 ? 'nd' : move.triggerInterval === 3 ? 'rd' : 'th';
-    const interval = move.triggerInterval > 1 ? t('ability.every_nth', { n: move.triggerInterval, suffix }) : '';
-    parts.push(t('ability.triggers_on', { trigger: move.trigger.replace(/_/g, ' '), interval }));
-  }
-  if (move.usePriorityBelowHealthPercent) parts.push(t('ability.prioritized_below', { n: move.usePriorityBelowHealthPercent }));
-  if (move.physicalDamageReductionPercent) parts.push(t('ability.physical_reduction', { n: move.physicalDamageReductionPercent }));
-  if (move.statusDamageMultipliers) {
-    Object.entries(move.statusDamageMultipliers).forEach(([key, mult]) => {
-      const label = key === 'default' ? t('ability.status_default') : statusLabel(key);
-      const pct = Math.round(Math.abs(mult - 1) * 100);
-      parts.push(mult > 1
-        ? t('ability.status_extra_damage', { status: label, n: pct })
-        : t('ability.status_less_damage', { status: label, n: pct }));
-    });
-  }
-  return parts.length ? parts.join(' ') : t('tooltip.none');
-}
-
-/** Full ability breakdown — used for the Bestiary move-hover and Inn ability-hover panels. */
+/**
+ * Compact ability breakdown — used for the Bestiary move-hover, Inn
+ * ability-hover, in-battle move-hover, and item/equipment tooltips.
+ * Properties/Energy/Cooldown always show; Damage and bonus CritChance
+ * only show when the move actually has them. Everything else (debuffs,
+ * buffs, healing, defense, special triggers) is covered by the move's
+ * own hand-written `description` — one or two plain sentences — rather
+ * than a field-by-field mechanical dump.
+ */
 export function abilityDetailHTML(move) {
   if (!move) return '';
   const scalingLabel = move.scaling && move.scaling !== 'none' ? ` + ${t(SCALING_TKEYS[move.scaling] ?? move.scaling)}` : '';
-  const damageText = move.damage > 0 || (move.scaling && move.scaling !== 'none') ? `${move.damage || 0}${scalingLabel}` : t('tooltip.none');
+  const hasDamage = move.damage > 0 || (move.scaling && move.scaling !== 'none');
   const cooldownUnit = t(move.cooldownType === 'fight_turn' ? 'tooltip.fight_turn' : 'tooltip.character_turn');
   const properties = (move.properties ?? []).map(propertyLabel).join(', ') || t('tooltip.none');
   return `
     <h4>${tData('move', move.id, move.name)}</h4>
     <div class="tt-row"><span>${t('tooltip.properties')}</span><span>${properties}</span></div>
-    <div class="tt-row"><span>${t('tooltip.damage')}</span><span>${damageText}</span></div>
-    <div class="tt-row"><span>${t('tooltip.critchance_label')}</span><span>${move.critChance ?? 0}${t('tooltip.critchance_from_stats')}</span></div>
+    ${hasDamage ? `<div class="tt-row"><span>${t('tooltip.damage')}</span><span>${move.damage || 0}${scalingLabel}</span></div>` : ''}
+    ${move.critChance > 0 ? `<div class="tt-row"><span>${t('tooltip.critchance_label')}</span><span>+${move.critChance}%</span></div>` : ''}
     <div class="tt-row"><span>${t('tooltip.energycost')}</span><span>${move.energyCost ?? 0}</span></div>
     <div class="tt-row"><span>${t('tooltip.cooldown')}</span><span>${move.cooldown ?? 0} ${cooldownUnit}${move.cooldown === 1 ? '' : 's'}</span></div>
-    <div class="tt-row"><span>${t('tooltip.debuffs')}</span><span>${debuffsText(move)}</span></div>
-    <div class="tt-row"><span>${t('tooltip.buffs')}</span><span>${buffsText(move)}</span></div>
-    <div class="tt-row"><span>${t('tooltip.healing_defence')}</span><span>${healingDefenceText(move)}</span></div>
-    <div class="tt-row"><span>${t('tooltip.specialeffects')}</span><span>${specialEffectsText(move)}</span></div>
+    ${move.description ? `<div class="tt-desc">${move.description}</div>` : ''}
   `;
 }
 
@@ -114,11 +67,12 @@ export function abilitySummaryLine(moveId) {
   return `<div class="tt-ability"><span class="tt-ability-name">${tData('move', move.id, move.name)}:</span> ${properties}</div>`;
 }
 
-/** Stat block + abilities list for an equipment item (Shop/Locker/PauseOverlay loadout). */
+/** Stat block + a full ability breakdown (not just a one-liner) for an equipment item (Shop/Locker/PauseOverlay loadout) — so a new player can see exactly what a move does without a separate trip to the Inn. */
 export function itemTooltipHTML(config) {
-  const abilities = (config.moveIds ?? []).map((id) => abilitySummaryLine(id)).join('');
+  const abilities = (config.moveIds ?? []).map((id) => abilityDetailHTML(getMoveTemplate(id))).join('');
   return `
     <h4>${tData('item', config.id, config.name)}</h4>
+    ${config.score !== undefined ? `<div class="tt-row"><span>${t('tooltip.score')}</span><span>${config.score}</span></div>` : ''}
     ${statsListHTML(config.stats)}
     ${abilities ? `<div class="tt-row tt-section-label"><strong>${t('tooltip.abilities')}</strong></div>${abilities}` : ''}
   `;
