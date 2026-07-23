@@ -107,6 +107,15 @@ export class ExploreState {
     this.markNearbyExplored(playerPosition.x, playerPosition.y);
     this.app.input.on('keydown', this._onKeydown);
     this.renderHUD();
+    // Re-entering explore after combat (see handleTileEffect's ENEMY case,
+    // which captures this before app.startCombat() tears the old renderer
+    // down) — best-effort only, since combat resolves automatically with
+    // no click to hang a Pointer Lock request on (see
+    // DungeonRenderer3D.requestPointerLockIfPossible).
+    if (this._pendingMouseLookRestore) {
+      this.renderer3d.requestPointerLockIfPossible();
+      this._pendingMouseLookRestore = false;
+    }
   }
 
   /** Rebuilds the 3D renderer's tile geometry when run.dungeon changes (new floor). No-op if already in sync. */
@@ -349,6 +358,10 @@ export class ExploreState {
         const enemyId = tile.meta.isBoss ? app.progression.getBossId(run.floor) : app.progression.getRandomEnemyId(run.floor);
         run.savedHealth = this.player.currentHealth;
         tile.type = TILE_TYPES.FLOOR;
+        // Captured here (not read back off the renderer later — it's
+        // about to be torn down by the state switch below) so enter()
+        // knows whether to try re-engaging mouse-look once we're back.
+        this._pendingMouseLookRestore = this.renderer3d?.isPointerLocked() ?? false;
         app.startCombat(enemyId); // immediate setState(FIGHT)
         break;
       }
@@ -365,24 +378,45 @@ export class ExploreState {
       case TILE_TYPES.LOCKED_DOOR: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveLockedDoor(success));
+        this.startQTE((success) => this.resolveLockedDoor(success, tile));
         break;
       }
       case TILE_TYPES.TREASURE: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveTreasure(success));
+        this.startQTE((success) => this.resolveTreasure(success, tile));
         break;
       }
       case TILE_TYPES.TEMPORAL_CHEST: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveTemporalChest(success), { arrowMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
+        this.startQTE((success) => this.resolveTemporalChest(success, tile), { arrowMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
         break;
       }
       default:
         break;
     }
+  }
+
+  /**
+   * Pointer Lock hides/freezes the cursor, which would make any of the
+   * click-driven modals below (result/card-pick/minimap-expanded) totally
+   * unusable while it's engaged — release it (if currently on) the instant
+   * one of them opens, remembering that it WAS on so the matching
+   * restoreMouseLookAfterEvent() call (in that same modal's closing click
+   * handler) knows to try re-engaging it, per user request: mouse-look
+   * should only resume after an event if it was active when that event began.
+   */
+  pauseMouseLookForEvent() {
+    this._pendingMouseLookRestore = this.renderer3d?.isPointerLocked() ?? false;
+    this.renderer3d?.releasePointerLock();
+  }
+
+  /** Re-engages mouse-look after an event's closing click, but only if pauseMouseLookForEvent() found it active when that event began. */
+  restoreMouseLookAfterEvent() {
+    if (!this._pendingMouseLookRestore) return;
+    this._pendingMouseLookRestore = false;
+    this.renderer3d?.requestPointerLockIfPossible();
   }
 
   /**
@@ -404,6 +438,7 @@ export class ExploreState {
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
       this.resultOpen = false;
+      this.restoreMouseLookAfterEvent();
     });
   }
 
@@ -416,6 +451,7 @@ export class ExploreState {
    */
   showCardPick() {
     this.resultOpen = true;
+    this.pauseMouseLookForEvent();
     const offer = rollCardOffer();
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
@@ -432,6 +468,7 @@ export class ExploreState {
         const picked = offer[Number(tile.dataset.cardIndex)];
         modal.remove();
         this.resultOpen = false;
+        this.restoreMouseLookAfterEvent();
         this.applyCardPick(picked);
       });
     });
@@ -466,6 +503,7 @@ export class ExploreState {
     const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) + this.getPassiveSum('qteBonusSeconds');
 
     this.resultOpen = true;
+    this.pauseMouseLookForEvent();
     const modal = document.createElement('div');
     modal.className = 'qte-overlay';
     modal.innerHTML = `
@@ -528,7 +566,7 @@ export class ExploreState {
     return REWARD_INITIAL_SCALE * (1 + REWARD_FLOOR_BONUS_PER_FLOOR) ** run.floor * (1 + this.getPassiveSum('rewardBonusPercent') / 100);
   }
 
-  resolveLockedDoor(success) {
+  resolveLockedDoor(success, tile) {
     const { app } = this;
     const run = app.gameState.run;
     if (success) {
@@ -536,14 +574,16 @@ export class ExploreState {
       app.gameState.player.gold += amount;
       run.achievementProgress = run.achievementProgress ?? {};
       run.achievementProgress.doorOpenedFloor = run.floor;
+      tile.meta.looted = true;
       this.showResult(t('explore.locked_room_opened'), [t('explore.reward_gold', { n: amount })]);
     } else {
       this.showResult(t('explore.locked_room_failed'), [t('explore.lock_held')]);
     }
+    this.checkFloorFullyLooted();
     this.app.saveSystem.save();
   }
 
-  resolveTreasure(success) {
+  resolveTreasure(success, tile) {
     const { app } = this;
     const run = app.gameState.run;
     if (success) {
@@ -555,6 +595,7 @@ export class ExploreState {
       run.achievementProgress = run.achievementProgress ?? {};
       run.achievementProgress.chestOpenedFloor = run.floor;
       run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
+      tile.meta.looted = true;
       this.showResult(t('explore.chest_opened'), [t('explore.reward_material', { n: amount, material: materialName })]);
     } else if (this.hasPassiveFlag('noQteFailDamage')) {
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
@@ -565,6 +606,7 @@ export class ExploreState {
       run.savedHealth = this.player.currentHealth;
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
     }
+    this.checkFloorFullyLooted();
     this.app.saveSystem.save();
     this.renderHUD();
   }
@@ -575,7 +617,7 @@ export class ExploreState {
    * chest's), with a real (if still minority) chance at a rare material
    * regular chests never roll at all.
    */
-  resolveTemporalChest(success) {
+  resolveTemporalChest(success, tile) {
     const { app } = this;
     const run = app.gameState.run;
     if (success) {
@@ -596,6 +638,7 @@ export class ExploreState {
       run.achievementProgress = run.achievementProgress ?? {};
       run.achievementProgress.chestOpenedFloor = run.floor;
       run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
+      tile.meta.looted = true;
 
       this.showResult(t('explore.temporal_chest_opened'), [
         t('explore.reward_gold', { n: goldAmount }),
@@ -612,6 +655,7 @@ export class ExploreState {
       run.savedHealth = this.player.currentHealth;
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
     }
+    this.checkFloorFullyLooted();
     this.app.saveSystem.save();
     this.renderHUD();
   }
@@ -625,9 +669,29 @@ export class ExploreState {
     return { lockedRooms, chests, temporalChests, total: lockedRooms + chests + temporalChests };
   }
 
+  /**
+   * "Thief's Instinct" achievement: on a single floor numbered 3 or
+   * higher, every locked door / chest / temporal chest on it has been
+   * successfully looted (a failed QTE resolves the tile but doesn't
+   * count — see the `tile.meta.looted` flag set only on success above).
+   * Checked after every event resolution; no-ops on floors below 3 or a
+   * floor with no events at all (nothing to loot isn't "looting all of it").
+   */
+  checkFloorFullyLooted() {
+    const run = this.app.gameState.run;
+    if (run.floor < 3) return;
+    const eventTypes = [TILE_TYPES.LOCKED_DOOR, TILE_TYPES.TREASURE, TILE_TYPES.TEMPORAL_CHEST];
+    const eventTiles = (run.dungeon?.tiles ?? []).filter((t) => eventTypes.includes(t.type));
+    if (!eventTiles.length) return;
+    if (eventTiles.every((t) => t.meta.looted)) {
+      this.app.achievements.setComplete('loot_all_events_floor_3_plus');
+    }
+  }
+
   /** Full explored-so-far map, opened by clicking the corner minimap. Blocks movement like every other modal here. */
   openMinimapExpanded() {
     this.resultOpen = true;
+    this.pauseMouseLookForEvent();
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
     modal.innerHTML = `
@@ -641,6 +705,7 @@ export class ExploreState {
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
       this.resultOpen = false;
+      this.restoreMouseLookAfterEvent();
     });
   }
 

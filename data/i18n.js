@@ -71,6 +71,8 @@ export const TRANSLATIONS = {
     'shop.purchased': 'Purchased.',
     'shop.tab_buy': 'BUY',
     'shop.tab_sell': 'SELL',
+    'shop.tab_equipment': 'EQUIPMENT',
+    'shop.tab_consumables': 'CONSUMABLES',
     'shop.sold': 'Sold.',
     'shop.sell_empty': 'You have nothing to sell.',
     'shop.sell_worthless': 'Worthless',

@@ -316,6 +316,10 @@ select {
 .shop-mode-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
 .shop-tab-btn { padding: 8px 20px; font-size: 12px; letter-spacing: 1px; background: #14151f; border: 1px solid #222; color: #888; }
 .shop-tab-btn.active { border-color: #e94560; color: #e94560; }
+.shop-category-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
+.shop-category-tabs.hidden { display: none; }
+.shop-category-btn { padding: 6px 16px; font-size: 11px; letter-spacing: 1px; background: transparent; border: 1px solid #333; color: #777; border-radius: 4px; }
+.shop-category-btn.active { border-color: #f1c40f; color: #f1c40f; }
 .shop-empty { text-align: center; color: #666; margin-top: 40px; }
 .bestiary-stats { color: #888; font-size: 11px; }
 .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }

@@ -404,6 +404,33 @@ export class DungeonRenderer3D {
     this._yawSnapTarget = FACING_ANGLES[targetZone];
   }
 
+  /** True if this renderer's canvas currently holds Pointer Lock. */
+  isPointerLocked() {
+    return !!this.canvas && document.pointerLockElement === this.canvas;
+  }
+
+  /** Releases Pointer Lock if this renderer's canvas currently holds it — no-op otherwise (e.g. already unlocked). */
+  releasePointerLock() {
+    if (this.isPointerLocked()) document.exitPointerLock();
+  }
+
+  /**
+   * Best-effort re-engage of Pointer Lock — used by ExploreState to
+   * resume mouse-look after an event (chest/door/room, combat, descend)
+   * that was interrupted by one. Browsers only grant Pointer Lock from
+   * within a live user-gesture call stack (a click/keydown handler), so
+   * this reliably succeeds when called synchronously from one (e.g. the
+   * "Close"/card-pick click that ends an event) but may silently no-op
+   * when called from a fully automatic transition (e.g. right after
+   * combat auto-resolves with no click involved) — the "click to enable"
+   * hint is always there as the fallback either way, so a failed attempt
+   * here is harmless.
+   */
+  requestPointerLockIfPossible() {
+    if (!this.canvas || this.isPointerLocked()) return;
+    this.canvas.requestPointerLock?.();
+  }
+
   resize() {
     if (!this.container || !this.renderer) return;
     const w = this.container.clientWidth;
@@ -486,9 +513,7 @@ export class DungeonRenderer3D {
     // Pointer Lock freezes/hides the OS cursor, which would make the pause
     // menu unclickable — release it the instant the game pauses; the hint
     // overlay reappears via the pointerlockchange listener in mount().
-    if (this.app?.gameState?.paused && document.pointerLockElement === this.canvas) {
-      document.exitPointerLock();
-    }
+    if (this.app?.gameState?.paused) this.releasePointerLock();
     // Arrow-key quick-turn tween (see turnCameraSnap) — mouse movement
     // clears _yawSnapTarget immediately, so this only ever runs when
     // nothing has manually overridden it since the key was pressed.

@@ -33,6 +33,11 @@ export class ShopState {
   enter(root) {
     this.root = root;
     this.mode = 'buy';
+    // Buy-mode-only sub-tab — equipment and consumables used to share one
+    // flat list sorted purely by gold price, so a cheap potion could sit
+    // between two mid-tier weapons; splitting them out keeps consumables
+    // from getting lost in the middle of the equipment list.
+    this.category = 'equipment';
     root.innerHTML = `
       <div class="shop-screen">
         <button class="back-btn">${t('common.return_home')}</button>
@@ -41,6 +46,10 @@ export class ShopState {
         <div class="shop-mode-tabs">
           <button class="shop-tab-btn" data-mode="buy">${t('shop.tab_buy')}</button>
           <button class="shop-tab-btn" data-mode="sell">${t('shop.tab_sell')}</button>
+        </div>
+        <div class="shop-category-tabs">
+          <button class="shop-category-btn" data-category="equipment">${t('shop.tab_equipment')}</button>
+          <button class="shop-category-btn" data-category="consumables">${t('shop.tab_consumables')}</button>
         </div>
         <div class="shop-list"></div>
         <div class="flash-message"></div>
@@ -52,11 +61,19 @@ export class ShopState {
         this.renderAll();
       });
     });
+    root.querySelectorAll('.shop-category-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.category = btn.dataset.category;
+        this.renderAll();
+      });
+    });
     this.els = {
       gold: root.querySelector('.shop-gold'),
       list: root.querySelector('.shop-list'),
       flash: root.querySelector('.flash-message'),
       tabs: root.querySelectorAll('.shop-tab-btn'),
+      categoryTabsWrapper: root.querySelector('.shop-category-tabs'),
+      categoryTabs: root.querySelectorAll('.shop-category-btn'),
     };
     this.tooltip = new TooltipManager();
     this.renderAll();
@@ -83,13 +100,15 @@ export class ShopState {
     const { app } = this;
     this.els.gold.textContent = t('shop.gold', { amount: app.gameState.player.gold });
     this.els.tabs.forEach((btn) => btn.classList.toggle('active', btn.dataset.mode === this.mode));
+    this.els.categoryTabsWrapper.classList.toggle('hidden', this.mode !== 'buy');
+    this.els.categoryTabs.forEach((btn) => btn.classList.toggle('active', btn.dataset.category === this.category));
     if (this.mode === 'sell') this.renderSellList();
     else this.renderBuyList();
   }
 
   renderBuyList() {
     const { app } = this;
-    const listings = app.shop.getListings();
+    const listings = app.shop.getListings(this.category);
     this.els.list.innerHTML = listings.map((l) => {
       const label = l.state === ITEM_STATES.LOCKED ? t('shop.locked') : formatPrice(l.price);
       const ownedTag = l.type === 'item' ? `<div class="shop-owned">${t('shop.owned', { amount: l.ownedCount })}</div>` : '';

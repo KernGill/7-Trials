@@ -61,9 +61,15 @@ export class ShopSystem {
     this.progression = progressionSystem;
   }
 
-  getListings() {
-    const items = getShopItems().map((item) => this.buildListing(item, 'item'));
-    const consumables = getShopConsumables().map((c) => this.buildListing(c, 'consumable'));
+  /**
+   * `category` splits the old single flat (gold-sorted) list into
+   * 'equipment' / 'consumables' — consumables used to get lost between
+   * mid-tier equipment rows since everything sorted purely by gold price.
+   * Omit (or pass 'all') for the combined list.
+   */
+  getListings(category = 'all') {
+    const items = category === 'consumables' ? [] : getShopItems().map((item) => this.buildListing(item, 'item'));
+    const consumables = category === 'equipment' ? [] : getShopConsumables().map((c) => this.buildListing(c, 'consumable'));
     return [...items, ...consumables].sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
@@ -81,8 +87,12 @@ export class ShopSystem {
       state,
       ownedCount,
       stats: config.stats,
+      score: config.score,
       unlock: config.unlock,
-      sortOrder: config.price?.gold ?? 9999,
+      // Equipment sorts by its 1-10 power score first (so the shop reads
+      // as a genuine progression) then gold within a tier; consumables
+      // have no score and just sort by gold as before.
+      sortOrder: type === 'item' ? (config.score ?? 0) * 1000000 + (config.price?.gold ?? 0) : (config.price?.gold ?? 9999),
       visual: config.visual,
     };
   }

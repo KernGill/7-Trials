@@ -116,6 +116,12 @@ export const ACHIEVEMENTS = {
     description: 'Burn to death from the Fire status effect while fighting a ghost-type enemy.',
     target: 1,
   },
+  loot_all_events_floor_3_plus: {
+    id: 'loot_all_events_floor_3_plus',
+    name: "Thief's Instinct",
+    description: 'On a single floor numbered 3 or higher, successfully loot every locked door, chest, and temporal chest.',
+    target: 1,
+  },
 };
 
 export function getAchievementConfig(id) {
