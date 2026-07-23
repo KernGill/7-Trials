@@ -1,3 +1,14 @@
+/* Self-hosted (not CDN-linked) so the game stays fully offline-capable —
+   same reasoning as vendoring Three.js locally. Variable font: one file
+   covers the whole 400-900 weight range. */
+@font-face {
+  font-family: 'Cinzel';
+  src: url('assets/fonts/cinzel/cinzel-variable.woff2') format('woff2-variations'), url('assets/fonts/cinzel/cinzel-variable.woff2') format('woff2');
+  font-weight: 400 900;
+  font-display: swap;
+}
+:root { --font-fantasy: 'Cinzel', 'Courier New', serif; }
+
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0; height: 100%;
@@ -53,25 +64,110 @@ select {
 .hover-tooltip .tt-desc { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); color: #f5e6d8; }
 
 /* ---------------- HOME ---------------- */
+/* An abstract dungeon backdrop built entirely from CSS gradients (no photo
+   texture asset): ::before is a brick wall filling the upper ~62% of the
+   screen, ::after a mossy, cracked stone floor filling the rest — both
+   absolutely positioned behind the actual content (title/tiles/save row),
+   which is why .home-screen itself needs position:relative and its direct
+   children need z-index:1 to sit above them. */
 .home-screen {
   min-height: 100vh; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 32px;
+  position: relative; overflow: hidden; background: #050506;
 }
-.home-title { color: #e94560; letter-spacing: 6px; font-size: 42px; margin: 0; }
+.home-screen::before,
+.home-screen::after {
+  content: ''; position: absolute; left: 0; right: 0; z-index: 0; pointer-events: none;
+}
+.home-screen::before {
+  /* brick wall */
+  top: 0; height: 62%; background-color: #1c1917;
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(120, 80, 50, 0.22), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.5) 0 3px, transparent 3px 48px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.4) 0 3px, transparent 3px 96px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.4) 48px 51px, transparent 51px 144px);
+  background-size: 100% 100%, 100% 48px, 96px 96px, 144px 96px;
+  background-position: 0 0, 0 0, 0 0, 0 48px;
+  box-shadow: inset 0 -70px 90px -30px rgba(0,0,0,0.85);
+}
+.home-screen::after {
+  /* mossy, cracked stone floor */
+  bottom: 0; height: 40%; background-color: #131210;
+  background-image:
+    radial-gradient(ellipse 160px 46px at 12% 25%, rgba(74,124,64,0.26), transparent 70%),
+    radial-gradient(ellipse 120px 36px at 50% 70%, rgba(74,124,64,0.20), transparent 70%),
+    radial-gradient(ellipse 140px 40px at 86% 40%, rgba(74,124,64,0.24), transparent 70%),
+    repeating-linear-gradient(96deg, rgba(0,0,0,0.35) 0 2px, transparent 2px 130px),
+    repeating-linear-gradient(18deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 170px);
+  box-shadow: inset 0 60px 70px -30px rgba(0,0,0,0.8);
+}
+.home-title, .home-grid, .home-save-row { position: relative; z-index: 1; }
+.home-title {
+  color: #e9a15e; letter-spacing: 6px; font-size: 42px; margin: 0;
+  font-family: var(--font-fantasy); font-weight: 700;
+  text-shadow: 0 0 18px rgba(255, 138, 92, 0.45), 0 3px 3px rgba(0,0,0,0.9);
+}
 .home-grid {
   display: grid;
   grid-template-columns: repeat(3, 200px);
-  grid-template-rows: repeat(2, 120px);
+  grid-template-rows: repeat(3, 120px);
   gap: 16px;
 }
-.home-tile { font-size: 16px; letter-spacing: 2px; }
-.home-tile-battle {
-  grid-column: 2; grid-row: 1 / span 2;
-  font-size: 22px; background: #e94560; color: #fff; border-color: #fff;
+.home-tile {
+  font-size: 16px; letter-spacing: 2px;
+  font-family: var(--font-fantasy);
+  background: linear-gradient(180deg, #2b2320, #17130f);
+  border: 2px solid #6b5a45; border-radius: 6px; color: #e9dcc8;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
-.home-tile-battle:hover { background: #ff5f7e; }
+.home-tile.home-tile:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.045);
+  box-shadow: 0 12px 22px rgba(0,0,0,0.7), 0 0 16px rgba(233,69,96,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+  border-color: #e94560; background: linear-gradient(180deg, #352a24, #1d1712); color: #fff;
+}
+.home-tile-battle {
+  grid-column: 2; grid-row: 1 / span 3;
+  font-size: 22px; color: #fff; border-color: #7a6248;
+  background:
+    linear-gradient(180deg, rgba(20,10,6,0.35), rgba(5,2,1,0.75)),
+    url('assets/sprites/ui/battle_stairs.svg');
+  background-size: cover; background-position: center;
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 18px;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+}
+.home-tile-battle.home-tile-battle:hover:not(:disabled) {
+  border-color: #e94560;
+  box-shadow: 0 14px 26px rgba(0,0,0,0.75), 0 0 22px rgba(233,69,96,0.55);
+  background:
+    linear-gradient(180deg, rgba(30,14,8,0.3), rgba(5,2,1,0.65)),
+    url('assets/sprites/ui/battle_stairs.svg');
+  background-size: cover; background-position: center;
+}
+/* Shop / Bestiary / Locker / Settings — icon-topped tiles */
+.home-tile-icon { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 8px 12px; }
+.home-tile-icon-img {
+  width: 60px; height: 60px; background-repeat: no-repeat; background-position: center; background-size: contain;
+  filter: drop-shadow(0 5px 6px rgba(0,0,0,0.75));
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+.home-tile-icon.home-tile-icon:hover:not(:disabled) .home-tile-icon-img {
+  transform: translateY(-7px) scale(1.14);
+  filter: drop-shadow(0 10px 10px rgba(0,0,0,0.8)) drop-shadow(0 0 8px rgba(233,69,96,0.5));
+}
+.home-tile-label { font-size: 14px; letter-spacing: 2px; }
+.home-tile-icon[data-a="shop"] .home-tile-icon-img { background-image: url('assets/sprites/ui/shop_coins.png'); }
+.home-tile-icon[data-a="bestiary"] .home-tile-icon-img { background-image: url('assets/sprites/ui/bestiary_rock.png'); }
+.home-tile-icon[data-a="locker"] .home-tile-icon-img { background-image: url('assets/sprites/ui/locker_satchel.png'); }
+.home-tile-icon[data-a="settings"] .home-tile-icon-img {
+  /* Stretched taller than its native square crop per user request — reads
+     more like a hanging curtain than a folded cloth at this height. */
+  background-image: url('assets/sprites/ui/settings_curtain.png');
+  height: 80px; background-size: 100% 100%;
+}
 .home-save-row { display: flex; gap: 12px; }
-.save-btn { padding: 12px 24px; font-size: 13px; color: #888; border-color: #444; }
+.save-btn { padding: 12px 24px; font-size: 13px; color: #888; border-color: #444; font-family: var(--font-fantasy); }
 .save-btn:hover { background: #222; color: #eee; }
 
 /* ---------------- EXPLORE ---------------- */

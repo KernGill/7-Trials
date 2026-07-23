@@ -17,12 +17,12 @@ export class HomeState {
       <div class="home-screen">
         <h1 class="home-title">${t('home.title')}</h1>
         <div class="home-grid">
-          <button class="home-tile" data-a="shop">${t('home.shop')}</button>
-          <button class="home-tile" data-a="bestiary">${t('home.bestiary')}</button>
+          <button class="home-tile home-tile-icon" data-a="shop"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.shop')}</span></button>
+          <button class="home-tile home-tile-icon" data-a="bestiary"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.bestiary')}</span></button>
           <button class="home-tile" data-a="inn">${t('home.inn')}</button>
           <button class="home-tile home-tile-battle" data-a="battle">${t('home.battle')}</button>
-          <button class="home-tile" data-a="settings">${t('home.settings')}</button>
-          <button class="home-tile" data-a="locker">${t('home.locker')}</button>
+          <button class="home-tile home-tile-icon" data-a="settings"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.settings')}</span></button>
+          <button class="home-tile home-tile-icon" data-a="locker"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.locker')}</span></button>
         </div>
         <div class="home-save-row">
           <button class="save-btn" data-a="save">${t('home.save')}</button>
