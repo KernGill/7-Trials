@@ -1,9 +1,11 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { TILE_TYPES } from './Tile.js';
 import { clamp } from '../utils/MathUtils.js';
+import { t } from '../ui/i18n.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
-  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT,
+  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
+  linkedHeightPercentForAngle,
 } from '../ui/CameraSettings.js';
 
 const BACKGROUND_COLOR = 0x0b0c10;
@@ -109,20 +111,56 @@ const FACING_VECTORS = {
   west: new THREE.Vector3(-1, 0, 0),
 };
 
-// Continuous-angle equivalent of FACING_VECTORS (vec = (sin(a), 0, -cos(a))),
-// used so turning can be tweened as a single smoothly-interpolated angle
-// instead of lerping the Cartesian camera position directly (which cuts a
-// chord through the camera's orbit circle instead of tracing it, and can't
-// stay in sync with an up-vector derived from the same facing).
+// Continuous-angle equivalent of FACING_VECTORS (vec = (sin(a), 0, -cos(a))).
+// The camera's own look yaw is mouse-driven and independent of run.facing
+// (see MOUSE_YAW_SENSITIVITY below) — this map is only used to (a) seed the
+// camera's starting yaw from the player's initial facing on spawn, and (b)
+// find the nearest cardinal direction to the camera's CURRENT yaw, for the
+// behind-the-player wall occlusion check.
 const FACING_ANGLES = { north: 0, east: Math.PI / 2, south: Math.PI, west: -Math.PI / 2 };
+const FACING_BY_QUADRANT = ['north', 'east', 'south', 'west'];
 
-/** Shortest signed angular delta from `from` to `to`, in (-PI, PI]. */
+/** Nearest of the 4 cardinal facings to a given yaw angle (any real value, wraps). */
+function nearestFacingFromYaw(yaw) {
+  const twoPi = Math.PI * 2;
+  let a = yaw % twoPi;
+  if (a < 0) a += twoPi;
+  const idx = Math.round(a / (Math.PI / 2)) % 4;
+  return FACING_BY_QUADRANT[idx];
+}
+
+/**
+ * Shortest signed angular delta from `from` to `to`, in (-PI, PI] —
+ * used only for the arrow-key "snap to zone center" turn tween below
+ * (see turnCameraSnap/_yawSnapTarget). Works correctly even when `from`
+ * is a large unbounded accumulator (e.g. after many mouse-look turns)
+ * and `to` is one of the small canonical FACING_ANGLES values, since the
+ * modulo here normalizes the DIFFERENCE, not either angle itself.
+ */
 function shortestAngleDelta(from, to) {
   let delta = (to - from) % (Math.PI * 2);
   if (delta > Math.PI) delta -= Math.PI * 2;
   if (delta < -Math.PI) delta += Math.PI * 2;
   return delta;
 }
+
+// Mouse-look sensitivity: yaw is unbounded (full omnidirectional orbit
+// around the player); pitch reuses the Camera Angle setting's own
+// [CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG] range as its clamp, so it
+// can never flip past eye-level or past straight-down. Moving the mouse
+// right turns the view right (clockwise, matching standard mouselook);
+// moving it DOWN orbits the camera up and over the character (pitch
+// rises toward bird's-eye) — inverted from a plain FPS look, per user
+// request. These are the baseline ("100%") values the Camera Sensitivity
+// setting scales — see _handleMouseMove.
+const MOUSE_YAW_SENSITIVITY = 0.0044; // radians per pixel of mouse movementX
+const MOUSE_PITCH_SENSITIVITY = 0.24; // degrees per pixel of mouse movementY
+
+// How long the "Press ESC to disable mouse look" hint stays up after
+// Pointer Lock engages before auto-hiding — the browser's own native
+// pointer-lock notification already covers this longer-term, so ours
+// only needs to reinforce it briefly.
+const MOUSELOOK_ESC_HINT_MS = 4000;
 
 // Same palette as the old .dtile CSS classes, so the 3D view stays
 // visually consistent with the rest of the app during the transition.
@@ -185,11 +223,31 @@ export class DungeonRenderer3D {
     this._cameraPos = new THREE.Vector3();
     this._lookAtPos = new THREE.Vector3();
     this._facingVec = new THREE.Vector3();
-    this._currentFacingAngle = undefined;
-    this._targetFacingAngle = undefined;
+    // Mouse-look camera orientation — independent of run.facing (grid
+    // movement stays tile-locked; only the VIEW is free). Undefined until
+    // the first setPlayerState() seeds a starting yaw from the player's
+    // spawn facing; pitch is seeded from the Camera Angle setting.
+    this._lookYaw = undefined;
+    const initialSettings = this.app?.gameState?.settings ?? {};
+    this._lookPitchDeg = clamp(
+      initialSettings.cameraAngle ?? DEFAULT_CAMERA_ANGLE_DEG,
+      CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG,
+    );
+    // Set by turnCameraSnap() (left/right arrow keys) — while defined,
+    // update() eases _lookYaw toward it every frame; any subsequent mouse
+    // movement cancels it immediately so manual look always wins.
+    this._yawSnapTarget = undefined;
     this.currentPlayerPos = new THREE.Vector3();
     this.desiredPlayerPos = new THREE.Vector3();
     this._playerStateInitialized = false;
+    this._playerGridX = undefined;
+    this._playerGridY = undefined;
+    // Wall panels currently overridden to the see-through "behind the
+    // player" material — restored to their normal distance-tiered
+    // material every frame before the new set (from the camera's current
+    // orbit position) is computed, since that set now changes continuously
+    // with the mouse instead of only on a grid move/turn.
+    this._lastOccludedWalls = [];
 
     const spriteUrl = new URL(PLAYER_SPRITE_PATH, import.meta.url).href;
     const spriteMaterial = new THREE.SpriteMaterial({ map: new THREE.TextureLoader().load(spriteUrl) });
@@ -247,9 +305,103 @@ export class DungeonRenderer3D {
     window.addEventListener('resize', this._onResize);
     this.resize();
 
+    // Mouse-look: click the canvas to engage the Pointer Lock API (needed
+    // for raw relative movementX/Y deltas, and to hide/freeze the OS
+    // cursor). A hint overlay prompts for that first click; once locked,
+    // it flips to the "how to exit" reminder for a few seconds and then
+    // hides itself (the browser's own native pointer-lock notification
+    // already covers the rest of the session), and it reverts to the
+    // "click to enable" prompt the instant the lock is lost (Escape,
+    // tab-out, or the pause check in update() below releasing it).
+    this._hintEl = document.createElement('div');
+    this._hintEl.className = 'mouselook-hint';
+    this._hintEl.textContent = t('explore.mouselook_hint');
+    container.appendChild(this._hintEl);
+    this._hintHideTimeout = null;
+
+    this._onCanvasClick = () => {
+      if (document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.();
+    };
+    this.canvas.addEventListener('click', this._onCanvasClick);
+
+    this._onPointerLockChange = () => {
+      const locked = document.pointerLockElement === this.canvas;
+      if (this._hintHideTimeout) { clearTimeout(this._hintHideTimeout); this._hintHideTimeout = null; }
+      if (!this._hintEl) return;
+      if (locked) {
+        this._hintEl.textContent = t('explore.mouselook_esc_hint');
+        this._hintEl.style.display = '';
+        this._hintHideTimeout = setTimeout(() => {
+          if (this._hintEl) this._hintEl.style.display = 'none';
+        }, MOUSELOOK_ESC_HINT_MS);
+      } else {
+        this._hintEl.textContent = t('explore.mouselook_hint');
+        this._hintEl.style.display = '';
+      }
+    };
+    document.addEventListener('pointerlockchange', this._onPointerLockChange);
+
+    this._onMouseMove = (e) => this._handleMouseMove(e);
+    document.addEventListener('mousemove', this._onMouseMove);
+
     this._lastTime = performance.now();
     this._animate = this._animate.bind(this);
     this._rafId = requestAnimationFrame(this._animate);
+  }
+
+  /**
+   * Applies a locked-pointer mousemove delta to the free-look yaw/pitch,
+   * scaled by the live Camera Sensitivity setting. No-op while unlocked,
+   * paused, or before the first setPlayerState() has seeded a starting
+   * yaw. Pitch changes are also written straight back into
+   * settings.cameraAngle/cameraHeight (via the same linked formula the
+   * Camera Orientation slider itself uses) — per user request, looking
+   * up/down with the mouse IS adjusting that setting live, not a
+   * separate value that drifts out of sync with it.
+   */
+  _handleMouseMove(e) {
+    if (this._lookYaw === undefined) return;
+    if (document.pointerLockElement !== this.canvas) return;
+    if (this.app?.gameState?.paused) return;
+    const settings = this.app?.gameState?.settings ?? {};
+    const sensitivity = (settings.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100);
+    this._yawSnapTarget = undefined; // manual mouse input always overrides a pending arrow-key snap
+    this._lookYaw += e.movementX * MOUSE_YAW_SENSITIVITY * sensitivity;
+    // Inverted from a plain FPS look (moving the mouse DOWN raises pitch
+    // toward bird's-eye) — see MOUSE_PITCH_SENSITIVITY's comment.
+    this._lookPitchDeg = clamp(
+      this._lookPitchDeg + e.movementY * MOUSE_PITCH_SENSITIVITY * sensitivity,
+      CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG,
+    );
+    if (this.app?.gameState) {
+      this.app.gameState.settings.cameraAngle = this._lookPitchDeg;
+      this.app.gameState.settings.cameraHeight = linkedHeightPercentForAngle(this._lookPitchDeg) / 100;
+    }
+  }
+
+  /** Current mouse-look yaw (radians, unbounded), for callers that need to read the live camera direction (e.g. the minimap's rotation). */
+  getLookYaw() {
+    return this._lookYaw;
+  }
+
+  /** Nearest of the 4 cardinal directions to the camera's CURRENT view — the "directional zone" the free-look camera is pointing into right now. Grid movement (ExploreState) resolves WASD against this instead of a separately-tracked facing, so movement always matches whichever way you're currently looking. */
+  getFacingZone() {
+    return this._lookYaw === undefined ? undefined : nearestFacingFromYaw(this._lookYaw);
+  }
+
+  /**
+   * Left/right-arrow "quick turn": animates the camera's yaw to the
+   * center of the next/previous 90° zone relative to whichever zone it's
+   * currently in — a keyboard-driven quarter-turn that still works while
+   * mouse-looking (steps=+1 turns right/clockwise, -1 turns left). Purely
+   * changes the CAMERA; grid movement then just follows since it reads
+   * getFacingZone() live.
+   */
+  turnCameraSnap(steps) {
+    if (this._lookYaw === undefined) return;
+    const currentIdx = FACING_BY_QUADRANT.indexOf(nearestFacingFromYaw(this._lookYaw));
+    const targetZone = FACING_BY_QUADRANT[(currentIdx + steps + FACING_BY_QUADRANT.length) % FACING_BY_QUADRANT.length];
+    this._yawSnapTarget = FACING_ANGLES[targetZone];
   }
 
   resize() {
@@ -277,58 +429,77 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * Reads the live Camera Angle/Height settings plus the smoothed player
-   * position and facing angle, and applies the resulting position/up/lookAt
-   * to the camera — called every frame. Driving both position and up off
-   * the SAME smoothed `_currentFacingAngle` keeps them in lockstep during a
-   * turn (previously `camera.up` snapped instantly while position eased in,
-   * which read as an inconsistent/wobbly turn), and computing the camera's
-   * offset from a smoothed angle (rather than lerping two Cartesian points)
-   * makes it trace a true constant-radius arc around the player instead of
-   * cutting a chord through its orbit circle. No-ops until the first
-   * setPlayerState() call has established a facing/position to compute from.
+   * Reads the live Camera Height setting, the mouse-driven look yaw/pitch,
+   * and the smoothed player position, and applies the resulting
+   * position/up/lookAt to the camera — called every frame. Driving both
+   * position and up off the SAME `_lookYaw`/`_lookPitchDeg` keeps them in
+   * lockstep (no wobble), and computing the camera's offset from an angle
+   * (rather than lerping two Cartesian points) makes it trace a true
+   * constant-radius arc around the player instead of cutting a chord
+   * through its orbit circle. No-ops until the first setPlayerState() call
+   * has established a starting yaw/position to compute from.
    */
   _applyCameraFromCurrentState() {
-    if (this._currentFacingAngle === undefined) return;
+    if (this._lookYaw === undefined) return;
     const settings = this.app?.gameState?.settings ?? {};
-    const angleDeg = clamp(settings.cameraAngle ?? DEFAULT_CAMERA_ANGLE_DEG, CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG);
     const heightMult = clamp(settings.cameraHeight ?? DEFAULT_CAMERA_HEIGHT_MULT, CAMERA_HEIGHT_MULT_MIN, CAMERA_HEIGHT_MULT_MAX);
-    const angleRad = (angleDeg * Math.PI) / 180;
-    // horizontal shrinks to 0 as angle approaches 90deg (camera moves directly
+    const angleRad = (this._lookPitchDeg * Math.PI) / 180;
+    // horizontal shrinks to 0 as pitch approaches 90deg (camera moves directly
     // overhead); height is fully independent, purely from the height setting.
     const horizontal = CAMERA_HORIZONTAL_OFFSET * Math.cos(angleRad);
     const height = CAMERA_HEIGHT_BASE * heightMult;
 
-    // (sin, 0, -cos) of the smoothed angle — matches FACING_VECTORS exactly
-    // at the 4 cardinal angles, but varies continuously in between.
-    this._facingVec.set(Math.sin(this._currentFacingAngle), 0, -Math.cos(this._currentFacingAngle));
+    // (sin, 0, -cos) of the current look yaw — matches FACING_VECTORS
+    // exactly at the 4 cardinal angles, but varies continuously in between
+    // since yaw is now mouse-driven and unbounded, not tied to run.facing.
+    this._facingVec.set(Math.sin(this._lookYaw), 0, -Math.cos(this._lookYaw));
 
     this._lookAtPos.set(this.currentPlayerPos.x, LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT, this.currentPlayerPos.z);
     this._cameraPos.copy(this.currentPlayerPos).addScaledVector(this._facingVec, -horizontal);
     this._cameraPos.y += height;
 
-    // At angle=90 the view direction is exactly vertical, which makes the
+    // At pitch=90 the view direction is exactly vertical, which makes the
     // default (0,1,0) up-vector parallel to it — a degenerate case where
     // lookAt() can't determine roll, so the screen silently stops rotating
-    // with facing. Blending up toward facingVec as angle approaches 90
-    // fixes that (and, as a bonus, makes bird's-eye view a proper
-    // heading-up rotation, matching the minimap's own convention) while
-    // leaving angle=0 exactly as before (cos(0)=1, sin(0)=0 — pure worldUp).
+    // with yaw. Blending up toward facingVec as pitch approaches 90 fixes
+    // that (and, as a bonus, makes bird's-eye view a proper heading-up
+    // rotation, matching the minimap's own convention) while leaving
+    // pitch=0 exactly as before (cos(0)=1, sin(0)=0 — pure worldUp).
     this.camera.up.set(0, Math.cos(angleRad), 0).addScaledVector(this._facingVec, Math.sin(angleRad)).normalize();
 
     this.camera.position.copy(this._cameraPos);
     this.camera.lookAt(this._lookAtPos);
   }
 
-  /** Smoothly tweens player position and facing angle toward their latest target, then (re)applies the camera every frame so live setting changes (angle/height) are picked up immediately, not just on movement. */
+  /**
+   * Smoothly tweens player position toward its latest target, then
+   * (re)applies the camera every frame — both for live setting changes
+   * (Camera Height) and because mouse-look yaw/pitch change continuously,
+   * not just on movement. Also re-derives which wall (if any) sits between
+   * the camera and the player from the camera's CURRENT orbit position —
+   * unlike grid movement/turning, mouse-look isn't tile-discrete, so this
+   * can't just run once per move like updateVisibility() does.
+   */
   update(dt) {
-    const t = 1 - Math.exp(-TWEEN_SPEED * dt);
-    this.currentPlayerPos.lerp(this.desiredPlayerPos, t);
-    if (this._targetFacingAngle !== undefined) {
-      this._currentFacingAngle += (this._targetFacingAngle - this._currentFacingAngle) * t;
+    const tweenT = 1 - Math.exp(-TWEEN_SPEED * dt);
+    this.currentPlayerPos.lerp(this.desiredPlayerPos, tweenT);
+    // Pointer Lock freezes/hides the OS cursor, which would make the pause
+    // menu unclickable — release it the instant the game pauses; the hint
+    // overlay reappears via the pointerlockchange listener in mount().
+    if (this.app?.gameState?.paused && document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
+    // Arrow-key quick-turn tween (see turnCameraSnap) — mouse movement
+    // clears _yawSnapTarget immediately, so this only ever runs when
+    // nothing has manually overridden it since the key was pressed.
+    if (this._yawSnapTarget !== undefined) {
+      this._lookYaw += shortestAngleDelta(this._lookYaw, this._yawSnapTarget) * tweenT;
     }
     this._applyCameraFromCurrentState();
     this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
+    if (this._playerGridX !== undefined) {
+      this._applyBehindWallOcclusion(this._playerGridX, this._playerGridY, nearestFacingFromYaw(this._lookYaw));
+    }
   }
 
   /** Builds the floor's tile geometry — walls, floor planes, and tile-type markers (visibility applied separately). */
@@ -449,17 +620,29 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * A wall directly behind the player (one tile opposite of `facing`) can
-   * land right on the camera-to-player line and hide the character sprite.
-   * Widen the see-through window to 3 tiles — directly behind, plus the
-   * two tiles flanking it one step to each side — so there's a clear gap
-   * around the character instead of a single narrow slit. Called after
-   * updateVisibility() so it overrides those panels' normal tiered
-   * material for this frame; the next call (any move or turn) resets
-   * everything via updateVisibility() first, so walls that are no longer
-   * behind the player automatically revert to opaque.
+   * A wall directly behind the CAMERA's current view (one tile opposite of
+   * wherever the mouse has it looking, not necessarily run.facing anymore)
+   * can land right on the camera-to-player line and hide the character
+   * sprite. Widen the see-through window to 3 tiles — directly behind, plus
+   * the two tiles flanking it one step to each side — so there's a clear
+   * gap around the character instead of a single narrow slit.
+   *
+   * Called every frame from update() (mouse-look isn't tile-discrete, so
+   * the occluded set can change between any two frames even with no
+   * movement at all) — first restores whatever was overridden last frame
+   * back to its normal distance-tiered material, then computes and applies
+   * the new set for `facing` (the cardinal direction nearest the camera's
+   * current yaw). A real grid move/turn still resets everything through
+   * updateVisibility() first, same as before; this restore step covers the
+   * in-between frames that updateVisibility() no longer does.
    */
   _applyBehindWallOcclusion(px, py, facing) {
+    this._lastOccludedWalls.forEach(({ mesh, tileX, tileY }) => {
+      const dist = Math.max(Math.abs(tileX - px), Math.abs(tileY - py));
+      mesh.material = this._mat.wallByDist[Math.min(dist, VISIBLE_RADIUS)];
+    });
+    this._lastOccludedWalls = [];
+
     const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
     // Perpendicular to facing (rotate the facing vector ±90° on the ground plane).
     const perpA = { x: facingVec.z, z: -facingVec.x };
@@ -470,45 +653,48 @@ export class DungeonRenderer3D {
     // Directly behind: only the one panel that actually faces the player.
     const behindEntry = this.tileMeshes.get(tileKey(behindX, behindY));
     const centerPanel = behindEntry?.walls?.find((w) => w.dx === facingVec.x && w.dy === facingVec.z);
-    if (centerPanel) centerPanel.mesh.material = this._mat.behindWall;
+    if (centerPanel) {
+      centerPanel.mesh.material = this._mat.behindWall;
+      this._lastOccludedWalls.push({ mesh: centerPanel.mesh, tileX: behindX, tileY: behindY });
+    }
 
     // The two flanking tiles: make all of their panels transparent, since
     // they aren't cardinally adjacent to the player so there's no single
     // "faces the player" panel to pick out.
     [perpA, perpB].forEach((perp) => {
-      const sideEntry = this.tileMeshes.get(tileKey(behindX + perp.x, behindY + perp.z));
-      sideEntry?.walls?.forEach(({ mesh }) => { mesh.material = this._mat.behindWall; });
+      const tx = behindX + perp.x;
+      const ty = behindY + perp.z;
+      const sideEntry = this.tileMeshes.get(tileKey(tx, ty));
+      sideEntry?.walls?.forEach(({ mesh }) => {
+        mesh.material = this._mat.behindWall;
+        this._lastOccludedWalls.push({ mesh, tileX: tx, tileY: ty });
+      });
     });
   }
 
   /**
-   * Sets the camera/player target for the next tween step (position lerps
-   * linearly; facing is tracked as a continuous angle that takes the
-   * shortest rotational path via shortestAngleDelta, then eases toward its
-   * new target the same way) and recomputes tile visibility immediately
-   * (visibility is tile-discrete, not tweened). The camera sits behind the
-   * player relative to `facing` (over-the-shoulder), looking toward the
-   * direction they're walking, at the live Camera Angle/Height settings
-   * (see _applyCameraFromCurrentState). On the very first call, snaps
-   * instantly instead of tweening in from the origin.
+   * Sets the player's next tween target (position lerps toward it in
+   * update()) and recomputes tile visibility immediately (visibility is
+   * tile-discrete, not tweened). The camera itself is fully mouse-driven
+   * now (see _lookYaw/_lookPitchDeg) and no longer tracks `facing` at
+   * all — `facing` here only matters for (a) seeding the camera's
+   * starting look direction on the very first call, so a fresh floor
+   * still opens with the character in view, and (b) grid movement/turn
+   * logic elsewhere (ExploreState), which is unaffected by any of this.
+   * On the very first call, snaps instantly instead of tweening in from
+   * the origin.
    */
   setPlayerState({ x, y, facing }) {
     this.updateVisibility(x, y);
-    this._applyBehindWallOcclusion(x, y, facing);
+    this._playerGridX = x;
+    this._playerGridY = y;
 
     this.desiredPlayerPos.set(x * TILE_SIZE, 0, y * TILE_SIZE);
-    const rawAngle = FACING_ANGLES[facing] ?? FACING_ANGLES.south;
-    if (this._currentFacingAngle === undefined) {
-      this._currentFacingAngle = rawAngle;
-      this._targetFacingAngle = rawAngle;
-    } else {
-      this._targetFacingAngle = this._currentFacingAngle + shortestAngleDelta(this._currentFacingAngle, rawAngle);
-    }
 
     if (!this._playerStateInitialized) {
       this._playerStateInitialized = true;
       this.currentPlayerPos.copy(this.desiredPlayerPos);
-      this._currentFacingAngle = this._targetFacingAngle;
+      this._lookYaw = FACING_ANGLES[facing] ?? FACING_ANGLES.south;
       this._applyCameraFromCurrentState();
       this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
     }
@@ -517,6 +703,12 @@ export class DungeonRenderer3D {
   unmount() {
     if (this._rafId) cancelAnimationFrame(this._rafId);
     if (this._onResize) window.removeEventListener('resize', this._onResize);
+    if (this._onCanvasClick) this.canvas?.removeEventListener('click', this._onCanvasClick);
+    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    if (this._onMouseMove) document.removeEventListener('mousemove', this._onMouseMove);
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    if (this._hintHideTimeout) clearTimeout(this._hintHideTimeout);
+    this._hintEl?.remove();
     Object.values(this._geo ?? {}).forEach((g) => g.dispose());
     // _mat holds a mix of shapes: plain materials (behindWall), flat arrays
     // indexed by distance (floorByDist/wallByDist), and nested per-type

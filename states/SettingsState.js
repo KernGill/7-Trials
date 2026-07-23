@@ -4,6 +4,7 @@ import { t } from '../ui/i18n.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
+  CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
 } from '../ui/CameraSettings.js';
 
 const FPS_OPTIONS = [30, 60, 90, 120, 144];
@@ -130,6 +131,10 @@ export class SettingsState {
         <span>${t('settings.fixed_minimap')}</span>
         <button class="fixed-minimap-btn">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button>
       </div>
+      <div class="settings-row">
+        <span class="camera-sensitivity-label">${t('settings.camera_sensitivity', { percent: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100) })}</span>
+        <input type="range" min="${CAMERA_SENSITIVITY_MIN_PERCENT}" max="${CAMERA_SENSITIVITY_MAX_PERCENT}" step="1" value="${Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100)}" class="camera-sensitivity-slider">
+      </div>
       ${this.cameraSectionHTML(s)}`;
     this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
@@ -156,6 +161,11 @@ export class SettingsState {
       s.fixedMinimap = !s.fixedMinimap;
       this.app.saveSystem.save();
       this.renderAll();
+    });
+    this.body.querySelector('.camera-sensitivity-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.camera-sensitivity-slider').addEventListener('input', (e) => {
+      s.cameraSensitivity = clamp(Number(e.target.value) / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
+      this.body.querySelector('.camera-sensitivity-label').textContent = t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
     });
     this.bindCameraEvents(s);
   }

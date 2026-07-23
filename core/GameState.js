@@ -1,7 +1,7 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { deepClone } from '../utils/MathUtils.js';
 import { Tile } from '../exploration/Tile.js';
-import { DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT } from '../ui/CameraSettings.js';
+import { DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT } from '../ui/CameraSettings.js';
 
 const DEFAULT_META = {
   currentArc: 0,
@@ -65,6 +65,9 @@ export class GameState {
       // so this stays in sync with the Camera Orientation slider's own default.
       cameraAngle: DEFAULT_CAMERA_ANGLE,
       cameraHeight: DEFAULT_CAMERA_HEIGHT,
+      // Multiplier (0 - 2) on the free-look camera's base mouse
+      // sensitivity — 1 (100%) is the default, dead center of the slider's range.
+      cameraSensitivity: DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100,
     };
     this.log = [];
     this.paused = false;

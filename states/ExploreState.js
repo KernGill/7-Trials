@@ -175,7 +175,7 @@ export class ExploreState {
   }
 
   tick(dt) {
-    this.minimap?.update(dt);
+    this.minimap?.update(dt, this.renderer3d?.getLookYaw());
     const run = this.app.gameState.run;
     if (run.floorMessage?.timer > 0) {
       run.floorMessage.timer -= dt;
@@ -237,13 +237,15 @@ export class ExploreState {
 
   /**
    * Marks every tile in the (3x3, or 5x5 with Torch equipped) area around
-   * (cx,cy) as explored — not just the one actually stood on — so the
-   * minimap's "close" live-visibility ring (see Minimap.js) becomes
-   * permanent instead of reverting to unknown once the player walks away,
+   * (cx,cy) as explored — not just the one actually stood on — so it
+   * fills in permanently instead of reverting once the player walks away,
    * making it much faster to fill in. Walls are marked too (so the
    * minimap remembers corridor edges/shape) but only walkable tiles count
    * toward the "Explored: X/Y" HUD total, since dungeon.tilesTotal itself
-   * only counts walkable tiles.
+   * only counts walkable tiles. This is also the ONLY place the corner
+   * minimap's pixel content needs repainting from — its "close" ring is
+   * always already covered by this radius (>= the minimap's own former
+   * close-range bonus), so Minimap just draws whatever's `explored`.
    */
   markNearbyExplored(cx, cy) {
     const run = this.app.gameState.run;
@@ -257,26 +259,40 @@ export class ExploreState {
         if (tile.type !== TILE_TYPES.WALL) run.tilesExplored += 1;
       }
     }
+    this.minimap?.redrawMap();
   }
 
-  /** Turns facing by ±1 quarter-turn in place — no movement, no tile effects. */
+  /**
+   * Snaps the camera to the next/previous 90° zone in place — no
+   * movement, no tile effects. Purely a camera action now (see
+   * DungeonRenderer3D.turnCameraSnap): grid position/visibility don't
+   * change, so there's nothing else here to resync. run.facing is kept
+   * updated as a mirror of the target zone purely for save-file
+   * continuity and to seed the next floor's starting camera direction
+   * (see syncPlayer3D/DungeonRenderer3D.setPlayerState) — it no longer
+   * drives movement itself.
+   */
   turnPlayer(steps) {
     const run = this.app.gameState.run;
     if (!run.dungeon) return;
-    run.facing = rotateFacing(run.facing, steps);
-    this.syncPlayer3D();
-    // Only the corner minimap can visually change from a turn alone (when
-    // "Fixed Minimap" is off it rotates with facing) — no other HUD stat
-    // does, so a full renderHUD() isn't needed here.
-    this.minimap?.render();
+    const currentZone = this.renderer3d.getFacingZone() ?? run.facing;
+    this.renderer3d.turnCameraSnap(steps);
+    run.facing = rotateFacing(currentZone, steps);
     this.app.saveSystem.save();
   }
 
-  /** Resolves a forward/backward/strafeLeft/strafeRight action to a grid delta relative to the current facing. */
+  /**
+   * Resolves a forward/backward/strafeLeft/strafeRight action to a grid
+   * delta relative to the camera's CURRENT directional zone (see
+   * DungeonRenderer3D.getFacingZone) — not a separately-tracked facing —
+   * so pressing W always moves you forward relative to wherever the
+   * free-look camera happens to be pointing right now, mouse-driven
+   * turns included, not just explicit left/right-arrow snaps.
+   */
   moveRelative(action) {
     const run = this.app.gameState.run;
     if (!run.dungeon) return;
-    const facing = run.facing;
+    const facing = this.renderer3d.getFacingZone() ?? run.facing;
     let delta;
     switch (action) {
       case 'forward': delta = FACING_DELTAS[facing]; break;
@@ -285,6 +301,7 @@ export class ExploreState {
       case 'strafeRight': delta = FACING_DELTAS[rotateFacing(facing, 1)]; break;
       default: return;
     }
+    run.facing = facing; // keep the save/spawn-seed mirror current at the moment of an actual move
     this.movePlayer(delta.dx, delta.dy);
   }
 
@@ -645,7 +662,5 @@ export class ExploreState {
 
     this.els.descend.innerHTML = canDescend ? `<button data-descend>${t('explore.descend')}</button>` : '';
     this.els.descend.querySelector('[data-descend]')?.addEventListener('click', () => this.showCardPick());
-
-    this.minimap?.render();
   }
 }

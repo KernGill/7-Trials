@@ -52,6 +52,7 @@ export const TRANSLATIONS = {
     'settings.camera_angle': 'Camera Angle: {deg}°',
     'settings.camera_height': 'Camera Height: {percent}%',
     'settings.camera_orientation': 'Camera Orientation: ({angle}/{height})',
+    'settings.camera_sensitivity': 'Camera Sensitivity: {percent}%',
     'settings.fine_tune': 'Fine Tune',
     'settings.reset_default': 'Reset to Default',
     'settings.on': 'On',
@@ -160,6 +161,8 @@ export const TRANSLATIONS = {
     'explore.chest_trapped_line': 'The chest was trapped! Took {n} damage.',
     'explore.close': 'CLOSE',
     'explore.choose_card': 'CHOOSE A CARD',
+    'explore.mouselook_hint': 'Click to enable mouse look',
+    'explore.mouselook_esc_hint': 'Press ESC to disable mouse look',
 
     // Pause overlay
     'pause.title': 'PAUSED',

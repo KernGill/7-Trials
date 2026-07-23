@@ -27,3 +27,13 @@ export const DEFAULT_CAMERA_ANGLE = 28;
 // Derived from linkedHeightPercentForAngle(28) (~97.1%, displayed as 28/97) so the
 // default stays exactly on the combined slider's correspondence line.
 export const DEFAULT_CAMERA_HEIGHT = linkedHeightPercentForAngle(DEFAULT_CAMERA_ANGLE) / 100;
+
+// Mouse-look Camera Sensitivity: a 0-200% multiplier on the free-look
+// camera's base mouse sensitivity (see MOUSE_YAW_SENSITIVITY/
+// MOUSE_PITCH_SENSITIVITY in DungeonRenderer3D.js, which already reflect
+// the doubled baseline) — 100% is the exact midpoint of this range, so
+// a fresh save starts right on that doubled baseline with room to go
+// lower or higher.
+export const CAMERA_SENSITIVITY_MIN_PERCENT = 0;
+export const CAMERA_SENSITIVITY_MAX_PERCENT = 200;
+export const DEFAULT_CAMERA_SENSITIVITY_PERCENT = 100;

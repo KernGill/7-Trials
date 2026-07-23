@@ -7,6 +7,7 @@ import { t, tData } from '../ui/i18n.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
+  CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
 } from '../ui/CameraSettings.js';
 
 const LANGUAGE_OPTIONS = ['en', 'es'];
@@ -195,6 +196,10 @@ export class PauseOverlay {
         </div>
         <div class="pause-row">${t('settings.sound')} <button data-a="sound">${s.sound ? t('settings.on') : t('settings.off')}</button></div>
         <div class="pause-row">${t('settings.fixed_minimap')} <button data-a="fixed-minimap">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button></div>
+        <div class="pause-row">
+          <span class="camera-sensitivity-label">${t('settings.camera_sensitivity', { percent: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100) })}</span>
+          <input type="range" min="${CAMERA_SENSITIVITY_MIN_PERCENT}" max="${CAMERA_SENSITIVITY_MAX_PERCENT}" step="1" value="${Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100)}" class="camera-sensitivity-slider">
+        </div>
         ${this.cameraSectionHTML(s)}
         <button data-a="back">${t('common.back')}</button>
       </div>`;
@@ -219,6 +224,11 @@ export class PauseOverlay {
       s.fixedMinimap = !s.fixedMinimap;
       app.saveSystem.save();
       this.render();
+    });
+    this.el.querySelector('.camera-sensitivity-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.camera-sensitivity-slider').addEventListener('input', (e) => {
+      s.cameraSensitivity = clamp(Number(e.target.value) / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
+      this.el.querySelector('.camera-sensitivity-label').textContent = t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
     });
     this.bindCameraEvents(s);
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
