@@ -100,6 +100,7 @@ export class ExploreState {
             <button class="touch-turn-btn" data-turn="1" aria-label="Turn right">${arrowIconSVG('right')}</button>
           </div>
         </div>
+        <button class="mobile-pause-btn explore-mobile-pause" aria-label="Pause">&#10074;&#10074;</button>
       </div>`;
     this.els = {
       screen: root.querySelector('.explore-screen'),
@@ -222,6 +223,11 @@ export class ExploreState {
         if (this.canAct()) this.turnPlayer(steps);
       }, { passive: false });
     });
+
+    root.querySelector('.explore-mobile-pause')?.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.app.togglePause();
+    }, { passive: false });
 
     const zone = root.querySelector('.touch-camera-zone');
     let lastX = null;
@@ -615,8 +621,23 @@ export class ExploreState {
           ${directions.map((d) => `<div class="qte-key" data-dir="${d}">${arrowIconSVG(d)}</div>`).join('')}
         </div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+        <div class="qte-touch-pad">
+          <button class="qte-touch-btn" data-dir="up" aria-label="Up">${arrowIconSVG('up')}</button>
+          <button class="qte-touch-btn" data-dir="left" aria-label="Left">${arrowIconSVG('left')}</button>
+          <button class="qte-touch-btn" data-dir="down" aria-label="Down">${arrowIconSVG('down')}</button>
+          <button class="qte-touch-btn" data-dir="right" aria-label="Right">${arrowIconSVG('right')}</button>
+        </div>
       </div>`;
     this.root.appendChild(modal);
+    // Touch input for the same sequence keyboard players answer with
+    // QTE_DIRECTION_KEYS — see submitQTEDirection, the shared core both
+    // this and handleQTEKeydown funnel into.
+    modal.querySelectorAll('.qte-touch-btn').forEach((btn) => {
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        this.submitQTEDirection(btn.dataset.dir);
+      }, { passive: false });
+    });
     // Captured up front, by index, rather than re-querying '.qte-key' on
     // every keypress — a querySelector re-grab would return the same
     // still-in-DOM first element if two correct presses land faster than
@@ -632,6 +653,12 @@ export class ExploreState {
     const dir = QTE_DIRECTION_KEYS[e.key];
     if (!dir) return;
     e.originalEvent?.preventDefault?.();
+    this.submitQTEDirection(dir);
+  }
+
+  /** Shared core behind keyboard (handleQTEKeydown) and the on-screen touch arrow pad (see startQTE's .qte-touch-btn wiring). */
+  submitQTEDirection(dir) {
+    if (!this.qte) return;
     const expected = this.qte.directions[this.qte.index];
     if (dir === expected) {
       this.advanceQTE();

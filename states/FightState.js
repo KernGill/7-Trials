@@ -136,6 +136,7 @@ export class FightState {
           <div class="move-order"></div>
           <div class="category-panel"></div>
         </div>
+        <button class="mobile-pause-btn fight-mobile-pause" aria-label="Pause">&#10074;&#10074;</button>
       </div>`;
     this.els = {
       turn: root.querySelector('.fight-turn'),
@@ -146,6 +147,10 @@ export class FightState {
       order: root.querySelector('.move-order'),
       panel: root.querySelector('.category-panel'),
     };
+    root.querySelector('.fight-mobile-pause')?.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.app.togglePause();
+    }, { passive: false });
     this.tooltip = new TooltipManager();
     this.renderAll();
   }

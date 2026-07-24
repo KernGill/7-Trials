@@ -602,9 +602,43 @@ select {
 }
 .touch-turn-btn:active { background: rgba(233, 69, 96, 0.55); border-color: #e94560; }
 
+/* Touch-only pause button — mobile has no 'p' key, so togglePause() needs
+   an on-screen trigger. Positioned per-screen (see .explore-mobile-pause/
+   .fight-mobile-pause) to dodge each screen's own fixed HUD elements. */
+.mobile-pause-btn {
+  display: none; position: fixed; z-index: 9;
+  width: 44px; height: 44px; align-items: center; justify-content: center;
+  background: rgba(11, 12, 16, 0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
+  color: #eee; font-size: 18px; line-height: 1; touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.mobile-pause-btn:active { background: rgba(233, 69, 96, 0.55); border-color: #e94560; }
+.explore-mobile-pause { top: 178px; right: 20px; } /* stacked below the 144px-square corner minimap */
+.fight-mobile-pause { top: 16px; left: 16px; } /* fight-turn indicator owns the opposite (top-right) corner */
+
+/* Touch arrow pad shown inside the QTE overlay — without this, a QTE
+   (locked door / chest) is entirely unplayable on a device with no
+   keyboard. Mirrors the explore D-pad's 3x3 cross layout but scoped to
+   the qte-box so it sits right under the direction strip it's answering. */
+.qte-touch-pad {
+  display: none; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px);
+  gap: 6px; justify-content: center; margin: 4px auto 0;
+}
+.qte-touch-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
+  color: #eee; touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.qte-touch-btn:active { background: rgba(233, 69, 96, 0.55); border-color: #e94560; }
+.qte-touch-btn[data-dir="up"] { grid-column: 2; grid-row: 1; }
+.qte-touch-btn[data-dir="left"] { grid-column: 1; grid-row: 2; }
+.qte-touch-btn[data-dir="down"] { grid-column: 2; grid-row: 3; }
+.qte-touch-btn[data-dir="right"] { grid-column: 3; grid-row: 2; }
+
 @media (hover: none) and (pointer: coarse) {
   .mobile-controls { display: block; }
   .mouselook-hint { display: none; } /* pointer-lock hint is meaningless on touch */
+  .mobile-pause-btn { display: flex; }
+  .qte-touch-pad { display: grid; }
 }
 
 /* ---------------- Mobile landscape enforcement ---------------- */
