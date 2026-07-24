@@ -28,6 +28,8 @@ import { InnState } from '../states/InnState.js';
 import { LockerState } from '../states/LockerState.js';
 import { SettingsState } from '../states/SettingsState.js';
 import { BestiaryState } from '../states/BestiaryState.js';
+import { EncyclopediaState } from '../states/EncyclopediaState.js';
+import { AchievementsState } from '../states/AchievementsState.js';
 import { SaveSlotsState } from '../states/SaveSlotsState.js';
 import { setLanguage, t } from '../ui/i18n.js';
 
@@ -72,6 +74,8 @@ export class StateManager {
       [GAME_STATES.SETTINGS]: new SettingsState(this),
       [GAME_STATES.BESTIARY]: new BestiaryState(this),
       [GAME_STATES.SAVES]: new SaveSlotsState(this),
+      [GAME_STATES.ENCYCLOPEDIA]: new EncyclopediaState(this),
+      [GAME_STATES.ACHIEVEMENTS]: new AchievementsState(this),
     };
 
     this.bindEvents();

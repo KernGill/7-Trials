@@ -10,6 +10,8 @@ export const GAME_STATES = {
   SETTINGS: 'settings',
   BESTIARY: 'bestiary',
   SAVES: 'saves',
+  ENCYCLOPEDIA: 'encyclopedia',
+  ACHIEVEMENTS: 'achievements',
 };
 
 export const MOVE_CATEGORIES = {

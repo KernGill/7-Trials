@@ -18,7 +18,7 @@ export class HomeState {
         <h1 class="home-title">${t('home.title')}</h1>
         <div class="home-grid">
           <button class="home-tile home-tile-icon" data-a="shop"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.shop')}</span></button>
-          <button class="home-tile home-tile-icon" data-a="bestiary"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.bestiary')}</span></button>
+          <button class="home-tile home-tile-icon" data-a="encyclopedia"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.encyclopedia')}</span></button>
           <button class="home-tile" data-a="inn">${t('home.inn')}</button>
           <button class="home-tile home-tile-battle" data-a="battle">${t('home.battle')}</button>
           <button class="home-tile home-tile-icon" data-a="settings"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.settings')}</span></button>
@@ -33,7 +33,7 @@ export class HomeState {
     const actions = {
       battle: () => this.handleBattleClick(),
       shop: () => this.app.setState(GAME_STATES.SHOP),
-      bestiary: () => this.app.setState(GAME_STATES.BESTIARY),
+      encyclopedia: () => this.app.setState(GAME_STATES.ENCYCLOPEDIA),
       inn: () => this.app.setState(GAME_STATES.INN),
       locker: () => this.app.setState(GAME_STATES.LOCKER),
       settings: () => this.app.setState(GAME_STATES.SETTINGS),

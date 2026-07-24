@@ -15,7 +15,7 @@ export const TRANSLATIONS = {
     // Home
     'home.title': '7 TRIALS',
     'home.shop': 'SHOP',
-    'home.bestiary': 'BESTIARY',
+    'home.encyclopedia': 'ENCYCLOPEDIA',
     'home.inn': 'INN',
     'home.battle': 'BATTLE',
     'home.settings': 'SETTINGS',
@@ -85,6 +85,19 @@ export const TRANSLATIONS = {
     'bestiary.previous': '← PREVIOUS',
     'bestiary.next': 'NEXT →',
     'bestiary.no_image': 'NO IMAGE YET',
+
+    // Encyclopedia
+    'encyclopedia.title': 'ENCYCLOPEDIA',
+    'encyclopedia.bestiary': 'BESTIARY',
+    'encyclopedia.achievements': 'ACHIEVEMENTS',
+
+    // Achievements
+    'achievements.title': 'ACHIEVEMENTS',
+    'achievements.completed': 'Completed',
+    'achievements.locked': 'Not yet completed',
+    'achievements.progress': 'Progress: {current}/{target}',
+    'achievements.unlocks': 'Unlocks:',
+    'achievements.unlocks_none': '—',
 
     // Locker
     'locker.title': 'LOCKER',
@@ -281,7 +294,7 @@ export const TRANSLATIONS = {
     // Home
     'home.title': '7 PRUEBAS',
     'home.shop': 'TIENDA',
-    'home.bestiary': 'BESTIARIO',
+    'home.encyclopedia': 'ENCICLOPEDIA',
     'home.inn': 'POSADA',
     'home.battle': 'BATALLA',
     'home.settings': 'AJUSTES',

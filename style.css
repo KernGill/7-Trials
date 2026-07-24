@@ -167,7 +167,7 @@ select {
 }
 .home-tile-label { font-size: clamp(10px, 2vw, 14px); letter-spacing: 1px; }
 .home-tile-icon[data-a="shop"] .home-tile-icon-img { background-image: url('assets/sprites/ui/shop_coins.png'); }
-.home-tile-icon[data-a="bestiary"] .home-tile-icon-img { background-image: url('assets/sprites/ui/bestiary_rock.png'); }
+.home-tile-icon[data-a="encyclopedia"] .home-tile-icon-img { background-image: url('assets/sprites/ui/bestiary_rock.png'); }
 .home-tile-icon[data-a="locker"] .home-tile-icon-img { background-image: url('assets/sprites/ui/locker_satchel.png'); }
 .home-tile-icon[data-a="settings"] .home-tile-icon-img {
   /* Stretched taller than its native square crop per user request — reads
@@ -416,11 +416,11 @@ select {
 .loadout-totals-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; color: #f5e6d8; font-size: 12px; }
 
 /* ---------------- Shop / Inn / Locker / Bestiary / Settings / Saves ---------------- */
-.shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen {
+.shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen {
   min-height: 100vh; padding: 80px 40px 40px; max-width: 900px; margin: 0 auto;
 }
 .inn-screen { max-width: 1040px; }
-.shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1, .saves-screen h1 {
+.shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1, .saves-screen h1, .encyclopedia-screen h1, .achievements-screen h1 {
   color: #e94560; letter-spacing: 3px; text-align: center;
 }
 .shop-gold { text-align: center; color: #f1c40f; margin-bottom: 16px; }
@@ -443,6 +443,27 @@ select {
 .shop-empty { text-align: center; color: #666; margin-top: 40px; }
 .bestiary-stats { color: #888; font-size: 11px; }
 .bestiary-empty { text-align: center; color: #666; margin-top: 40px; }
+
+/* ---------------- Encyclopedia (hub) ---------------- */
+.encyclopedia-options { display: flex; flex-direction: column; gap: 14px; margin-top: 32px; }
+.encyclopedia-option { padding: 20px; font-size: 15px; letter-spacing: 2px; }
+
+/* ---------------- Achievements ---------------- */
+.achievements-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; margin-top: 16px; }
+.achievement-card {
+  background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; padding: 12px 16px;
+}
+.achievement-card.completed { background: #1e3a2f; border-color: #2ecc71; }
+.achievement-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.achievement-name { color: #888; font-size: 13px; letter-spacing: 1px; }
+.achievement-card.completed .achievement-name { color: #7fdba0; }
+.achievement-status { color: #666; font-size: 11px; white-space: nowrap; }
+.achievement-card.completed .achievement-status { color: #2ecc71; }
+.achievement-desc { color: #777; font-size: 11px; margin-top: 6px; }
+.achievement-card.completed .achievement-desc { color: #9fcbb0; }
+.achievement-progress { color: #f1c40f; font-size: 11px; margin-top: 6px; }
+.achievement-unlocks { color: #666; font-size: 11px; margin-top: 6px; }
+.achievement-card.completed .achievement-unlocks { color: #7fdba0; }
 
 /* ---------------- Inn (roster + detail panel) ---------------- */
 .inn-body { display: flex; align-items: flex-start; gap: 32px; margin-top: 24px; }
@@ -670,7 +691,7 @@ select {
 
 /* ---------------- General small-viewport tightening ---------------- */
 @media (max-width: 700px), (max-height: 480px) {
-  .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen {
+  .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen {
     padding: 56px 16px 24px;
   }
   .explore-hud { gap: 12px; font-size: 11px; padding: 6px 10px; flex-wrap: wrap; max-width: 60vw; }
