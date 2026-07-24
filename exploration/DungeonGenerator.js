@@ -19,6 +19,13 @@ const LOCKED_DOOR_COUNT = 3;
 const TREASURE_COUNT = 2;
 const TEMPORAL_CHEST_COUNT = 1;
 
+// Floor 5 only: a secret, disconnected 40-tile hallway starting near the
+// stairs, ending in a 7x7 arena guarding a single hidden enemy — see
+// placeHiddenArena below.
+const HIDDEN_HALLWAY_LENGTH = 40;
+const HIDDEN_ROOM_SIZE = 7;
+const HIDDEN_ROOM_RADIUS = Math.floor(HIDDEN_ROOM_SIZE / 2);
+
 // Open flat rooms (per user request), placed before the maze walker runs
 // and chain-connected so they're always reachable. Room count scales
 // gently with floor size instead of being a flat constant.
@@ -177,6 +184,128 @@ function addExtraConnections(at, carved, width, height, count) {
   });
 }
 
+const HIDDEN_ARENA_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+// Transient sentinel — never TILE_TYPES.WALL — so every later generation
+// pass (placeRooms/the main walker/widenCorridors/addExtraConnections, all
+// of which only ever carve/consider `type === WALL` cells) automatically
+// skips straight over the reserved footprint. Converted to its real type
+// by finalizeHiddenArena() right before generate() returns; never exposed
+// outside this file.
+const HIDDEN_RESERVED_TYPE = 'hidden_reserved';
+
+/**
+ * Floor 5 only: reserves a winding 40-tile, 1-wide hallway starting
+ * somewhere on the interior edge ring and ending in a 7x7 open arena with
+ * a single hidden-enemy tile at its center. Called FIRST — before any
+ * other carving — while the grid is still 100% WALL, so the 40-tile
+ * self-avoiding walk has the entire map to itself and succeeds almost
+ * every attempt; doing this AFTER the main maze forms instead (tried
+ * first, and reverted) fails the vast majority of the time, because free
+ * wall space left over from a ~45%-carved maze exists mostly as thin
+ * strips between corridors, not open pockets a 40-cell walk can wind
+ * through. Its footprint itself is deliberately kept out of `carved` (see
+ * generate()'s docs on tilesTotal), but generate() later carves an
+ * ordinary connector from the stairs to this hallway's entry point (added
+ * to `carved` normally) — the hallway is meant to be a real, walkable
+ * branch a player standing at the stairs can see and choose to ignore for
+ * looking like a dead end, not a physically unreachable secret; only the
+ * "is there anything left to find" bookkeeping (tilesTotal/HUD event
+ * count) is what stays blind to it. It winds (strongly biased to keep going
+ * straight, but free to
+ * turn) rather than demanding one unbroken straight line, since a straight
+ * run of 40 can't fit within a typical arc0 grid's own interior span
+ * (~33-42 tiles edge to edge) regardless of available space. Returns the
+ * entry point (so generate() can bias stairs placement toward it — "near
+ * the stairs") or null if a fit genuinely isn't found (should be
+ * essentially never, but must not throw either way).
+ */
+function placeHiddenArena(at, width, height) {
+  const inBounds = (x, y) => x >= 1 && y >= 1 && x <= width - 2 && y <= height - 2;
+  const isFreeWall = (x, y) => inBounds(x, y) && at(x, y)?.type === TILE_TYPES.WALL;
+
+  const edgeStarts = [];
+  for (let x = 1; x <= width - 2; x += 1) { edgeStarts.push({ x, y: 1 }); edgeStarts.push({ x, y: height - 2 }); }
+  for (let y = 1; y <= height - 2; y += 1) { edgeStarts.push({ x: 1, y }); edgeStarts.push({ x: width - 2, y }); }
+
+  const tries = shuffle(edgeStarts);
+  for (let i = 0; i < tries.length; i += 1) {
+    const { x: startX, y: startY } = tries[i];
+    if (!isFreeWall(startX, startY)) continue;
+
+    // A random (or edge-parallel) initial direction routinely just traces
+    // along the SAME edge the walk started on — the 40-tile path never
+    // gets more than a step or two away from it, so the 7x7 room at the
+    // end always lands out of bounds. Starting inward instead reliably
+    // drives the walk into the interior; the room only needs the walk to
+    // have made it a few tiles clear of every boundary by its 40th step.
+    const inward = startY === 1 ? [0, 1]
+      : startY === height - 2 ? [0, -1]
+      : startX === 1 ? [1, 0]
+      : [-1, 0]; // startX === width - 2
+    const path = [{ x: startX, y: startY }];
+    let cx = startX;
+    let cy = startY;
+    let lastDir = inward;
+    let fits = true;
+    for (let step = 0; step < HIDDEN_HALLWAY_LENGTH; step += 1) {
+      // Mostly keeps going straight (reads as a real corridor, and makes
+      // steady progress into the interior) but turns unprompted often
+      // enough to actually wind rather than rule a straight line — an
+      // unbroken 40-tile beeline would need ~40 clear interior tiles in
+      // one direction, which the grid's own span doesn't reliably have.
+      const preferStraight = Math.random() < 0.75;
+      const rest = shuffle(HIDDEN_ARENA_DIRS.filter(([dx, dy]) => dx !== lastDir[0] || dy !== lastDir[1]));
+      const candidates = preferStraight ? [lastDir, ...rest] : [...rest, lastDir];
+      let moved = false;
+      for (let c = 0; c < candidates.length; c += 1) {
+        const [dx, dy] = candidates[c];
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (isFreeWall(nx, ny) && !path.some((p) => p.x === nx && p.y === ny)) {
+          cx = nx; cy = ny; lastDir = [dx, dy];
+          path.push({ x: cx, y: cy });
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) { fits = false; break; }
+    }
+    if (!fits) continue;
+
+    const centerX = cx + lastDir[0];
+    const centerY = cy + lastDir[1];
+    const roomCells = [];
+    let roomFits = true;
+    for (let dy = -HIDDEN_ROOM_RADIUS; dy <= HIDDEN_ROOM_RADIUS && roomFits; dy += 1) {
+      for (let dx = -HIDDEN_ROOM_RADIUS; dx <= HIDDEN_ROOM_RADIUS; dx += 1) {
+        const rx = centerX + dx;
+        const ry = centerY + dy;
+        if (!isFreeWall(rx, ry)) { roomFits = false; break; }
+        if (!path.some((p) => p.x === rx && p.y === ry)) roomCells.push(at(rx, ry));
+      }
+    }
+    if (!roomFits) continue;
+
+    path.forEach((p) => { const tile = at(p.x, p.y); tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; });
+    roomCells.forEach((tile) => { tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; });
+    const centerTile = at(centerX, centerY);
+    centerTile.type = HIDDEN_RESERVED_TYPE;
+    centerTile.meta.hidden = true;
+    centerTile.meta.enemySpawn = true;
+    centerTile.meta.isHiddenCenter = true;
+    return { x: startX, y: startY };
+  }
+  return null;
+}
+
+/** Converts every HIDDEN_RESERVED_TYPE tile to its real final type — called once, right before generate() returns. */
+function finalizeHiddenArena(tiles) {
+  tiles.forEach((tile) => {
+    if (tile.type !== HIDDEN_RESERVED_TYPE) return;
+    tile.type = tile.meta.isHiddenCenter ? TILE_TYPES.HIDDEN_ENEMY : TILE_TYPES.FLOOR;
+  });
+}
+
 /**
  * Maze-like dungeon with embedded open rooms: a handful of flat 4x4/5x5
  * rooms are placed and chain-connected first, then a random walk carves
@@ -220,6 +349,13 @@ export class DungeonGenerator {
     // scan, called on every step of a carve loop that can run tens of
     // thousands of iterations, became a real bottleneck.
     const at = (x, y) => byKey.get(`${x},${y}`);
+
+    // Reserved FIRST, while the grid is still 100% WALL — see
+    // placeHiddenArena's docblock for why placement order matters here.
+    // Its footprint is a transient sentinel type the passes below never
+    // touch, converted to real tiles by finalizeHiddenArena() just before
+    // this function returns.
+    const hiddenEntry = floor === 5 ? placeHiddenArena(at, width, height) : null;
 
     // Carveable interior excludes the outermost ring on every side, which
     // is what keeps that ring permanently WALL without padding the grid.
@@ -285,9 +421,36 @@ export class DungeonGenerator {
 
     const isEdge = (t) => t.x === 1 || t.y === 1 || t.x === width - 2 || t.y === height - 2;
     const edgeCandidates = carved.filter((t) => t !== startTile && isEdge(t));
-    const stairsTile = edgeCandidates.length ? shuffle(edgeCandidates)[0]
-      : shuffle(carved.filter((t) => t !== startTile))[0];
+    // "By the stairs" (per user request): when a hidden arena got reserved
+    // above, bias the stairs to land near its entry point instead of
+    // picking a fully random edge tile — among the 5 closest edge
+    // candidates (falls back to the normal random pick if none are
+    // reasonably close, e.g. the hidden arena ended up on the opposite
+    // side of the map from every edge candidate that actually got carved).
+    let stairsTile;
+    if (hiddenEntry && edgeCandidates.length) {
+      const byDistance = [...edgeCandidates].sort((a, b) => {
+        const da = Math.abs(a.x - hiddenEntry.x) + Math.abs(a.y - hiddenEntry.y);
+        const db = Math.abs(b.x - hiddenEntry.x) + Math.abs(b.y - hiddenEntry.y);
+        return da - db;
+      });
+      stairsTile = shuffle(byDistance.slice(0, Math.min(5, byDistance.length)))[0];
+    } else {
+      stairsTile = edgeCandidates.length ? shuffle(edgeCandidates)[0]
+        : shuffle(carved.filter((t) => t !== startTile))[0];
+    }
     stairsTile.type = TILE_TYPES.STAIRS;
+
+    // The hidden hallway is meant to be an actual, walkable branch a
+    // player standing at the stairs can see and choose to ignore (per
+    // user request) — not a physically disconnected secret. carveLine
+    // stops carving the instant it reaches a non-WALL cell, so it
+    // naturally halts right at the reserved footprint's edge without
+    // overwriting it, leaving a normal (counted-in-`carved`) connector
+    // corridor that ends flush against the reserved entry tile.
+    if (hiddenEntry) {
+      carved.push(...carveLine(at, stairsTile.x, stairsTile.y, hiddenEntry.x, hiddenEntry.y));
+    }
 
     const remaining = shuffle(carved.filter((t) => t !== startTile && t !== stairsTile));
     const enemyCount = Math.min(this.arcConfig.enemiesPerFloor ?? 5, remaining.length);
@@ -328,6 +491,8 @@ export class DungeonGenerator {
         temporalChestTile.type = TILE_TYPES.TEMPORAL_CHEST;
       }
     }
+
+    if (hiddenEntry) finalizeHiddenArena(tiles);
 
     return {
       floor,

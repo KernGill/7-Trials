@@ -230,6 +230,55 @@ export const ENEMIES = {
       ],
     },
   },
+  // Hidden superboss — never listed in any arc's enemyPool, only ever
+  // spawned directly by id from the floor-5 secret arena's HIDDEN_ENEMY
+  // tile (see ExploreState/DungeonGenerator). Always fought at its exact
+  // hand-authored stats — StateManager.startCombat is called with
+  // { noScale: true } for this fight, bypassing the normal per-floor
+  // stat multiplier.
+  vanguard_of_darkness: {
+    id: 'vanguard_of_darkness',
+    species: 'vanguard',
+    name: 'Vanguard of Darkness',
+    description: 'A guardian bound to a forgotten arena, waiting in the dark for someone curious enough to find it.',
+    arcs: ['arc0'],
+    isBoss: true,
+    visual: {
+      shape: 'square',
+      width: 64,
+      height: 64,
+      color: '#1a1730',
+      label: 'VANGUARD',
+      spriteId: 'vanguard_of_darkness',
+    },
+    baseStats: {
+      con: 5000,
+      dex: 0,
+      str: 0,
+      spd: 220,
+      def: 70,
+      int: 0,
+      critChance: 5,
+      critDamage: 0,
+      dodge: 100,
+      accuracy: 100,
+      energy: 10,
+    },
+    moveIds: [
+      'vanguard_dark_strike',
+      'vanguard_crippling_shadow',
+      'vanguard_frostbite_touch',
+      'vanguard_abyssal_cascade',
+      'vanguard_umbral_ward',
+      'vanguard_dread_grasp',
+      'vanguard_shroud_of_malice',
+      'vanguard_revival',
+      'vanguard_umbral_purge',
+    ],
+    drops: {
+      itemPool: ['void_reaver_glaive', 'umbral_striders', 'eclipse_signet'],
+    },
+  },
 };
 
 export function getEnemyConfig(id) {

@@ -7,6 +7,11 @@ export const TILE_TYPES = {
   TRAP: 'trap',
   LOCKED_DOOR: 'locked_door',
   TEMPORAL_CHEST: 'temporal_chest',
+  // A secret, non-tracked enemy tile — see DungeonGenerator's floor-5
+  // hidden-arena pass. Deliberately excluded from ExploreState's
+  // "remaining events" HUD counter and from tilesTotal/tilesExplored, so
+  // it never shows up as a discoverable objective.
+  HIDDEN_ENEMY: 'hidden_enemy',
 };
 
 export class Tile {

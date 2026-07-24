@@ -1,11 +1,11 @@
 import { COOLDOWN_TYPES, MOVE_PROPERTIES } from '../utils/Constants.js';
-import { GOLD_REWARD_RATIO } from '../utils/Constants.js';
+import { GOLD_REWARD_RATIO, DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK } from '../utils/Constants.js';
 import { DamageCalculator } from './DamageCalculator.js';
 import { EnergySystem, CooldownSystem } from './EnergySystem.js';
 import { TurnOrderSystem } from './TurnOrderSystem.js';
 import { StatusEffectSystem } from './StatusEffectSystem.js';
 import { EnemyAI } from './EnemyAI.js';
-import { rollDrop } from '../utils/RandomUtils.js';
+import { rollDrop, pickRandom } from '../utils/RandomUtils.js';
 import { rollChance } from '../utils/MathUtils.js';
 import { getItemConfig } from '../data/items.js';
 import { getConsumableConfig } from '../data/consumables.js';
@@ -194,6 +194,23 @@ export class CombatManager {
       return true;
     }
     if (!this.aliveEnemies.length) {
+      // On-death revive passive (Vanguard of Darkness's vanguard_revival):
+      // the fight doesn't actually end if the just-died enemy has an
+      // unused 'on_death' passive — it comes back at 50% health with its
+      // own selfDebuffs applied instead.
+      const revivable = this.enemies.find((e) => !e.isAlive() && !e.hasRevived
+        && e.moves.some((m) => m.template.trigger === 'on_death'));
+      if (revivable) {
+        revivable.hasRevived = true;
+        revivable.currentHealth = Math.round(revivable.getMaxHealth() * 0.5);
+        const reviveMove = revivable.moves.find((m) => m.template.trigger === 'on_death');
+        if (reviveMove.template.selfDebuffs) {
+          this.logDebuffResults(this.statusSystem.applyDebuffs(revivable, reviveMove.template.selfDebuffs, revivable));
+        }
+        this.logMessage(t('log.enemy_revives', { name: revivable.name }));
+        this.record({ kind: 'revive', character: revivable, health: revivable.currentHealth, energy: revivable.energy });
+        return false;
+      }
       this.finishVictory();
       return true;
     }
@@ -314,6 +331,16 @@ export class CombatManager {
   }
 
   resolveEnemyTurn(enemy) {
+    // Darkness's energy-steal side: keyed off the status itself (whichever
+    // enemy is acting), not a specific enemy id — see Character.getStat
+    // for the matching accuracy-penalty side.
+    const darknessStacks = this.player.getStatusStacks('darkness');
+    if (darknessStacks > 0 && this.player.energy > 0
+      && rollChance(darknessStacks * DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK)) {
+      const stolen = this.energySystem.stealEnergy(this.player, enemy, 1);
+      if (stolen > 0) this.logMessage(t('log.darkness_steals_energy', { name: enemy.name }));
+    }
+
     const move = this.enemyAI.chooseMove(enemy, this.player);
     if (!move) {
       this.logMessage(t('log.cannot_act', { name: enemy.name }));
@@ -434,8 +461,43 @@ export class CombatManager {
       attacker.takeDamage(attacker.currentHealth * (move.template.selfDamagePercentOnHit / 100));
     }
 
+    // Umbral Purge: strips every status effect off both sides (except the
+    // caster's own listed exclusions — its self-inflicted Frostbite),
+    // dealing bonus flat damage per status actually removed. Unconditional
+    // (no attack roll involved) — matches the move's own damage:0/
+    // scaling:none guaranteed-application design. Runs BEFORE `debuffs`
+    // below on purpose — Umbral Purge's own `debuffs` (5 stacks of
+    // Darkness) is meant to land AFTER the purge, not get immediately
+    // stripped back off by the very effect that's supposed to follow it.
+    if (move.template.clearAllStatusesForDamage) {
+      const { damagePerStatus, excludeSelf = [] } = move.template.clearAllStatusesForDamage;
+      let removedCount = 0;
+      [attacker, defender].forEach((character) => {
+        const toRemove = character.statusEffects.filter((e) => !(character === attacker && excludeSelf.includes(e.id)));
+        toRemove.forEach((effect) => { character.removeStatusEffect(effect.id); removedCount += 1; });
+      });
+      if (removedCount > 0) {
+        const bonus = removedCount * damagePerStatus;
+        defender.takeDamage(bonus);
+        this.logMessage(t('log.status_purge_damage', { name: defender.name, n: bonus, count: removedCount }));
+      }
+    }
     if (move.template.debuffs && (!result || result.hit)) {
       this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
+    }
+    // Percent-of-current-stat debuff on the opponent (Vanguard's Crippling
+    // Shadow: -50% speed for 5 turns) — computed here (not baked into the
+    // static move template) since it depends on the defender's CURRENT
+    // stat value at the moment it lands. Reuses the same
+    // statBuffs/temporaryStatModifiers/decayBuffDurations pipeline
+    // applySelfBuffs already uses, just aimed at the defender instead.
+    if (move.template.percentStatDebuff && (!result || result.hit)) {
+      const { stat, percent, durationFightTurns } = move.template.percentStatDebuff;
+      const amount = Math.round(defender.getStat(stat) * (percent / 100));
+      const applied = this.statusSystem.applyBuffs(defender, [{ type: 'stat', stat, amount, durationFightTurns }], attacker);
+      applied.forEach((buff) => {
+        this.logMessage(t('log.stat_debuff_applied', { name: defender.name, n: Math.abs(buff.amount), stat: statLabel(buff.stat) }));
+      });
     }
     // Unlike `debuffs` above (routed to the defender, gated on a hit),
     // `selfDebuffs` on an active move always lands on its own caster —
@@ -481,8 +543,13 @@ export class CombatManager {
       attacker.pendingReactiveHeal = { multiplier: move.template.reactiveHealMultiplier };
       attacker.pendingReactiveHealTurnsRemaining = move.template.reactiveHealDurationFightTurns ?? -1;
     }
-    if (move.template.meleeBlockFightTurns) {
-      attacker.meleeBlockTurnsRemaining = move.template.meleeBlockFightTurns;
+    // Stun-trap (Vine Trap, Dread Grasp) — see DamageCalculator.resolveAttack
+    // for the trigger and StatusEffectSystem.decayBuffDurations for the
+    // timed-expiry side. Not logged as a buff/debuff (it isn't one — no
+    // status icon, per design) — just a quiet armed-state change.
+    if (move.template.attackerStunTrap) {
+      attacker.stunTrapActive = true;
+      attacker.stunTrapTurnsRemaining = move.template.attackerStunTrap.durationFightTurns ?? -1;
     }
 
     if (move.template.repeatInstances) {
@@ -639,6 +706,11 @@ export class CombatManager {
           }
         }
       });
+      // Guaranteed-exactly-one-of-N drop (Vanguard of Darkness's 3-item
+      // pool) — distinct from the independent per-item rolls above.
+      if (config.itemPool?.length) {
+        drops.items.push(pickRandom(config.itemPool));
+      }
     });
 
     this.rewards = { gold, drops };

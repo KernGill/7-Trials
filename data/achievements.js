@@ -122,6 +122,12 @@ export const ACHIEVEMENTS = {
     description: 'On a single floor numbered 3 or higher, successfully loot every locked door, chest, and temporal chest.',
     target: 1,
   },
+  defeat_vanguard_of_darkness: {
+    id: 'defeat_vanguard_of_darkness',
+    name: 'Into the Dark',
+    description: 'Defeat the Vanguard of Darkness.',
+    target: 1,
+  },
 };
 
 export function getAchievementConfig(id) {

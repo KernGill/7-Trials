@@ -172,6 +172,7 @@ const MARKER_COLORS = {
   [TILE_TYPES.LOCKED_DOOR]: 0x3a1f7a,
   [TILE_TYPES.TREASURE]: 0x7a6a1f,
   [TILE_TYPES.TEMPORAL_CHEST]: 0x1f5fd9,
+  [TILE_TYPES.HIDDEN_ENEMY]: 0x000000,
 };
 
 function tileKey(x, y) {
@@ -248,6 +249,10 @@ export class DungeonRenderer3D {
     // orbit position) is computed, since that set now changes continuously
     // with the mouse instead of only on a grid move/turn.
     this._lastOccludedWalls = [];
+    // Screen shake (see triggerShake) — a fixed end-timestamp + magnitude
+    // rather than a countdown, so it's immune to any dt weirdness.
+    this._shakeUntil = 0;
+    this._shakeMagnitude = 0;
 
     const spriteUrl = new URL(PLAYER_SPRITE_PATH, import.meta.url).href;
     const spriteMaterial = new THREE.SpriteMaterial({ map: new THREE.TextureLoader().load(spriteUrl) });
@@ -445,6 +450,12 @@ export class DungeonRenderer3D {
     this.canvas.requestPointerLock?.();
   }
 
+  /** Transient camera-position jitter for `durationMs`, applied every frame in _applyCameraFromCurrentState — see the hidden-boss encounter trigger in ExploreState. */
+  triggerShake(durationMs, magnitude) {
+    this._shakeUntil = performance.now() + durationMs;
+    this._shakeMagnitude = magnitude;
+  }
+
   resize() {
     if (!this.container || !this.renderer) return;
     const w = this.container.clientWidth;
@@ -498,6 +509,15 @@ export class DungeonRenderer3D {
     this._lookAtPos.set(this.currentPlayerPos.x, LOOK_AT_HEIGHT + CAMERA_LOOK_LIFT, this.currentPlayerPos.z);
     this._cameraPos.copy(this.currentPlayerPos).addScaledVector(this._facingVec, -horizontal);
     this._cameraPos.y += height;
+
+    // Screen shake (see triggerShake) — a transient random jitter added to
+    // the camera's position only, never its look-at target, so it reads as
+    // a genuine wobble around the player rather than a whip-pan.
+    if (this._shakeUntil && performance.now() < this._shakeUntil) {
+      this._cameraPos.x += (Math.random() - 0.5) * this._shakeMagnitude;
+      this._cameraPos.y += (Math.random() - 0.5) * this._shakeMagnitude;
+      this._cameraPos.z += (Math.random() - 0.5) * this._shakeMagnitude;
+    }
 
     // At pitch=90 the view direction is exactly vertical, which makes the
     // default (0,1,0) up-vector parallel to it — a degenerate case where
@@ -615,6 +635,12 @@ export class DungeonRenderer3D {
     } else if (tile.type === TILE_TYPES.TEMPORAL_CHEST) {
       // A genuine cube (per user request "make it a blue cube"), not the
       // flatter default marker block used for STAIRS/LOCKED_DOOR/TREASURE.
+      geo = this._geo.enemyCube;
+      height = TILE_SIZE * 0.4;
+    } else if (tile.type === TILE_TYPES.HIDDEN_ENEMY) {
+      // Pure black cube — deliberately reads as an anomaly against the
+      // dark-but-not-black dungeon palette, for a player who's already
+      // gone looking somewhere the game gives them no other reason to.
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
     }

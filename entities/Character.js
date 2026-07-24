@@ -2,6 +2,7 @@ import {
   DEX_CRIT_RATIO,
   DEX_COOLDOWN_REDUCTION_INTERVAL,
   FROST_HIT_PENALTY,
+  DARKNESS_ACCURACY_PENALTY,
   STAT_KEYS,
 } from '../utils/Constants.js';
 import { clamp, roundDown, roundUp } from '../utils/MathUtils.js';
@@ -54,10 +55,18 @@ export class Character {
     this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
-    // Vine Trap-style "ignore the next melee attack" — consumed the
-    // instant a melee attack lands (see DamageCalculator.resolveAttack)
-    // or decremented to 0 after this many fight_turns, whichever first.
-    this.meleeBlockTurnsRemaining = 0;
+    // Stun-trap (Vine Trap, Dread Grasp) — see DamageCalculator.resolveAttack.
+    // Deliberately plain Character fields, not a StatusEffect: never shown
+    // as a buff icon. `stunTrapTurnsRemaining` of -1 means no timed
+    // expiry (Dread Grasp — lasts until it triggers); a positive count
+    // decays once per fight-turn (see StatusEffectSystem.decayBuffDurations)
+    // and clears itself if it never triggers in time (Vine Trap).
+    this.stunTrapActive = false;
+    this.stunTrapTurnsRemaining = 0;
+    // One-time on-death revive passive (Vanguard of Darkness) — see
+    // CombatManager.checkFightEnd. Never reset mid-fight; only cleared on
+    // resetBattleState() for the next fight.
+    this.hasRevived = false;
     this.moveIds = [...(config.moveIds ?? [])];
     this.moves = [];
     this.combatLogTag = config.combatLogTag ?? this.name;
@@ -95,7 +104,9 @@ export class Character {
       const base = this.baseStats[stat] ?? 100;
       const card = this.cardBonusStats[stat] ?? 0;
       const frostStacks = this.getStatusStacks('frost');
-      return Math.max(0, base + card - frostStacks * FROST_HIT_PENALTY * 100);
+      // Darkness only ever muddies your own aim — it doesn't touch dodge.
+      const darknessStacks = stat === 'accuracy' ? this.getStatusStacks('darkness') : 0;
+      return Math.max(0, base + card - frostStacks * FROST_HIT_PENALTY * 100 - darknessStacks * DARKNESS_ACCURACY_PENALTY * 100);
     }
 
     const base = this.baseStats[stat] ?? 0;
@@ -204,6 +215,22 @@ export class Character {
   takeDamage(amount, { source = null } = {}) {
     let actual = Math.max(0, Math.round(amount));
     if (source) actual = Math.max(0, Math.round(actual * this.getStatusDamageMultiplier(source)));
+    // A damageReductionPercent/Hits shield tagged includesStatusDamage
+    // (see CombatManager.executeMove) also covers status-tick damage, not
+    // just direct hits — direct hits go through
+    // DamageCalculator.applyDamageReductionState instead, so this only
+    // ever fires for a `source`-tagged (status) instance.
+    if (source && this.pendingDamageReduction?.includesStatus) {
+      const dr = this.pendingDamageReduction;
+      if (dr.percent) actual = Math.max(0, Math.round(actual * (1 - dr.percent / 100)));
+      if (dr.flat) actual = Math.max(0, actual - dr.flat);
+      if (dr.hits) {
+        dr.hits -= 1;
+        if (dr.hits <= 0) this.pendingDamageReduction = null;
+      } else {
+        this.pendingDamageReduction = null;
+      }
+    }
     this.currentHealth = clamp(this.currentHealth - actual, 0, this.getMaxHealth());
     // Tracks which status effect's tick landed the killing blow, if any —
     // read by achievement checks (e.g. "defeat an enemy via Burn/Bleed").
@@ -261,7 +288,9 @@ export class Character {
     this.pendingReactiveHealTurnsRemaining = 0;
     this.physicalDamageReductionPercent = 0;
     this.statusDamageMultipliers = null;
-    this.meleeBlockTurnsRemaining = 0;
+    this.stunTrapActive = false;
+    this.stunTrapTurnsRemaining = 0;
+    this.hasRevived = false;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];

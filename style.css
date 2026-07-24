@@ -219,6 +219,19 @@ select {
   padding: 6px 14px; border-radius: 4px; pointer-events: none;
 }
 
+/* Hidden-boss encounter trigger (see ExploreState's HIDDEN_ENEMY case) —
+   fades the dungeon view to black over the same span as the camera shake,
+   right before the actual combat transition tears this screen down. */
+.explore-screen.screen-darken::before {
+  content: ''; position: absolute; inset: 0; z-index: 15; background: #000;
+  opacity: 0; pointer-events: none;
+  animation: hidden-boss-darken 1s ease forwards;
+}
+@keyframes hidden-boss-darken {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 .result-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.85);
   display: flex; align-items: center; justify-content: center; z-index: 60;

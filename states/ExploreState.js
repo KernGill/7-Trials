@@ -49,6 +49,14 @@ const TEMPORAL_CHEST_REWARD_MULTIPLIER = 2;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
 const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material pool
 
+// Hidden floor-5 boss encounter (see DungeonGenerator's placeHiddenArena
+// and the TILE_TYPES.HIDDEN_ENEMY case below): shake+darken plays over the
+// dungeon view for HIDDEN_BOSS_TRANSITION_MS before the actual combat
+// transition tears the renderer down.
+const HIDDEN_BOSS_SHAKE_MS = 900;
+const HIDDEN_BOSS_SHAKE_MAGNITUDE = 0.15;
+const HIDDEN_BOSS_TRANSITION_MS = 1000;
+
 /** Rotates a facing direction by `steps` 90-degree turns (+1 clockwise, -1 counterclockwise). */
 function rotateFacing(facing, steps) {
   const idx = FACING_ORDER.indexOf(facing);
@@ -374,7 +382,10 @@ export class ExploreState {
         const tile = this.getTileAt(cx + dx, cy + dy);
         if (!tile || tile.explored) continue;
         tile.explored = true;
-        if (tile.type !== TILE_TYPES.WALL) run.tilesExplored += 1;
+        // meta.hidden tiles (the floor-5 secret hallway/arena) were never
+        // counted into dungeon.tilesTotal in the first place — counting
+        // them here too would push "Explored" past "Total".
+        if (tile.type !== TILE_TYPES.WALL && !tile.meta.hidden) run.tilesExplored += 1;
       }
     }
     this.minimap?.redrawMap();
@@ -447,7 +458,9 @@ export class ExploreState {
     // refresh-mid-fight consume the enemy tile for free (it's already
     // flipped to FLOOR by handleTileEffect before combat even starts),
     // so a fight in progress is deliberately the one checkpoint we skip.
-    if (tile.type === TILE_TYPES.ENEMY) {
+    // HIDDEN_ENEMY is the same story, just with a shake/darken beat
+    // before the (still deferred, still one-shot) combat transition.
+    if (tile.type === TILE_TYPES.ENEMY || tile.type === TILE_TYPES.HIDDEN_ENEMY) {
       this.handleTileEffect(tile);
       return;
     }
@@ -500,6 +513,20 @@ export class ExploreState {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
         this.startQTE((success) => this.resolveTemporalChest(success, tile), { arrowMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
+        break;
+      }
+      case TILE_TYPES.HIDDEN_ENEMY: {
+        if (tile.meta.resolved) break; // one-shot, mirrors the ENEMY case
+        tile.meta.resolved = true;
+        tile.type = TILE_TYPES.FLOOR;
+        run.savedHealth = this.player.currentHealth;
+        this._pendingMouseLookRestore = this.renderer3d?.isPointerLocked() ?? false;
+        this.renderer3d?.triggerShake(HIDDEN_BOSS_SHAKE_MS, HIDDEN_BOSS_SHAKE_MAGNITUDE);
+        this.els.screen.classList.add('screen-darken');
+        // The shake+darken plays out over the dungeon view itself, so the
+        // actual combat transition (which tears the renderer down) is
+        // deliberately deferred a beat rather than firing immediately.
+        setTimeout(() => app.startCombat('vanguard_of_darkness', { noScale: true }), HIDDEN_BOSS_TRANSITION_MS);
         break;
       }
       default:

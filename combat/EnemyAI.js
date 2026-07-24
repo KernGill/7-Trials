@@ -34,14 +34,16 @@ export class EnemyAI {
         return locked;
       }
       const freeMoves = enemy.moves.filter(
-        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
+        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent
+          && (!m.template.requiresRevived || enemy.hasRevived),
       );
       if (freeMoves.length) return pickRandom(freeMoves);
       return null;
     }
 
     const available = enemy.moves.filter(
-      (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent,
+      (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent
+        && (!m.template.requiresRevived || enemy.hasRevived),
     );
     if (!available.length) return null;
 
@@ -49,7 +51,8 @@ export class EnemyAI {
     if (chosen.energyCost > enemy.energy) {
       this.lockMove(chosen.id, 3);
       const freeMoves = enemy.moves.filter(
-        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.template.usePriorityBelowHealthPercent,
+        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.template.usePriorityBelowHealthPercent
+          && (!m.template.requiresRevived || enemy.hasRevived),
       );
       return freeMoves.length ? pickRandom(freeMoves) : null;
     }

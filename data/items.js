@@ -683,6 +683,52 @@ export const ITEMS = {
     shopState: ITEM_STATES.LOCKED,
     visual: { shape: 'rect', color: '#7f8fa6', spriteId: 'ashen_remembrance' },
   },
+  // ---------------- Vanguard of Darkness drop pool (score 7, pure boss
+  // drops — never purchasable, same dropOnly pattern as bone_sword/torch/
+  // skull_helmet — exactly one of these three drops per kill). ----------
+  void_reaver_glaive: {
+    id: 'void_reaver_glaive',
+    name: 'Void Reaver Glaive',
+    type: 'mainWeapon',
+    arc: 0,
+    score: 7,
+    twoHanded: true,
+    flavour: 'A blade that drank the arena dark long before you ever found it.',
+    stats: { str: 35, dex: 20, con: 15, def: 0, spd: 0, int: 0, critChance: 5, critDamage: 15 },
+    moveIds: ['umbral_cleave'],
+    price: null,
+    unlock: { dropOnly: true },
+    shopState: ITEM_STATES.BOUGHT,
+    visual: { shape: 'rect', color: '#1a1730', spriteId: 'void_reaver_glaive' },
+  },
+  umbral_striders: {
+    id: 'umbral_striders',
+    name: 'Umbral Striders',
+    type: 'legs',
+    arc: 0,
+    score: 7,
+    flavour: 'Steps woven from shadow leave no trail — and turn aside what follows.',
+    stats: { str: 0, dex: 0, con: 15, def: 15, spd: 30, int: 0, critChance: 0, critDamage: 0, statusResist: 10, enemyDamageReductionPercent: 8 },
+    moveIds: [],
+    price: null,
+    unlock: { dropOnly: true },
+    shopState: ITEM_STATES.BOUGHT,
+    visual: { shape: 'rect', color: '#2c2c54', spriteId: 'umbral_striders' },
+  },
+  eclipse_signet: {
+    id: 'eclipse_signet',
+    name: 'Eclipse Signet',
+    type: 'accessory',
+    arc: 0,
+    score: 7,
+    flavour: 'A sliver of the Vanguard\'s own eclipse, still hungry for light.',
+    stats: { str: 0, dex: 0, con: 0, def: 0, spd: 0, int: 20, critChance: 5, critDamage: 0, energy: 2 },
+    moveIds: ['eclipse_malice'],
+    price: null,
+    unlock: { dropOnly: true },
+    shopState: ITEM_STATES.BOUGHT,
+    visual: { shape: 'rect', color: '#6c2c8a', spriteId: 'eclipse_signet' },
+  },
 };
 
 export function getItemConfig(id) {

@@ -159,13 +159,19 @@ export class DamageCalculator {
   }
 
   static resolveAttack({ attacker, defender, move, forceHit = false }) {
-    // Vine Trap-style block: a melee attack against a defender with an
-    // active meleeBlockTurnsRemaining is negated entirely — no damage, no
-    // debuffs (the CombatManager debuff guard checks result.hit) — and
-    // consumes the block immediately, before the hit-chance roll even runs.
-    if (defender.meleeBlockTurnsRemaining > 0 && move.properties.includes('melee')) {
-      defender.meleeBlockTurnsRemaining = 0;
-      return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false, blocked: true };
+    // Stun-trap (Vine Trap, Dread Grasp): not a status effect (never shown
+    // as a buff icon — it's a plain Character flag, per design) — a
+    // defender with an active trap punishes the NEXT attack against them,
+    // of any kind, by stunning the attacker instead of letting the attack
+    // land at all: no damage, no debuffs, and the trap consumes itself the
+    // instant it triggers. Checked before the hit-chance roll — it can't
+    // be dodged or missed around, matching "no matter what type of attack
+    // you use, you can't avoid it."
+    if (defender.stunTrapActive) {
+      defender.stunTrapActive = false;
+      defender.stunTrapTurnsRemaining = 0;
+      attacker.addStatusEffect('stun', 1);
+      return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false, blocked: true, trapStunned: true };
     }
     if (!forceHit && !rollChance(this.calculateHitChance(attacker, defender))) {
       return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false };

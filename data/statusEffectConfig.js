@@ -106,4 +106,15 @@ export const STATUS_EFFECTS = {
     reflectChancePercentPerStack: 10,
     stacksDecrease: false,
   },
+  // Pure stack-tracker, same as stun/strength/defenceReduction above — real
+  // behavior (accuracy penalty, energy-steal chance) is hardcoded in
+  // Character.getStat() and CombatManager.resolveEnemyTurn().
+  darkness: {
+    id: 'darkness',
+    name: 'Darkness',
+    type: 'debuff',
+    icon: 'Dk',
+    color: '#2c2c54',
+    stacksDecrease: false,
+  },
 };

@@ -193,8 +193,13 @@ export class StatusEffectSystem {
       if (character.pendingReactiveHealTurnsRemaining <= 0) character.pendingReactiveHeal = null;
     }
 
-    if (character.meleeBlockTurnsRemaining > 0) {
-      character.meleeBlockTurnsRemaining -= 1;
+    // stunTrapTurnsRemaining of -1 (Dread Grasp) means no timed expiry —
+    // only a positive count (Vine Trap's 2) decays here; it fizzles
+    // quietly (no log line — it never triggered, so there's nothing to
+    // announce) if it runs out before landing on an attacker.
+    if (character.stunTrapActive && character.stunTrapTurnsRemaining > 0) {
+      character.stunTrapTurnsRemaining -= 1;
+      if (character.stunTrapTurnsRemaining <= 0) character.stunTrapActive = false;
     }
   }
 }

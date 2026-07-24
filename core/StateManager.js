@@ -414,10 +414,16 @@ export class StateManager {
     );
   }
 
-  /** Called by ExploreState the instant the player steps onto an enemy tile. */
-  startCombat(enemyId) {
+  /**
+   * Called by ExploreState the instant the player steps onto an enemy
+   * tile. `noScale` bypasses the normal per-floor stat multiplier — used
+   * for the hidden floor-5 boss, whose hand-authored stats are meant to
+   * mean exactly what they say regardless of which floor its arena
+   * happens to sit on.
+   */
+  startCombat(enemyId, { noScale = false } = {}) {
     const player = this.createPlayer();
-    const mult = enemyStatMultiplierForFloor(this.gameState.run.floor);
+    const mult = noScale ? 1 : enemyStatMultiplierForFloor(this.gameState.run.floor);
     const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
     const enemy = new Enemy(enemyId, { statMultipliers });
     // FightState has to be listening (via currentStateHandler) *before*
@@ -456,6 +462,10 @@ export class StateManager {
       const progress = this.gameState.run.achievementProgress;
       const config = getEnemyConfig(enemy.enemyId);
       const oneHitKill = enemy.playerHitCount === 1;
+
+      if (enemy.enemyId === 'vanguard_of_darkness') {
+        this.achievements.setComplete('defeat_vanguard_of_darkness');
+      }
 
       if (config?.species === 'skeleton') {
         this.achievements.recordProgress('kill_one_skeleton', 1);
