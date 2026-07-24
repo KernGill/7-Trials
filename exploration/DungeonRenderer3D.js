@@ -360,17 +360,31 @@ export class DungeonRenderer3D {
    * separate value that drifts out of sync with it.
    */
   _handleMouseMove(e) {
-    if (this._lookYaw === undefined) return;
     if (document.pointerLockElement !== this.canvas) return;
+    this.applyLookDelta(e.movementX, e.movementY);
+  }
+
+  /**
+   * Applies a raw (unscaled-by-sensitivity) yaw/pitch pixel delta to the
+   * free-look camera — the shared core behind both mouse-look
+   * (_handleMouseMove, fed Pointer Lock's movementX/Y) and touch-look
+   * (ExploreState's touch-drag handler on the right-side camera zone,
+   * which has no Pointer Lock to read relative deltas from and calls this
+   * directly with its own raw touch-move delta each frame). Also mirrors
+   * pitch into the Camera Angle/Height settings either way — see the old
+   * _handleMouseMove's comment on why.
+   */
+  applyLookDelta(dx, dy) {
+    if (this._lookYaw === undefined) return;
     if (this.app?.gameState?.paused) return;
     const settings = this.app?.gameState?.settings ?? {};
     const sensitivity = (settings.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100);
-    this._yawSnapTarget = undefined; // manual mouse input always overrides a pending arrow-key snap
-    this._lookYaw += e.movementX * MOUSE_YAW_SENSITIVITY * sensitivity;
-    // Inverted from a plain FPS look (moving the mouse DOWN raises pitch
-    // toward bird's-eye) — see MOUSE_PITCH_SENSITIVITY's comment.
+    this._yawSnapTarget = undefined; // manual look input always overrides a pending arrow-key snap
+    this._lookYaw += dx * MOUSE_YAW_SENSITIVITY * sensitivity;
+    // Inverted from a plain FPS look (moving down raises pitch toward
+    // bird's-eye) — see MOUSE_PITCH_SENSITIVITY's comment.
     this._lookPitchDeg = clamp(
-      this._lookPitchDeg + e.movementY * MOUSE_PITCH_SENSITIVITY * sensitivity,
+      this._lookPitchDeg + dy * MOUSE_PITCH_SENSITIVITY * sensitivity,
       CAMERA_ANGLE_MIN_DEG, CAMERA_ANGLE_MAX_DEG,
     );
     if (this.app?.gameState) {

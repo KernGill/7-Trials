@@ -22,6 +22,12 @@ const FACING_DELTAS = {
   west: { dx: -1, dy: 0 },
 };
 
+// Touch D-pad "hold to keep moving" repeat, mirroring how holding a
+// keyboard key auto-repeats keydown at the OS rate — an initial delay
+// before repeats start feels less twitchy than repeating immediately.
+const TOUCH_MOVE_REPEAT_DELAY_MS = 380;
+const TOUCH_MOVE_REPEAT_INTERVAL_MS = 220;
+
 const QTE_DIRECTIONS = ['up', 'down', 'left', 'right'];
 const QTE_DIRECTION_KEYS = {
   w: 'up', arrowup: 'up',
@@ -81,6 +87,19 @@ export class ExploreState {
         <div class="dungeon-grid"></div>
         <div class="floor-message"></div>
         <div class="descend-prompt"></div>
+        <div class="mobile-controls">
+          <div class="touch-dpad">
+            <button class="touch-dpad-btn" data-move="forward" aria-label="Forward">${arrowIconSVG('up')}</button>
+            <button class="touch-dpad-btn" data-move="backward" aria-label="Backward">${arrowIconSVG('down')}</button>
+            <button class="touch-dpad-btn" data-move="strafeLeft" aria-label="Strafe left">${arrowIconSVG('left')}</button>
+            <button class="touch-dpad-btn" data-move="strafeRight" aria-label="Strafe right">${arrowIconSVG('right')}</button>
+          </div>
+          <div class="touch-camera-zone"></div>
+          <div class="touch-turn-btns">
+            <button class="touch-turn-btn" data-turn="-1" aria-label="Turn left">${arrowIconSVG('left')}</button>
+            <button class="touch-turn-btn" data-turn="1" aria-label="Turn right">${arrowIconSVG('right')}</button>
+          </div>
+        </div>
       </div>`;
     this.els = {
       screen: root.querySelector('.explore-screen'),
@@ -106,6 +125,8 @@ export class ExploreState {
     const { playerPosition } = this.app.gameState.run;
     this.markNearbyExplored(playerPosition.x, playerPosition.y);
     this.app.input.on('keydown', this._onKeydown);
+    this._touchMoveIntervals = new Set();
+    this.mountTouchControls();
     this.renderHUD();
     // Re-entering explore after combat (see handleTileEffect's ENEMY case,
     // which captures this before app.startCombat() tears the old renderer
@@ -137,10 +158,92 @@ export class ExploreState {
 
   exit() {
     this.app.input.off('keydown', this._onKeydown);
+    this._touchMoveIntervals?.forEach((cancel) => cancel());
+    this._touchMoveIntervals?.clear();
     this.renderer3d?.unmount();
     this.minimap?.unmount();
     this.tooltip?.destroy();
     this.pause.unmount();
+  }
+
+  /** True while grid movement / camera-turn / look input should actually take effect — mirrors handleKeydown's own guard. */
+  canAct() {
+    return !this.app.gameState.paused && !this.resultOpen && !this.qte;
+  }
+
+  /**
+   * Wires the on-screen touch controls (see the .mobile-controls markup in
+   * enter()) — a left-side 4-way D-pad for grid movement (hold-to-repeat,
+   * mirroring a held keyboard key's auto-repeat), 2 right-side quick-turn
+   * buttons (single-tap 90° snaps, mirroring the left/right arrow keys),
+   * and a right-side drag zone that feeds raw touch-move deltas straight
+   * into DungeonRenderer3D.applyLookDelta — the touch equivalent of
+   * mouse-look, since touch has no Pointer Lock relative-movement deltas
+   * to read. CSS (`@media (hover:none) and (pointer:coarse)`) hides all of
+   * this on mouse/trackpad devices, so listeners here are harmless no-ops
+   * on desktop rather than needing a JS feature-detect gate too.
+   */
+  mountTouchControls() {
+    const root = this.root;
+    root.querySelectorAll('.touch-dpad-btn').forEach((btn) => {
+      const action = btn.dataset.move;
+      const fire = () => { if (this.canAct()) this.moveRelative(action); };
+      // Fire once immediately, then after an initial delay (feels less
+      // twitchy than repeating right away) settle into a steady repeat
+      // rate until the finger lifts — mirrors a held keyboard key's
+      // native auto-repeat. `cancel` (rather than a raw timer id) is what
+      // gets tracked/cleared, since it spans a timeout-then-interval
+      // handoff, not a single timer.
+      let delayId = null;
+      let repeatId = null;
+      const cancel = () => {
+        if (delayId !== null) { clearTimeout(delayId); delayId = null; }
+        if (repeatId !== null) { clearInterval(repeatId); repeatId = null; }
+        this._touchMoveIntervals.delete(cancel);
+      };
+      const start = (e) => {
+        e.preventDefault();
+        fire();
+        delayId = setTimeout(() => {
+          delayId = null;
+          repeatId = setInterval(fire, TOUCH_MOVE_REPEAT_INTERVAL_MS);
+        }, TOUCH_MOVE_REPEAT_DELAY_MS);
+        this._touchMoveIntervals.add(cancel);
+      };
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', cancel);
+      btn.addEventListener('touchcancel', cancel);
+    });
+
+    root.querySelectorAll('.touch-turn-btn').forEach((btn) => {
+      const steps = Number(btn.dataset.turn);
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (this.canAct()) this.turnPlayer(steps);
+      }, { passive: false });
+    });
+
+    const zone = root.querySelector('.touch-camera-zone');
+    let lastX = null;
+    let lastY = null;
+    zone?.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      lastX = t.clientX;
+      lastY = t.clientY;
+    }, { passive: true });
+    zone?.addEventListener('touchmove', (e) => {
+      if (lastX === null || !this.canAct()) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const dx = t.clientX - lastX;
+      const dy = t.clientY - lastY;
+      lastX = t.clientX;
+      lastY = t.clientY;
+      this.renderer3d?.applyLookDelta(dx, dy);
+    }, { passive: false });
+    const endTouch = () => { lastX = null; lastY = null; };
+    zone?.addEventListener('touchend', endTouch);
+    zone?.addEventListener('touchcancel', endTouch);
   }
 
   onPauseToggled() {

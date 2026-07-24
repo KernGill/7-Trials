@@ -72,8 +72,8 @@ select {
    children need z-index:1 to sit above them. */
 .home-screen {
   min-height: 100vh; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 32px;
-  position: relative; overflow: hidden; background: #050506;
+  align-items: center; justify-content: center; gap: clamp(12px, 4vh, 32px);
+  position: relative; overflow: hidden; background: #050506; padding: 16px;
 }
 .home-screen::before,
 .home-screen::after {
@@ -104,18 +104,18 @@ select {
 }
 .home-title, .home-grid, .home-save-row { position: relative; z-index: 1; }
 .home-title {
-  color: #e9a15e; letter-spacing: 6px; font-size: 42px; margin: 0;
-  font-family: var(--font-fantasy); font-weight: 700;
+  color: #e9a15e; letter-spacing: clamp(2px, 1vw, 6px); font-size: clamp(24px, 6vw, 42px); margin: 0;
+  font-family: var(--font-fantasy); font-weight: 700; text-align: center;
   text-shadow: 0 0 18px rgba(255, 138, 92, 0.45), 0 3px 3px rgba(0,0,0,0.9);
 }
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(3, 200px);
-  grid-template-rows: repeat(3, 120px);
-  gap: 16px;
+  grid-template-columns: repeat(3, clamp(90px, 24vw, 200px));
+  grid-template-rows: repeat(3, clamp(60px, 15vh, 120px));
+  gap: clamp(8px, 2.5vw, 16px);
 }
 .home-tile {
-  font-size: 16px; letter-spacing: 2px;
+  font-size: clamp(11px, 2.4vw, 16px); letter-spacing: clamp(1px, 0.4vw, 2px);
   font-family: var(--font-fantasy);
   background: linear-gradient(180deg, #2b2320, #17130f);
   border: 2px solid #6b5a45; border-radius: 6px; color: #e9dcc8;
@@ -129,7 +129,7 @@ select {
 }
 .home-tile-battle {
   grid-column: 2; grid-row: 1 / span 3;
-  font-size: 22px; color: #fff; border-color: #7a6248;
+  font-size: clamp(14px, 3.6vw, 22px); color: #fff; border-color: #7a6248;
   background:
     linear-gradient(180deg, rgba(20,10,6,0.35), rgba(5,2,1,0.75)),
     url('assets/sprites/ui/battle_stairs.svg');
@@ -140,15 +140,24 @@ select {
 .home-tile-battle.home-tile-battle:hover:not(:disabled) {
   border-color: #e94560;
   box-shadow: 0 14px 26px rgba(0,0,0,0.75), 0 0 22px rgba(233,69,96,0.55);
+  /* Re-declares the SAME value as the base rule below (not a tweaked one)
+     — needed to win the cascade over the generic .home-tile:hover flat
+     background (equal specificity, this rule wins on source order), but
+     an identical value means the browser never has to interpolate/repaint
+     the layered gradient+SVG, which is what caused the hover glitch. */
   background:
-    linear-gradient(180deg, rgba(30,14,8,0.3), rgba(5,2,1,0.65)),
+    linear-gradient(180deg, rgba(20,10,6,0.35), rgba(5,2,1,0.75)),
     url('assets/sprites/ui/battle_stairs.svg');
   background-size: cover; background-position: center;
 }
 /* Shop / Bestiary / Locker / Settings — icon-topped tiles */
 .home-tile-icon { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 8px 12px; }
 .home-tile-icon-img {
-  width: 60px; height: 60px; background-repeat: no-repeat; background-position: center; background-size: contain;
+  /* min(vw, vh) rather than plain vw — on a wide-but-short viewport (e.g.
+     a phone in landscape) the row height is capped by vh, so the icon
+     must shrink with whichever dimension is actually tighter or it
+     overflows a short row. */
+  width: clamp(22px, min(7vw, 8vh), 60px); height: clamp(22px, min(7vw, 8vh), 60px); background-repeat: no-repeat; background-position: center; background-size: contain;
   filter: drop-shadow(0 5px 6px rgba(0,0,0,0.75));
   transition: transform 0.18s ease, filter 0.18s ease;
 }
@@ -156,7 +165,7 @@ select {
   transform: translateY(-7px) scale(1.14);
   filter: drop-shadow(0 10px 10px rgba(0,0,0,0.8)) drop-shadow(0 0 8px rgba(233,69,96,0.5));
 }
-.home-tile-label { font-size: 14px; letter-spacing: 2px; }
+.home-tile-label { font-size: clamp(10px, 2vw, 14px); letter-spacing: 1px; }
 .home-tile-icon[data-a="shop"] .home-tile-icon-img { background-image: url('assets/sprites/ui/shop_coins.png'); }
 .home-tile-icon[data-a="bestiary"] .home-tile-icon-img { background-image: url('assets/sprites/ui/bestiary_rock.png'); }
 .home-tile-icon[data-a="locker"] .home-tile-icon-img { background-image: url('assets/sprites/ui/locker_satchel.png'); }
@@ -164,7 +173,7 @@ select {
   /* Stretched taller than its native square crop per user request — reads
      more like a hanging curtain than a folded cloth at this height. */
   background-image: url('assets/sprites/ui/settings_curtain.png');
-  height: 80px; background-size: 100% 100%;
+  height: clamp(28px, min(9vw, 10.5vh), 80px); background-size: 100% 100%;
 }
 .home-save-row { display: flex; gap: 12px; }
 .save-btn { padding: 12px 24px; font-size: 13px; color: #888; border-color: #444; font-family: var(--font-fantasy); }
@@ -216,7 +225,7 @@ select {
 }
 .result-box {
   display: flex; flex-direction: column; gap: 10px;
-  width: 340px; padding: 24px; background: #16213e;
+  width: 340px; max-width: 92vw; padding: 24px; background: #16213e;
   border: 1px solid #f1c40f; border-radius: 8px;
 }
 .result-box h2 { margin: 0 0 4px; text-align: center; color: #f1c40f; letter-spacing: 1px; font-size: 18px; }
@@ -370,7 +379,8 @@ select {
 }
 .pause-box {
   display: flex; flex-direction: column; gap: 12px; align-items: stretch;
-  width: 320px; padding: 24px; background: #16213e; border: 1px solid #e94560; border-radius: 8px;
+  width: 320px; max-width: 92vw; padding: 24px; background: #16213e; border: 1px solid #e94560; border-radius: 8px;
+  max-height: 92vh; overflow-y: auto;
 }
 .pause-box h2 { margin: 0 0 8px; text-align: center; color: #fff; letter-spacing: 2px; }
 .pause-box button { padding: 12px; font-size: 13px; }
@@ -549,3 +559,76 @@ select {
 .settings-body { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 14px 18px; }
 .brightness-slider { width: 200px; }
+
+/* ---------------- Mobile touch controls (Explore) ---------------- */
+/* Shown only on coarse-pointer (touch) devices — see the (hover:none)
+   media query below — never on mouse/trackpad, even on a narrow desktop
+   window. Left half of the screen: a 4-way D-pad for grid movement,
+   independent of camera direction. Right half: 2 quick-turn buttons plus
+   a drag/swipe zone (the whole right half) that feeds raw deltas into
+   DungeonRenderer3D.applyLookDelta — the touch equivalent of mouse-look,
+   since Pointer Lock's relative-movement deltas aren't reliably available
+   on touch. */
+.mobile-controls { display: none; }
+.touch-dpad {
+  position: absolute; left: 18px; bottom: 22px; z-index: 8;
+  display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px);
+  gap: 4px; pointer-events: none;
+}
+.touch-dpad-btn {
+  pointer-events: auto; grid-column: 2; grid-row: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(11, 12, 16, 0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
+  color: #eee; touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.touch-dpad-btn:active { background: rgba(233, 69, 96, 0.55); border-color: #e94560; }
+.touch-dpad-btn[data-move="forward"] { grid-column: 2; grid-row: 1; }
+.touch-dpad-btn[data-move="backward"] { grid-column: 2; grid-row: 3; }
+.touch-dpad-btn[data-move="strafeLeft"] { grid-column: 1; grid-row: 2; }
+.touch-dpad-btn[data-move="strafeRight"] { grid-column: 3; grid-row: 2; }
+.touch-camera-zone {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 45%; z-index: 6;
+  touch-action: none;
+}
+.touch-turn-btns {
+  position: absolute; right: 18px; bottom: 22px; z-index: 8;
+  display: flex; gap: 10px; pointer-events: none;
+}
+.touch-turn-btn {
+  pointer-events: auto; width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(11, 12, 16, 0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
+  color: #eee; touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.touch-turn-btn:active { background: rgba(233, 69, 96, 0.55); border-color: #e94560; }
+
+@media (hover: none) and (pointer: coarse) {
+  .mobile-controls { display: block; }
+  .mouselook-hint { display: none; } /* pointer-lock hint is meaningless on touch */
+}
+
+/* ---------------- Mobile landscape enforcement ---------------- */
+.orientation-lock {
+  display: none; position: fixed; inset: 0; z-index: 9999;
+  background: #050506; color: #e9dcc8; text-align: center;
+  align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+  font-family: var(--font-fantasy); padding: 24px;
+}
+.orientation-lock-icon { font-size: 48px; }
+.orientation-lock p { max-width: 320px; font-size: 15px; letter-spacing: 0.5px; line-height: 1.5; }
+@media (max-width: 900px) and (orientation: portrait) {
+  .orientation-lock { display: flex; }
+  #screen { display: none; }
+}
+
+/* ---------------- General small-viewport tightening ---------------- */
+@media (max-width: 700px), (max-height: 480px) {
+  .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen {
+    padding: 56px 16px 24px;
+  }
+  .explore-hud { gap: 12px; font-size: 11px; padding: 6px 10px; flex-wrap: wrap; max-width: 60vw; }
+  .fight-screen { padding: 12px; gap: 12px; }
+  .arena { padding: 14px; }
+  .home-tile-icon { padding: 4px 4px 6px; gap: 3px; }
+  .home-screen { gap: 8px; padding: 8px; }
+}
