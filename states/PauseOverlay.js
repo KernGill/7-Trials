@@ -1,6 +1,8 @@
 import { clamp } from '../utils/MathUtils.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getItemConfig } from '../data/items.js';
+import { getAllAchievements } from '../data/achievements.js';
+import { achievementCardHTML } from './AchievementsState.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
@@ -51,6 +53,7 @@ export class PauseOverlay {
     if (view === 'loadout') return this.renderLoadout();
     if (view === 'cards') return this.renderCards();
     if (view === 'consumables') return this.renderConsumables();
+    if (view === 'achievements') return this.renderAchievements();
     return this.renderMenu();
   }
 
@@ -63,6 +66,7 @@ export class PauseOverlay {
         <button data-a="loadout">${t('pause.view_loadout')}</button>
         <button data-a="cards">${t('pause.view_cards')}</button>
         ${this.allowConsumables ? `<button data-a="consumables">${t('pause.use_consumables')}</button>` : ''}
+        <button data-a="encyclopedia">${t('pause.encyclopedia')}</button>
         <button data-a="settings">${t('pause.open_settings')}</button>
         <button data-a="abandon" ${this.canAbandon ? '' : 'disabled'}>
           ${this.canAbandon ? t('pause.abandon_run') : t('pause.cannot_leave')}
@@ -71,6 +75,7 @@ export class PauseOverlay {
     this.el.querySelector('[data-a="resume"]').addEventListener('click', () => app.togglePause());
     this.el.querySelector('[data-a="loadout"]').addEventListener('click', () => { app.gameState.pauseView = 'loadout'; this.render(); });
     this.el.querySelector('[data-a="cards"]').addEventListener('click', () => { app.gameState.pauseView = 'cards'; this.render(); });
+    this.el.querySelector('[data-a="encyclopedia"]').addEventListener('click', () => { app.gameState.pauseView = 'achievements'; this.render(); });
     this.el.querySelector('[data-a="settings"]').addEventListener('click', () => { app.gameState.pauseView = 'settings'; this.render(); });
     if (this.allowConsumables) {
       this.el.querySelector('[data-a="consumables"]').addEventListener('click', () => { app.gameState.pauseView = 'consumables'; this.render(); });
@@ -274,6 +279,28 @@ export class PauseOverlay {
         <button data-a="back">${t('common.back')}</button>
       </div>`;
 
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
+  }
+
+  /**
+   * Same achievement cards as the full-screen AchievementsState (shared
+   * achievementCardHTML — see that file), rendered in-place as a pause
+   * sub-view instead of a full state switch, so checking progress
+   * mid-run (per user request, chiefly for Thief's Instinct's live
+   * per-floor streak) never tears down the active Explore/Fight screen
+   * underneath. Deliberately doesn't offer a Bestiary shortcut here the
+   * way Home's Encyclopedia does — that's a full-screen state with no
+   * "resume where I paused" path back, which would risk stranding an
+   * active run.
+   */
+  renderAchievements() {
+    const { app } = this;
+    this.el.innerHTML = `
+      <div class="pause-box achievements-box">
+        <h2>${t('achievements.title')}</h2>
+        <div class="achievements-list">${getAllAchievements().map((config) => achievementCardHTML(app, config)).join('')}</div>
+        <button data-a="back">${t('common.back')}</button>
+      </div>`;
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 }

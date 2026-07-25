@@ -218,6 +218,21 @@ const HIDDEN_RESERVED_TYPE = 'hidden_reserved';
  * entry point (so generate() can bias stairs placement toward it — "near
  * the stairs") or null if a fit genuinely isn't found (should be
  * essentially never, but must not throw either way).
+ *
+ * Roughly midway along the path, one tile is reserved as a GATE (per user
+ * request): it finalizes as an actual WALL, sealing the hallway's back
+ * half — including the whole arena — behind it until
+ * ExploreState.checkHiddenGateUnlock() finds the floor fully cleared
+ * (every regular enemy dead, every locked door/chest/temporal chest
+ * looted) and swaps it to FLOOR at runtime. A player who wanders in early
+ * just finds a corridor that dead-ends at a wall, exactly like any other
+ * unlucky branch of the maze — nothing marks it as special. Tiles are
+ * tagged `meta.hiddenPastGate` from the gate onward (gate tile itself
+ * excluded, so the wall that makes it LOOK like a dead end is visible on
+ * the minimap same as any other explored wall) — Minimap.js skips drawing
+ * anything with that flag, so the secret half never appears on the map
+ * even once explored, while the harmless front stub reads as normal
+ * explored corridor per user request.
  */
 function placeHiddenArena(at, width, height) {
   const inBounds = (x, y) => x >= 1 && y >= 1 && x <= width - 2 && y <= height - 2;
@@ -286,11 +301,19 @@ function placeHiddenArena(at, width, height) {
     }
     if (!roomFits) continue;
 
-    path.forEach((p) => { const tile = at(p.x, p.y); tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; });
-    roomCells.forEach((tile) => { tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; });
+    const gateIndex = Math.floor(path.length / 2);
+    path.forEach((p, i) => {
+      const tile = at(p.x, p.y);
+      tile.type = HIDDEN_RESERVED_TYPE;
+      tile.meta.hidden = true;
+      if (i === gateIndex) tile.meta.isHiddenGate = true;
+      else if (i > gateIndex) tile.meta.hiddenPastGate = true;
+    });
+    roomCells.forEach((tile) => { tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; tile.meta.hiddenPastGate = true; });
     const centerTile = at(centerX, centerY);
     centerTile.type = HIDDEN_RESERVED_TYPE;
     centerTile.meta.hidden = true;
+    centerTile.meta.hiddenPastGate = true;
     centerTile.meta.enemySpawn = true;
     centerTile.meta.isHiddenCenter = true;
     return { x: startX, y: startY };
@@ -302,7 +325,8 @@ function placeHiddenArena(at, width, height) {
 function finalizeHiddenArena(tiles) {
   tiles.forEach((tile) => {
     if (tile.type !== HIDDEN_RESERVED_TYPE) return;
-    tile.type = tile.meta.isHiddenCenter ? TILE_TYPES.HIDDEN_ENEMY : TILE_TYPES.FLOOR;
+    if (tile.meta.isHiddenGate) tile.type = TILE_TYPES.WALL;
+    else tile.type = tile.meta.isHiddenCenter ? TILE_TYPES.HIDDEN_ENEMY : TILE_TYPES.FLOOR;
   });
 }
 

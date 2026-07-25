@@ -516,17 +516,28 @@ export class ExploreState {
         break;
       }
       case TILE_TYPES.HIDDEN_ENEMY: {
-        if (tile.meta.resolved) break; // one-shot, mirrors the ENEMY case
-        tile.meta.resolved = true;
-        tile.type = TILE_TYPES.FLOOR;
+        // One-shot, mirrors the ENEMY case — `triggering` additionally
+        // guards the shake/darken window itself (stepping off and back on
+        // before the timeout below fires must not double-schedule combat).
+        if (tile.meta.resolved || tile.meta.triggering) break;
+        tile.meta.triggering = true;
         run.savedHealth = this.player.currentHealth;
         this._pendingMouseLookRestore = this.renderer3d?.isPointerLocked() ?? false;
         this.renderer3d?.triggerShake(HIDDEN_BOSS_SHAKE_MS, HIDDEN_BOSS_SHAKE_MAGNITUDE);
         this.els.screen.classList.add('screen-darken');
         // The shake+darken plays out over the dungeon view itself, so the
         // actual combat transition (which tears the renderer down) is
-        // deliberately deferred a beat rather than firing immediately.
-        setTimeout(() => app.startCombat('vanguard_of_darkness', { noScale: true }), HIDDEN_BOSS_TRANSITION_MS);
+        // deliberately deferred a beat rather than firing immediately —
+        // unlike the ENEMY case (which flips its tile the instant combat
+        // starts, in the same synchronous tick), the flip here is held off
+        // until this timeout actually fires, so a refresh during this
+        // window finds the encounter still fully intact on disk (nothing
+        // above this point ever gets saved), exactly like a regular enemy.
+        setTimeout(() => {
+          tile.meta.resolved = true;
+          tile.type = TILE_TYPES.FLOOR;
+          app.startCombat('vanguard_of_darkness', { noScale: true });
+        }, HIDDEN_BOSS_TRANSITION_MS);
         break;
       }
       default:
@@ -610,12 +621,31 @@ export class ExploreState {
     });
   }
 
+  /**
+   * Live per-floor streak toward "Thief's Instinct" (see the shared
+   * achievementCardHTML's liveThiefProgressHTML) — deliberately NOT the
+   * permanent AchievementSystem progress field (that's cross-run/capped at
+   * target:1, wrong shape for "how far through THIS floor's events am I
+   * right now"). Incremented by a success on floor 3+ (floors below that
+   * never count, matching the achievement's own gate); reset to 0 by any
+   * failure, and separately by applyCardPick on every floor change, since
+   * a partial streak from a floor already left behind can never complete.
+   */
+  updateThiefStreak(success) {
+    const run = this.app.gameState.run;
+    run.achievementProgress = run.achievementProgress ?? {};
+    if (success && run.floor >= 3) run.achievementProgress.thiefStreak = (run.achievementProgress.thiefStreak ?? 0) + 1;
+    else if (!success) run.achievementProgress.thiefStreak = 0;
+  }
+
   applyCardPick(picked) {
     const { app } = this;
     const run = app.gameState.run;
     run.cards.push(picked);
     run.floor += 1;
     run.savedHealth = this.player.currentHealth;
+    run.achievementProgress = run.achievementProgress ?? {};
+    run.achievementProgress.thiefStreak = 0;
     app.generateFloor();
     app.gameState.addLog(t('log.descended', { n: run.floor }));
     this.player = app.createPlayer();
@@ -736,6 +766,7 @@ export class ExploreState {
     } else {
       this.showResult(t('explore.locked_room_failed'), [t('explore.lock_held')]);
     }
+    this.updateThiefStreak(success);
     this.checkFloorFullyLooted();
     this.app.saveSystem.save();
   }
@@ -763,6 +794,7 @@ export class ExploreState {
       run.savedHealth = this.player.currentHealth;
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
     }
+    this.updateThiefStreak(success);
     this.checkFloorFullyLooted();
     this.app.saveSystem.save();
     this.renderHUD();
@@ -812,6 +844,7 @@ export class ExploreState {
       run.savedHealth = this.player.currentHealth;
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: dealt })]);
     }
+    this.updateThiefStreak(success);
     this.checkFloorFullyLooted();
     this.app.saveSystem.save();
     this.renderHUD();
@@ -866,8 +899,34 @@ export class ExploreState {
     });
   }
 
+  /**
+   * Floor 5 only: the hidden hallway's mid-point gate (see
+   * DungeonGenerator.placeHiddenArena) stays a plain WALL — reading as an
+   * ordinary dead end — until the floor is genuinely finished: every
+   * regular enemy dead and every locked door/chest/temporal chest looted.
+   * Only then does it open, per user request, so finding the "dead end"
+   * early doesn't shortcut clearing the floor. Self-guards on the gate
+   * tile's own type, so it's cheap and safe to call from every renderHUD().
+   */
+  checkHiddenGateUnlock() {
+    const run = this.app.gameState.run;
+    if (run.floor !== 5) return;
+    const gateTile = (run.dungeon?.tiles ?? []).find((tile) => tile.meta.isHiddenGate);
+    if (!gateTile || gateTile.type !== TILE_TYPES.WALL) return;
+    if (run.enemiesRemaining > 0 || this.getRemainingEventCounts().total > 0) return;
+    gateTile.type = TILE_TYPES.FLOOR;
+    run.floorMessage = { text: t('explore.hidden_gate_opened'), timer: 3 };
+    // Bypasses the memoized syncDungeon3D() (which no-ops on an unchanged
+    // dungeon reference) — this mutates a tile in place rather than
+    // swapping in a new floor, so the renderer needs an explicit rebuild.
+    this.renderer3d?.setDungeon(run.dungeon);
+    this._synced3DDungeon = run.dungeon;
+    this.app.saveSystem.save();
+  }
+
   renderHUD() {
     const run = this.app.gameState.run;
+    this.checkHiddenGateUnlock();
     const dungeon = run.dungeon;
     const counts = this.getRemainingEventCounts();
     const currentTile = this.getTileAt(run.playerPosition.x, run.playerPosition.y);

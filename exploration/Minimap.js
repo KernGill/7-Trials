@@ -97,7 +97,11 @@ export class Minimap {
     ctx.fillStyle = UNKNOWN_COLOR;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     dungeon.tiles.forEach((tile) => {
-      if (!tile.explored) return;
+      // meta.hiddenPastGate (floor-5 secret hallway, past its blocking
+      // gate, plus the arena) never draws here — per user request, the
+      // map should only ever show the harmless dead-end-looking stub
+      // before the gate, never the secret half, even once explored.
+      if (!tile.explored || tile.meta?.hiddenPastGate) return;
       ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
@@ -148,7 +152,7 @@ export class Minimap {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     dungeon.tiles.forEach((tile) => {
-      if (!tile.explored) return;
+      if (!tile.explored || tile.meta?.hiddenPastGate) return;
       ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * cellSize, tile.y * cellSize, cellSize, cellSize);
     });

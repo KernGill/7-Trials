@@ -535,7 +535,15 @@ export class StateManager {
     });
 
     this.gameState.run.savedHealth = this.combatManager.player.currentHealth;
-    this.gameState.run.enemiesRemaining -= 1;
+    // The Vanguard was never one of the floor's regular ENEMY tiles (its
+    // own separate HIDDEN_ENEMY tile isn't counted in dungeon.enemiesRemaining
+    // — see DungeonGenerator) — decrementing here for it too would desync
+    // the HUD counter from the true regular-enemy count, and could let
+    // "Enemies remaining" hit 0 (enabling descend / the hidden-gate unlock
+    // check) before the floor's actual enemies are cleared.
+    if (!enemies.some((e) => e.enemyId === 'vanguard_of_darkness')) {
+      this.gameState.run.enemiesRemaining -= 1;
+    }
     this.gameState.run.explorationBuffs = [];
     this.gameState.addLog(t('log.battle_won'));
 
