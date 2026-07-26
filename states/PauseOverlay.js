@@ -1,4 +1,5 @@
 import { clamp } from '../utils/MathUtils.js';
+import { GAME_STATES } from '../utils/Constants.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getItemConfig } from '../data/items.js';
 import { getAllAchievements } from '../data/achievements.js';
@@ -53,6 +54,7 @@ export class PauseOverlay {
     if (view === 'loadout') return this.renderLoadout();
     if (view === 'cards') return this.renderCards();
     if (view === 'consumables') return this.renderConsumables();
+    if (view === 'encyclopedia') return this.renderEncyclopedia();
     if (view === 'achievements') return this.renderAchievements();
     return this.renderMenu();
   }
@@ -75,7 +77,7 @@ export class PauseOverlay {
     this.el.querySelector('[data-a="resume"]').addEventListener('click', () => app.togglePause());
     this.el.querySelector('[data-a="loadout"]').addEventListener('click', () => { app.gameState.pauseView = 'loadout'; this.render(); });
     this.el.querySelector('[data-a="cards"]').addEventListener('click', () => { app.gameState.pauseView = 'cards'; this.render(); });
-    this.el.querySelector('[data-a="encyclopedia"]').addEventListener('click', () => { app.gameState.pauseView = 'achievements'; this.render(); });
+    this.el.querySelector('[data-a="encyclopedia"]').addEventListener('click', () => { app.gameState.pauseView = 'encyclopedia'; this.render(); });
     this.el.querySelector('[data-a="settings"]').addEventListener('click', () => { app.gameState.pauseView = 'settings'; this.render(); });
     if (this.allowConsumables) {
       this.el.querySelector('[data-a="consumables"]').addEventListener('click', () => { app.gameState.pauseView = 'consumables'; this.render(); });
@@ -283,15 +285,42 @@ export class PauseOverlay {
   }
 
   /**
+   * Mirrors Home's Encyclopedia hub (Bestiary/Achievements), but Bestiary
+   * is only offered when paused from Explore, not Fight: it's a
+   * full-screen state switch (see below), and returning cleanly into a
+   * fight-in-progress isn't something this codebase's FightState
+   * supports — Explore has no such risk, so it's fine there. Achievements
+   * always stays available since it's a same-DOM sub-view, never a state
+   * switch.
+   */
+  renderEncyclopedia() {
+    const { app } = this;
+    this.el.innerHTML = `
+      <div class="pause-box">
+        <h2>${t('encyclopedia.title')}</h2>
+        ${this.canAbandon ? `<button data-a="bestiary">${t('encyclopedia.bestiary')}</button>` : ''}
+        <button data-a="achievements">${t('encyclopedia.achievements')}</button>
+        <button data-a="back">${t('common.back')}</button>
+      </div>`;
+    if (this.canAbandon) {
+      this.el.querySelector('[data-a="bestiary"]').addEventListener('click', () => {
+        // The one deliberate exception to "every state's back button goes
+        // Home" — see StateManager.resumeFromBestiary for the return trip.
+        app.returnStateAfterBestiary = app.gameState.currentState;
+        app.setState(GAME_STATES.BESTIARY);
+      });
+    }
+    this.el.querySelector('[data-a="achievements"]').addEventListener('click', () => { app.gameState.pauseView = 'achievements'; this.render(); });
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
+  }
+
+  /**
    * Same achievement cards as the full-screen AchievementsState (shared
    * achievementCardHTML — see that file), rendered in-place as a pause
    * sub-view instead of a full state switch, so checking progress
    * mid-run (per user request, chiefly for Thief's Instinct's live
    * per-floor streak) never tears down the active Explore/Fight screen
-   * underneath. Deliberately doesn't offer a Bestiary shortcut here the
-   * way Home's Encyclopedia does — that's a full-screen state with no
-   * "resume where I paused" path back, which would risk stranding an
-   * active run.
+   * underneath.
    */
   renderAchievements() {
     const { app } = this;
@@ -301,6 +330,6 @@ export class PauseOverlay {
         <div class="achievements-list">${getAllAchievements().map((config) => achievementCardHTML(app, config)).join('')}</div>
         <button data-a="back">${t('common.back')}</button>
       </div>`;
-    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'encyclopedia'; this.render(); });
   }
 }

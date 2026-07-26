@@ -30,9 +30,15 @@ export class BestiaryState {
     this.arcIndex = 0;
     this.openEnemyId = null;
     this.tooltip = new TooltipManager();
+    // PauseOverlay's Encyclopedia hub can reach Bestiary mid-run (Explore
+    // only — see PauseOverlay.renderEncyclopedia) via a real state switch,
+    // the one deliberate exception to every other screen's flat
+    // "back always goes Home" rule. app.returnStateAfterBestiary being set
+    // is how this state tells the two cases apart, entirely at render time.
+    const fromPause = !!this.app.returnStateAfterBestiary;
     root.innerHTML = `
       <div class="bestiary-screen">
-        <button class="back-btn">${t('common.return_home')}</button>
+        <button class="back-btn">${fromPause ? t('common.back') : t('common.return_home')}</button>
         <h1>${t('bestiary.title')}</h1>
         <div class="bestiary-panel">
           <div class="bestiary-arc-header"></div>
@@ -44,7 +50,10 @@ export class BestiaryState {
           <button class="arc-nav-btn" data-nav="next">${t('bestiary.next')}</button>
         </div>
       </div>`;
-    root.querySelector('.back-btn').addEventListener('click', () => this.app.setState(GAME_STATES.HOME));
+    root.querySelector('.back-btn').addEventListener('click', () => {
+      if (fromPause) this.app.resumeFromBestiary();
+      else this.app.setState(GAME_STATES.HOME);
+    });
     this.els = {
       arcHeader: root.querySelector('.bestiary-arc-header'),
       grid: root.querySelector('.bestiary-grid'),

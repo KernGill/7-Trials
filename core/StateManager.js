@@ -63,6 +63,12 @@ export class StateManager {
     this.bestiary = new BestiarySystem(this.gameState);
     this.saveSystem = new SaveSystem(this.gameState);
     this.screenRoot = screenRoot;
+    // Set only by PauseOverlay's Bestiary shortcut, right before it
+    // switches away — see resumeFromBestiary() for the one deliberate
+    // exception to every-other-state's "back always goes Home" rule.
+    // Plain instance field (not on gameState): purely a same-session
+    // navigation breadcrumb, never meant to be part of a save snapshot.
+    this.returnStateAfterBestiary = null;
 
     this.states = {
       [GAME_STATES.HOME]: new HomeState(this),
@@ -215,6 +221,26 @@ export class StateManager {
     this.gameState.setState(stateId);
     this.screenRoot.innerHTML = '';
     this.currentStateHandler.enter(this.screenRoot);
+  }
+
+  /**
+   * Undoes the detour PauseOverlay's Bestiary shortcut took — Bestiary is
+   * a normal full-screen state with no notion of "the paused run I came
+   * from", so this is what BestiaryState's back button calls instead of
+   * setState(HOME) whenever returnStateAfterBestiary is set. `paused`
+   * itself was never cleared by the trip out (setState/exit() don't touch
+   * it), so re-entering the run just needs an explicit onPauseToggled()
+   * call to re-show the pause menu on top of it — starting back at the
+   * root menu view rather than trying to restore exactly which pause
+   * sub-view was open.
+   */
+  resumeFromBestiary() {
+    const target = this.returnStateAfterBestiary;
+    this.returnStateAfterBestiary = null;
+    if (!target) { this.setState(GAME_STATES.HOME); return; }
+    this.setState(target);
+    this.gameState.pauseView = 'menu';
+    this.currentStateHandler.onPauseToggled?.();
   }
 
   /**
