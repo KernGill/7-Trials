@@ -581,9 +581,7 @@ export class FightState {
     }
     if (character.pendingDamageReduction) {
       const dr = character.pendingDamageReduction;
-      const label = dr.percent
-        ? `${t('fight.defended_percent', { percent: dr.percent })}${dr.hits ? t('fight.hits_left', { n: dr.hits }) : ''}`
-        : t('fight.defended_flat', { amount: dr.flat });
+      const label = `${t('fight.defended_percent', { percent: dr.percent })}${dr.hits ? t('fight.hits_left', { n: dr.hits }) : ''}`;
       icons.push(`
         <span class="status-icon defence" style="background:#3498db" title="${label}">
           DEF
@@ -621,6 +619,14 @@ export class FightState {
     const { app } = this;
     const combat = app.combatManager;
     const panel = this.els.panel;
+
+    // Every branch below replaces panel.innerHTML — which, if the mouse
+    // is still over a move button it just clicked (the common case:
+    // playerUseMove() then renderCategoryPanel() in the same handler),
+    // yanks that node out from under the cursor with no mouseleave ever
+    // firing for it. Without this, its hover tooltip hangs around,
+    // unhidden, through the whole turn's animations.
+    this.tooltip?.hide();
 
     if (app.gameState.paused || combat.phase !== COMBAT_PHASE.PLAYER_TURN ||
         this.playing || this.playbackQueue.length) {

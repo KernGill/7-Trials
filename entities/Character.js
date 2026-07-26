@@ -223,7 +223,6 @@ export class Character {
     if (source && this.pendingDamageReduction?.includesStatus) {
       const dr = this.pendingDamageReduction;
       if (dr.percent) actual = Math.max(0, Math.round(actual * (1 - dr.percent / 100)));
-      if (dr.flat) actual = Math.max(0, actual - dr.flat);
       if (dr.hits) {
         dr.hits -= 1;
         if (dr.hits <= 0) this.pendingDamageReduction = null;

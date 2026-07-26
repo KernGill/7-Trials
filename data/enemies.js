@@ -174,6 +174,7 @@ export const ENEMIES = {
       'flame_guard',
       'erratic_combustion',
       'ash_eater',
+      'cinder_skin',
     ],
     drops: {
       materials: [
@@ -219,6 +220,7 @@ export const ENEMIES = {
       'flashback',
       'mind_erosion',
       'formless',
+      'icy_ward',
     ],
     drops: {
       materials: [

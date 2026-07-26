@@ -60,7 +60,7 @@ export const MOVE_TEMPLATES = {
   deliberate_blow: {
     id: 'deliberate_blow',
     name: 'Deliberate Blow',
-    description: 'Deals damage and reduces the next hit you take by 40 flat damage.',
+    description: 'Deals damage and reduces the next hit you take by 40%.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEFENCE],
     damage: 10,
     scaling: SCALING_TYPES.STR,
@@ -68,7 +68,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 1,
     cooldown: 1,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    damageReductionNext: 40,
+    damageReductionPercent: 40,
   },
   ignite: {
     id: 'ignite',
@@ -490,6 +490,24 @@ export const MOVE_TEMPLATES = {
     // to the attacker rather than the owner's fixed opponent slot.
     trigger: 'melee_hit_taken',
   },
+  icy_ward: {
+    id: 'icy_ward',
+    name: 'Icy Ward',
+    description: 'Whenever you Guard against it, chills you for 1 stack of Frost.',
+    properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    debuffs: [{ effect: 'frost', stacks: 1 }],
+    // Reactive passive: fires on the owner whenever the PLAYER uses the
+    // literal 'guard' move against them (see CombatManager.executeMove's
+    // player_guarded hook) — punishes the safe, always-available
+    // defensive option specifically against this enemy.
+    trigger: 'player_guarded',
+  },
   // False Apparition's own copy — untouched, the ghost's fire vulnerability
   // stays exactly as designed.
   formless: {
@@ -806,6 +824,24 @@ export const MOVE_TEMPLATES = {
     // selfDebuffs (unlike debuffs, which triggerPassives always routes to
     // the opponent) applies to the passive's own owner — see triggerPassives.
     selfDebuffs: [{ effect: 'fire', stacks: 1 }],
+  },
+  cinder_skin: {
+    id: 'cinder_skin',
+    name: 'Cinder Skin',
+    description: 'Takes only 2 damage per Fire stack instead of 3 — already smoldering, more flame barely registers.',
+    properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
+    // 3 * (2/3) = 2 damage/stack exactly, same mechanism as Formless's
+    // fire multiplier — see Character.getStatusDamageMultiplier.
+    statusDamageMultipliers: { fire: 2 / 3 },
+    // Fires exactly once, since triggerPassives('fight_start') is only
+    // ever called once per combat (in CombatManager.startCombat).
+    trigger: 'fight_start',
   },
 
   // --- New Torch Eater-material equipment -------------------------------

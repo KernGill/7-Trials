@@ -40,7 +40,7 @@ const CARDINAL_DIRS = [
 // still fully occludes what's behind it (no see-through). Markers (the
 // actual objects on a tile) are the opposite: they stay transparent,
 // fading via opacity instead of color.
-const VISIBLE_RADIUS = 7; // max distance (tiles) anything renders at all
+const VISIBLE_RADIUS = 9; // max distance (tiles) anything renders at all — +2 over the original 7, per user request: bird's-eye camera angles already give away too much, so ground-level play needed a bit more reach to compensate
 // >1 keeps the falloff gentle for the first few tiles and steep from
 // ~5 tiles out — visibilityStrength(5..7) drops off much faster than
 // visibilityStrength(0..4) does, matching "hard to see from 5 onward".

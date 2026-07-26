@@ -40,10 +40,10 @@ const QTE_DEX_SECONDS_INTERVAL = 50;
 const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
 // Base door/chest/temporal-chest reward amounts (LOCKED_ROOM_GOLD_REWARD,
 // the chest randomInt(2,4) material roll, etc) are quartered via
-// REWARD_INITIAL_SCALE, then grown back +15%/floor *compounding* (not
+// REWARD_INITIAL_SCALE, then grown back +25%/floor *compounding* (not
 // additive) via REWARD_FLOOR_BONUS_PER_FLOOR — see getRewardMultiplier.
 const REWARD_INITIAL_SCALE = 0.25;
-const REWARD_FLOOR_BONUS_PER_FLOOR = 0.15;
+const REWARD_FLOOR_BONUS_PER_FLOOR = 0.25;
 const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.25;
 const TEMPORAL_CHEST_REWARD_MULTIPLIER = 2;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
@@ -344,6 +344,10 @@ export class ExploreState {
     } else if (turnSteps[key] !== undefined) {
       e.originalEvent?.preventDefault?.();
       this.turnPlayer(turnSteps[key]);
+    } else if (key === 'm') {
+      // Same modal the corner minimap's own click already opens — the
+      // resultOpen guard above already keeps this a no-op if it's open.
+      this.openMinimapExpanded();
     }
   }
 

@@ -110,7 +110,6 @@ export class DamageCalculator {
     if (defender.pendingDamageReduction) {
       const dr = defender.pendingDamageReduction;
       const before = remaining;
-      if (dr.flat) remaining = Math.max(0, remaining - dr.flat);
       if (dr.percent) remaining = Math.max(1, Math.round(remaining * (1 - dr.percent / 100)));
       if (before !== remaining) {
         reducedAmount += before - remaining;

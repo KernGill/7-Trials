@@ -84,13 +84,13 @@ export const DEX_CRIT_RATIO = 0.02;
 export const DEX_ENERGY_THRESHOLD = 100;
 export const DEX_COOLDOWN_REDUCTION_INTERVAL = 35;
 export const DEF_DAMAGE_REDUCTION_PER_TWO = 0.01;
-export const GOLD_REWARD_RATIO = 0.2;
+export const GOLD_REWARD_RATIO = 0.25;
 // How much stronger (stats, and therefore combat gold reward) an enemy gets
-// per dungeon floor — additive, not compounding (e.g. floor 10 = 2.5x).
+// per dungeon floor — additive, not compounding (e.g. floor 10 = 3.5x).
 // Shared by StateManager.startCombat() (applies it to a fresh Enemy's
 // stats) and ShopSystem's drop-only sell-price calculator (needs the
 // floor-1 value to compute "gold+materials from killing 5 on floor 1").
-export const ENEMY_STAT_SCALING_PER_FLOOR = 0.15;
+export const ENEMY_STAT_SCALING_PER_FLOOR = 0.25;
 export function enemyStatMultiplierForFloor(floor) {
   return 1 + ENEMY_STAT_SCALING_PER_FLOOR * floor;
 }

@@ -25,6 +25,12 @@ const TEMPORAL_CHEST_COUNT = 1;
 const HIDDEN_HALLWAY_LENGTH = 40;
 const HIDDEN_ROOM_SIZE = 7;
 const HIDDEN_ROOM_RADIUS = Math.floor(HIDDEN_ROOM_SIZE / 2);
+// The gate's index within the finished path array is fully determined
+// ahead of time (a successful walk always produces exactly
+// HIDDEN_HALLWAY_LENGTH + 1 cells — see placeHiddenArena), so this is
+// computed once and shared by both the walk-time and room-time
+// cross-gate-touch guards, not just the final tagging pass.
+const GATE_INDEX = Math.floor((HIDDEN_HALLWAY_LENGTH + 1) / 2);
 
 // Open flat rooms (per user request), placed before the maze walker runs
 // and chain-connected so they're always reachable. Room count scales
@@ -271,12 +277,33 @@ function placeHiddenArena(at, width, height) {
       const preferStraight = Math.random() < 0.75;
       const rest = shuffle(HIDDEN_ARENA_DIRS.filter(([dx, dy]) => dx !== lastDir[0] || dy !== lastDir[1]));
       const candidates = preferStraight ? [lastDir, ...rest] : [...rest, lastDir];
+      // Self-avoiding in CELLS alone (the pre-existing path.some check)
+      // isn't enough: a winding 40-step walk can easily curl back close
+      // enough to become directly *adjacent* to an earlier, non-consecutive
+      // stretch of itself without ever revisiting a cell outright. That's
+      // only dangerous, though, when it crosses the (fixed, known-in-advance
+      // — path always ends up 41 cells long when a walk fully succeeds)
+      // mid-hallway gate index: a cell past where the gate will sit
+      // touching a cell at-or-before it creates an internal shortcut
+      // around the gate (the actual cause of occasionally reaching the
+      // Vanguard immediately). Touching elsewhere on the same side of the
+      // gate is completely harmless — both cells are already mutually
+      // reachable without a shortcut — so only cross-gate touches are
+      // rejected here; banning ALL self-touching made the 40-step walk
+      // fail almost every attempt (tried first, reverted).
       let moved = false;
       for (let c = 0; c < candidates.length; c += 1) {
         const [dx, dy] = candidates[c];
         const nx = cx + dx;
         const ny = cy + dy;
-        if (isFreeWall(nx, ny) && !path.some((p) => p.x === nx && p.y === ny)) {
+        const newIndex = path.length;
+        const bypassesGate = newIndex > GATE_INDEX && HIDDEN_ARENA_DIRS.some(([ddx, ddy]) => {
+          const ax = nx + ddx;
+          const ay = ny + ddy;
+          if (ax === cx && ay === cy) return false; // the immediately-preceding cell — always adjacent, expected
+          return path.some((p, idx) => idx <= GATE_INDEX && p.x === ax && p.y === ay);
+        });
+        if (isFreeWall(nx, ny) && !path.some((p) => p.x === nx && p.y === ny) && !bypassesGate) {
           cx = nx; cy = ny; lastDir = [dx, dy];
           path.push({ x: cx, y: cy });
           moved = true;
@@ -301,13 +328,27 @@ function placeHiddenArena(at, width, height) {
     }
     if (!roomFits) continue;
 
-    const gateIndex = Math.floor(path.length / 2);
+    // Same cross-gate-touch concern as the path walk above, but for the
+    // room: its 7x7 bounding box is placed purely by open-space fit, with
+    // no awareness of where the path wound earlier — it's entirely
+    // possible for the room to land adjacent to an at-or-before-gate path
+    // cell, which would let a player walk from the entry straight into
+    // the arena without ever reaching the gate. Adjacency to an
+    // *after*-gate path cell is harmless (same reasoning as above) and
+    // deliberately not rejected here.
+    const roomTouchesPathBeforeGate = roomCells.some((tile) => HIDDEN_ARENA_DIRS.some(([dx, dy]) => {
+      const nx = tile.x + dx;
+      const ny = tile.y + dy;
+      return path.some((p, idx) => idx <= GATE_INDEX && p.x === nx && p.y === ny);
+    }));
+    if (roomTouchesPathBeforeGate) continue;
+
     path.forEach((p, i) => {
       const tile = at(p.x, p.y);
       tile.type = HIDDEN_RESERVED_TYPE;
       tile.meta.hidden = true;
-      if (i === gateIndex) tile.meta.isHiddenGate = true;
-      else if (i > gateIndex) tile.meta.hiddenPastGate = true;
+      if (i === GATE_INDEX) tile.meta.isHiddenGate = true;
+      else if (i > GATE_INDEX) tile.meta.hiddenPastGate = true;
     });
     roomCells.forEach((tile) => { tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; tile.meta.hiddenPastGate = true; });
     const centerTile = at(centerX, centerY);
@@ -316,6 +357,40 @@ function placeHiddenArena(at, width, height) {
     centerTile.meta.hiddenPastGate = true;
     centerTile.meta.enemySpawn = true;
     centerTile.meta.isHiddenCenter = true;
+
+    // Seal the hidden footprint off from the rest of the maze. The main
+    // walker below only ever treats a cell as carveable-toward if it's
+    // WALL, but its "does this touch existing floor" check tests
+    // `type !== WALL` — which HIDDEN_RESERVED_TYPE satisfies too, since
+    // it isn't literally TILE_TYPES.WALL. Without this, the main maze
+    // could legally carve any ordinary wall cell that happened to end up
+    // adjacent to the hidden path/room, opening an unintended walkable
+    // connection straight into it — bypassing both the single designed
+    // entry point and the mid-hallway gate entirely (the actual bug
+    // behind occasionally reaching the Vanguard immediately on floor 5).
+    // Every reserved cell EXCEPT the entry (path[0] — the one deliberate
+    // connection point, reached later by the stairs connector) gets its
+    // WALL neighbors converted to buffer cells first; buffer cells finalize
+    // as real WALL (see finalizeHiddenArena), so the main maze carving
+    // *toward* one just reads as an ordinary dead end — completely inert.
+    const footprintKeys = new Set();
+    path.forEach((p) => footprintKeys.add(`${p.x},${p.y}`));
+    roomCells.forEach((tile) => footprintKeys.add(`${tile.x},${tile.y}`));
+    footprintKeys.add(`${centerX},${centerY}`);
+    const sealCells = [...path.slice(1), ...roomCells, centerTile];
+    sealCells.forEach((cell) => {
+      HIDDEN_ARENA_DIRS.forEach(([dx, dy]) => {
+        const nx = cell.x + dx;
+        const ny = cell.y + dy;
+        if (footprintKeys.has(`${nx},${ny}`)) return;
+        const neighborTile = at(nx, ny);
+        if (neighborTile?.type === TILE_TYPES.WALL) {
+          neighborTile.type = HIDDEN_RESERVED_TYPE;
+          neighborTile.meta.isHiddenBuffer = true;
+        }
+      });
+    });
+
     return { x: startX, y: startY };
   }
   return null;
@@ -325,7 +400,7 @@ function placeHiddenArena(at, width, height) {
 function finalizeHiddenArena(tiles) {
   tiles.forEach((tile) => {
     if (tile.type !== HIDDEN_RESERVED_TYPE) return;
-    if (tile.meta.isHiddenGate) tile.type = TILE_TYPES.WALL;
+    if (tile.meta.isHiddenGate || tile.meta.isHiddenBuffer) tile.type = TILE_TYPES.WALL;
     else tile.type = tile.meta.isHiddenCenter ? TILE_TYPES.HIDDEN_ENEMY : TILE_TYPES.FLOOR;
   });
 }

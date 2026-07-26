@@ -519,10 +519,6 @@ export class CombatManager {
       attacker.guardState = { percent: move.template.guardPercent, sourceMoveName: move.name };
       this.logMessage(t('log.defensive_stance', { name: attacker.name }));
     }
-    if (move.template.damageReductionNext) {
-      attacker.pendingDamageReduction = { flat: move.template.damageReductionNext, sourceMoveName: move.name };
-      this.logMessage(t('log.defensive_stance', { name: attacker.name }));
-    }
     if (move.template.damageReductionPercent) {
       attacker.pendingDamageReduction = {
         percent: move.template.damageReductionPercent,
@@ -570,6 +566,15 @@ export class CombatManager {
     // counts as an automatic hit, same as a rolled one.
     if ((!result || (result.hit && !result.split)) && move.properties.includes(MOVE_PROPERTIES.MELEE)) {
       this.triggerPassives('melee_hit_taken', defender);
+    }
+
+    // Reactive passive (Icy Ward): fired on the defender whenever the
+    // PLAYER specifically uses the basic 'guard' move against them —
+    // scoped by move id, not by any property, since Guard is the one
+    // always-available, no-real-cost defensive option this is meant to
+    // punish.
+    if (attacker.isPlayer && move.template.id === 'guard') {
+      this.triggerPassives('player_guarded', defender);
     }
 
     this.record({
