@@ -56,7 +56,7 @@ export const ITEMS = {
     type: 'offHand',
     arc: 0,
     score: 2,
-    flavour: 'Dropped by a Torch Eater. Still burning.',
+    flavour: 'Dropped by a Torch Eater. Still burning. Illuminates the darkness.',
     // Deliberately all-zero — its value is entirely in the two passive
     // effects below (see combat/CombatManager.js's Torch fire-move
     // discount, and states/ExploreState.js's markNearbyExplored).

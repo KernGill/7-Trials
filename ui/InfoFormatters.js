@@ -70,11 +70,13 @@ export function abilitySummaryLine(moveId) {
 /** Stat block + a full ability breakdown (not just a one-liner) for an equipment item (Shop/Locker/PauseOverlay loadout) — so a new player can see exactly what a move does without a separate trip to the Inn. */
 export function itemTooltipHTML(config) {
   const abilities = (config.moveIds ?? []).map((id) => abilityDetailHTML(getMoveTemplate(id))).join('');
+  const flavour = tData('itemFlavour', config.id, config.flavour ?? '');
   return `
     <h4>${tData('item', config.id, config.name)}</h4>
     ${config.score !== undefined ? `<div class="tt-row"><span>${t('tooltip.score')}</span><span>${config.score}</span></div>` : ''}
     ${statsListHTML(config.stats)}
     ${abilities ? `<div class="tt-row tt-section-label"><strong>${t('tooltip.abilities')}</strong></div>${abilities}` : ''}
+    ${flavour ? `<div class="tt-desc">${flavour}</div>` : ''}
   `;
 }
 
