@@ -1,6 +1,5 @@
 import {
   DEX_CRIT_RATIO,
-  DEX_COOLDOWN_REDUCTION_INTERVAL,
   FROST_HIT_PENALTY,
   DARKNESS_ACCURACY_PENALTY,
   STAT_KEYS,
@@ -150,10 +149,6 @@ export class Character {
 
   getMaxEnergy() {
     return Math.max(1, Math.round(this.getStat('energy')));
-  }
-
-  getCooldownReduction() {
-    return Math.floor(this.getStat('dex') / DEX_COOLDOWN_REDUCTION_INTERVAL);
   }
 
   initializeMoves(moveFactory) {

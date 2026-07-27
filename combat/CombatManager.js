@@ -381,8 +381,7 @@ export class CombatManager {
     }
 
     if (!rollChance(attacker.getStat('noCooldownChance'))) {
-      const reduction = attacker.getCooldownReduction();
-      move.startCooldown(reduction);
+      move.startCooldown();
     }
     this.logMessage(t('log.uses_move', { name: attacker.name, move: move.name }));
 

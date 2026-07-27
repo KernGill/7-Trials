@@ -82,7 +82,6 @@ export const ENERGY_CAP_RATIO = 0.1;
 export const DEFAULT_ENERGY_GAIN = 1;
 export const DEX_CRIT_RATIO = 0.02;
 export const DEX_ENERGY_THRESHOLD = 100;
-export const DEX_COOLDOWN_REDUCTION_INTERVAL = 35;
 export const DEF_DAMAGE_REDUCTION_PER_TWO = 0.01;
 export const GOLD_REWARD_RATIO = 0.25;
 // How much stronger (stats, and therefore combat gold reward) an enemy gets

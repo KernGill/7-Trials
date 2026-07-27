@@ -32,8 +32,14 @@ export class Move {
     return !this.isOnCooldown() && this.canAfford(energy);
   }
 
-  startCooldown(reduction = 0) {
-    this.currentCooldown = Math.max(1, this.cooldown - reduction);
+  // Math.max(1, ...) floor (not just `= this.cooldown`) matters even for a
+  // template cooldown of 0: it's what starts a "0-cooldown" move at 1 turn
+  // of cooldown, immediately undone by the same-turn tickCharacterTurn call
+  // right after this in CombatManager.executeMove — the interaction that
+  // keeps genuinely 0-cooldown moves spammable every turn without letting
+  // them somehow skip the tick step entirely.
+  startCooldown() {
+    this.currentCooldown = Math.max(1, this.cooldown);
   }
 
   tickCooldown(type) {

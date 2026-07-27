@@ -297,7 +297,7 @@ export const MOVE_TEMPLATES = {
   bone_shards: {
     id: 'bone_shards',
     name: 'Bone Shards',
-    description: 'Deals damage and applies 2 stacks of Bleed.',
+    description: 'Deals damage and applies 1 stack of Bleed.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 5,
     scaling: SCALING_TYPES.STR,
@@ -311,7 +311,7 @@ export const MOVE_TEMPLATES = {
     // restore the intended 3-turn gap.
     cooldown: 4,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    debuffs: [{ effect: 'bleed', stacks: 2 }],
+    debuffs: [{ effect: 'bleed', stacks: 1 }],
   },
   skelebrain: {
     id: 'skelebrain',
@@ -922,7 +922,16 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 1,
     cooldown: 2,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    // fight_turn (not character_turn): his speed lead can otherwise net
+    // him 3-4 of his own turns before the player gets even one — a
+    // character_turn cooldown ticks on every one of THOSE, letting him
+    // rapid-fire strong moves during that streak. fight_turn only ticks
+    // once every combatant has actually moved, so a same-side streak
+    // can't advance it at all — see CombatManager.advanceTurn's
+    // allHaveMoved gate. Per user request; his two 0-energy basics
+    // (Dark Strike, Umbral Ward) stay on character_turn so he still has
+    // something to do turn after turn even mid-streak.
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
     percentStatDebuff: { stat: 'spd', percent: -50, durationFightTurns: 5 },
   },
   vanguard_frostbite_touch: {
@@ -935,7 +944,7 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 3,
     cooldown: 8,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     debuffs: [{ effect: 'frostbite', stacks: 1 }],
   },
   vanguard_abyssal_cascade: {
@@ -948,7 +957,7 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 10,
     cooldown: 20,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     debuffs: [
       { effect: 'frost', stacks: 3 },
       { effect: 'fire', stacks: 4 },
@@ -982,7 +991,7 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 3,
     cooldown: 8,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     // Not a status effect (no buff icon) — see DamageCalculator.resolveAttack.
     // durationFightTurns: -1 = no timed expiry, lasts until it triggers.
     attackerStunTrap: { durationFightTurns: -1 },
@@ -997,7 +1006,7 @@ export const MOVE_TEMPLATES = {
     critChance: 0,
     energyCost: 5,
     cooldown: 20,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     debuffs: [{ effect: 'darkness', stacks: 5 }],
     damageReductionPercent: 50,
     damageReductionHits: 3,
@@ -1025,8 +1034,12 @@ export const MOVE_TEMPLATES = {
     scaling: SCALING_TYPES.NONE,
     critChance: 0,
     energyCost: 0,
+    // fight_turn per the same reasoning as vanguard_crippling_shadow —
+    // it's an ultimate, not one of his two basics, even though it happens
+    // to also cost 0 energy (gated behind requiresRevived instead).
+    // Cooldown is already 0, so this only matters if it's ever changed.
     cooldown: 0,
-    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
     requiresRevived: true,
     clearAllStatusesForDamage: { damagePerStatus: 10, excludeSelf: ['frostbite'] },
     debuffs: [{ effect: 'darkness', stacks: 5 }],

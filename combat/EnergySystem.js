@@ -39,8 +39,4 @@ export class CooldownSystem {
   tickCharacterTurn(character) {
     character.moves.forEach((move) => move.tickCooldown(COOLDOWN_TYPES.CHARACTER_TURN));
   }
-
-  getEffectiveCooldown(character, move) {
-    return Math.max(1, move.cooldown - character.getCooldownReduction());
-  }
 }
