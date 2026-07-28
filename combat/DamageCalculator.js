@@ -24,13 +24,7 @@ export class DamageCalculator {
     // dex/int still matter, but a move's flat `damage` base carries
     // more relative weight than before.
     const scalingStat = this.getScalingStat(attacker, move.scaling) * 0.5;
-    let damage = move.damage + scalingStat;
-
-    const frostStacks = attacker.getStatusStacks('frost');
-    if (frostStacks > 0 && move.properties.includes('physical')) {
-      damage *= (1 + frostStacks * FROST_DAMAGE_BONUS);
-    }
-
+    const damage = move.damage + scalingStat;
     return Math.max(0, Math.round(damage));
   }
 
@@ -177,6 +171,15 @@ export class DamageCalculator {
     }
 
     let damage = this.calculateBaseDamage(attacker, move);
+
+    // Frost makes the character WHO HAS IT take more physical damage —
+    // the defender's own stacks, not the attacker's. Applied early
+    // (before crit/defense) same as every other flat multiplier here.
+    const defenderFrostStacks = defender.getStatusStacks('frost');
+    if (defenderFrostStacks > 0 && move.properties.includes('physical')) {
+      damage = Math.round(damage * (1 + defenderFrostStacks * FROST_DAMAGE_BONUS));
+    }
+
     const crit = this.rollCrit(attacker, move.critChance ?? 0);
     if (crit.isCrit) damage = Math.round(damage * crit.multiplier);
 

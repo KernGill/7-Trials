@@ -311,10 +311,12 @@ export class Character {
     // Tracks which status effect's tick landed the killing blow, if any —
     // read by achievement checks (e.g. "defeat an enemy via Burn/Bleed").
     if (source && actual > 0 && this.currentHealth <= 0) this.diedFromStatusId = source;
-    // Fire's own tick doesn't count as "an instance of damage" for its
-    // own decay — everything else that lands (attacks, other status
-    // ticks) burns off 35% of the stacks.
-    if (actual > 0 && source !== 'fire') this.decayFireStacks();
+    // Only a genuine direct attack (no source at all) burns off 35% of
+    // fire's stacks — any status-tagged damage (fire's own tick included,
+    // but also poison, bleed, darkness's purge bonus, Abyssal Fire, etc.)
+    // does NOT trigger this. `source` is only ever set by status ticks;
+    // resolveAttack's takeDamage() calls always leave it null.
+    if (actual > 0 && !source) this.decayFireStacks();
     return actual;
   }
 

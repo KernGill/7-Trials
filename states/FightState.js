@@ -7,6 +7,7 @@ import { getCharacterSprite, getEnemySprite, CHARACTER_BORDER } from '../data/sp
 import { t, tData, tReason } from '../ui/i18n.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { abilityDetailHTML } from '../ui/InfoFormatters.js';
+import { getStatusEffectDetail } from '../ui/StatusEffectDetails.js';
 
 const STAT_KEY_TO_TKEY = { con: 'tooltip.con', dex: 'tooltip.dex', str: 'tooltip.str', spd: 'tooltip.spd', def: 'tooltip.def', int: 'tooltip.int' };
 function statLabel(key) { return t(STAT_KEY_TO_TKEY[key] ?? key); }
@@ -402,7 +403,11 @@ export class FightState {
 
     this.els.turn.textContent = t('fight.turn', { n: combat.turnOrder.fightTurn });
     this.els.player.innerHTML = this.combatantHTML(combat.player, t('fight.player'));
-    combat.enemies.forEach((e) => { this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy')); });
+    this.bindStatusIcons(this.els.player.querySelector('.status-icons'), combat.player);
+    combat.enemies.forEach((e) => {
+      this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy'));
+      this.bindStatusIcons(this.els.enemy.querySelector('.status-icons'), e);
+    });
 
     this.renderLog();
     this.renderMoveOrder(combat.currentActor);
@@ -463,7 +468,10 @@ export class FightState {
     if (!slot) return;
     const { health, energy } = this.getDisplayed(character);
     const statusEl = slot.querySelector('.status-icons');
-    if (statusEl) statusEl.innerHTML = this.statusIconsHTML(character);
+    if (statusEl) {
+      statusEl.innerHTML = this.statusIconsHTML(character);
+      this.bindStatusIcons(statusEl, character);
+    }
     const statLines = slot.querySelectorAll('.stat-line');
     if (statLines[0]) statLines[0].textContent = `${health} / ${character.getMaxHealth()}`;
     if (statLines[1]) statLines[1].textContent = `${energy} / ${character.getMaxEnergy()}`;
@@ -549,12 +557,20 @@ export class FightState {
    * so "I used a defence move" has visible on-board proof.
    */
   statusIconsHTML(character) {
+    // data-tooltip (not the native title attribute) so hover shows the
+    // game's own styled tooltip box instead of the browser's default —
+    // see bindStatusIcons, called right after every innerHTML assignment
+    // that uses this. data-effect-id is only set on real STATUS_EFFECTS
+    // entries — those are the ones with click-to-inspect detail (proc
+    // timing, exact numbers); the ad-hoc icons below (Guard/DEF/etc) and
+    // the stat-buff totals already say everything they have to say in
+    // the hover text itself.
     const icons = character.statusEffects.map((effect) => {
       const cfg = STATUS_EFFECTS[effect.id];
       if (!cfg) return '';
       const name = tData('status', effect.id, cfg.name);
       return `
-        <span class="status-icon ${cfg.type}" style="background:${cfg.color}" title="${name} x${effect.stacks}">
+        <span class="status-icon clickable ${cfg.type}" style="background:${cfg.color}" data-effect-id="${effect.id}" data-tooltip="${name} x${effect.stacks}">
           ${cfg.icon}<sub class="status-stacks">${effect.stacks}</sub>
         </span>`;
     });
@@ -568,14 +584,14 @@ export class FightState {
       const fullLabel = statLabel(stat).toUpperCase();
       const label = fullLabel.slice(0, 3);
       icons.push(`
-        <span class="status-icon buff" style="background:#2ecc71" title="${fullLabel} +${amount}">
+        <span class="status-icon buff" style="background:#2ecc71" data-tooltip="${fullLabel} +${amount}">
           +${label}<sub class="status-stacks">${amount}</sub>
         </span>`);
     });
 
     if (character.guardState) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="${t('fight.guarding', { percent: character.guardState.percent })}">
+        <span class="status-icon defence" style="background:#3498db" data-tooltip="${t('fight.guarding', { percent: character.guardState.percent })}">
           GD
         </span>`);
     }
@@ -583,30 +599,66 @@ export class FightState {
       const dr = character.pendingDamageReduction;
       const label = `${t('fight.defended_percent', { percent: dr.percent })}${dr.hits ? t('fight.hits_left', { n: dr.hits }) : ''}`;
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="${label}">
+        <span class="status-icon defence" style="background:#3498db" data-tooltip="${label}">
           DEF
         </span>`);
     }
     if (character.reflectSplitPercent > 0) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="${t('fight.reflecting', { percent: character.reflectSplitPercent })}">
+        <span class="status-icon defence" style="background:#3498db" data-tooltip="${t('fight.reflecting', { percent: character.reflectSplitPercent })}">
           RS
         </span>`);
     }
     if (character.guaranteedDodgeTurnsRemaining > 0) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="${t('fight.guaranteed_dodge')}">
+        <span class="status-icon defence" style="background:#3498db" data-tooltip="${t('fight.guaranteed_dodge')}">
           DDG
         </span>`);
     }
     if (character.pendingReactiveHeal) {
       icons.push(`
-        <span class="status-icon defence" style="background:#3498db" title="${t('fight.reactive_heal', { n: character.pendingReactiveHeal.multiplier })}">
+        <span class="status-icon defence" style="background:#3498db" data-tooltip="${t('fight.reactive_heal', { n: character.pendingReactiveHeal.multiplier })}">
           HL
         </span>`);
     }
 
     return icons.join('');
+  }
+
+  /**
+   * Wires hover (custom tooltip, replacing the raw data-tooltip text) and
+   * click (detailed inspect panel, real status effects only) onto every
+   * `.status-icon` inside `container` — called right after any innerHTML
+   * assignment that renders statusIconsHTML's output, since those
+   * listeners don't survive an innerHTML replace.
+   */
+  bindStatusIcons(container, character) {
+    if (!container) return;
+    container.querySelectorAll('.status-icon[data-tooltip]').forEach((el) => {
+      this.tooltip.bind(el, () => el.dataset.tooltip);
+      if (el.dataset.effectId) {
+        el.addEventListener('click', () => this.openStatusDetail(el.dataset.effectId, character));
+      }
+    });
+  }
+
+  /** Detailed click-to-inspect panel for one status effect: name, current stacks, proc timing, exact numbers — closable via the × in the corner. */
+  openStatusDetail(effectId, character) {
+    const detail = getStatusEffectDetail(effectId, character);
+    if (!detail) return;
+    this.root.querySelector('.status-detail-overlay')?.remove();
+
+    const lines = [detail.timingLine, ...detail.detailLines].filter(Boolean);
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay status-detail-overlay';
+    modal.innerHTML = `
+      <div class="result-box status-detail-box">
+        <button class="detail-close" data-a="close">&times;</button>
+        <h2>${detail.name} x${detail.stacks}</h2>
+        ${lines.map((line) => `<div class="tt-desc">${line}</div>`).join('')}
+      </div>`;
+    this.root.appendChild(modal);
+    modal.querySelector('[data-a="close"]').addEventListener('click', () => modal.remove());
   }
 
   getAvailableMoves(category) {
