@@ -113,19 +113,20 @@ export const MOVE_TEMPLATES = {
   arcane_split: {
     id: 'arcane_split',
     name: 'Arcane Split',
-    description: 'For the next few turns, you only take half of any damage aimed at you — the other half bounces back onto the attacker instead.',
+    description: 'For the next few turns, you only take half of any damage aimed at you — direct or status — the other half bounces back onto your opponent instead.',
     properties: [MOVE_PROPERTIES.DEFENCE, MOVE_PROPERTIES.MAGIC],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
     critChance: 0,
-    energyCost: 5,
-    cooldown: 2,
+    energyCost: 6,
+    cooldown: 12,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     reflectSplitPercent: 50,
-    // Present for the rest of the cast turn plus 2 more full fight turns
-    // (matches the decayBuffDurations countdown convention used
-    // elsewhere: N turns of presence needs a starting value of N+1).
-    reflectSplitDurationFightTurns: 3,
+    // Present for the rest of the cast turn plus 3 more full fight turns
+    // (4 total) — matches the decayBuffDurations countdown convention used
+    // elsewhere: N more full turns of presence beyond the cast turn needs
+    // a starting value of N+1.
+    reflectSplitDurationFightTurns: 4,
   },
   shard_stab: {
     id: 'shard_stab',
@@ -791,8 +792,8 @@ export const MOVE_TEMPLATES = {
   erratic_combustion: {
     id: 'erratic_combustion',
     name: 'Erratic Combustion',
-    description: "Used below 50% health: burns away all of the opponent's current Burn stacks for 7 damage each, then applies 3 fresh stacks.",
-    properties: [MOVE_PROPERTIES.DEBUFF],
+    description: "Used below 50% health: burns away all of the opponent's current Burn stacks for 7 status damage each — no new stacks applied.",
+    properties: [MOVE_PROPERTIES.MAGIC],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
     critChance: 0,
@@ -803,11 +804,12 @@ export const MOVE_TEMPLATES = {
     // the skeleton's final_rites (999 fight_turn cooldown never comes
     // back around within a normal fight).
     usePriorityBelowHealthPercent: 50,
-    // Consumed BEFORE the debuffs below apply (see CombatManager.executeMove):
-    // the defender loses all of their current fire stacks, taking 7 damage
-    // per stack lost, then gets hit with 3 fresh stacks from `debuffs`.
+    // Pure status damage, no debuff left behind afterward (deliberately —
+    // it used to also reapply 3 fresh stacks, which meant a shield/block
+    // could never fully counter it since the burn kept ticking after; now
+    // the only way to blunt it is something that actually covers status
+    // damage, like Arcane Split's reflect-split).
     consumeStatusForDamage: { effect: 'fire', damagePerStack: 7 },
-    debuffs: [{ effect: 'fire', stacks: 3 }],
   },
   ash_eater: {
     id: 'ash_eater',

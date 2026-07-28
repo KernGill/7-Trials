@@ -86,6 +86,14 @@ export class CombatManager {
     this.pendingExplorationBuffs = explorationBuffs;
 
     [player, ...enemies].forEach((c) => c.resetBattleState());
+    // Every fight in this game is 1v1 — wire each side's combatOpponent
+    // directly to the other so Character.takeDamage() can redirect a
+    // reflectSplitPercent (Arcane Split) share of status damage without
+    // every status-tick call site needing its own attacker reference.
+    if (enemies[0]) {
+      player.combatOpponent = enemies[0];
+      enemies[0].combatOpponent = player;
+    }
     this.record({
       kind: 'fightInit',
       combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy, speed: c.battleSpeed })),

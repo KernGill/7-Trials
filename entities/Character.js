@@ -49,6 +49,14 @@ export class Character {
     this.guardState = null;
     this.reflectSplitPercent = 0;
     this.reflectSplitTurnsRemaining = 0;
+    // The other combatant in the current fight — wired up by
+    // CombatManager.startCombat() right after resetBattleState() runs (this
+    // game is always 1v1, so there's only ever one candidate). Lets
+    // takeDamage() redirect a reflectSplitPercent share of *status* damage
+    // (see Arcane Split) without every status-tick call site needing to
+    // pass an attacker reference of its own — a status tick genuinely has
+    // no "attacker" the way a direct hit does.
+    this.combatOpponent = null;
     this.guaranteedDodgeTurnsRemaining = 0;
     this.pendingReactiveHeal = null;
     this.pendingReactiveHealTurnsRemaining = 0;
@@ -208,7 +216,29 @@ export class Character {
   }
 
   takeDamage(amount, { source = null } = {}) {
-    let actual = Math.max(0, Math.round(amount));
+    const rawAmount = Math.max(0, Math.round(amount));
+    // Arcane Split covers status damage too, not just direct hits (see
+    // DamageCalculator.resolveAttack for the attack-path version) — split
+    // the *raw* amount before either side's own multiplier/reduction is
+    // applied, same as the attack path does with applyDefense, so each
+    // side's own resistances apply to their own share rather than one
+    // pre-computed number just being cut in two. One-shot: consumed the
+    // instant it applies to a status hit, same as a direct hit.
+    if (source && this.reflectSplitPercent > 0 && this.combatOpponent) {
+      const split = this.reflectSplitPercent / 100;
+      const taken = Math.round(rawAmount * split);
+      const returned = rawAmount - taken;
+      this.reflectSplitPercent = 0;
+      this.reflectSplitTurnsRemaining = 0;
+      this.combatOpponent.takeDamage(returned, { source });
+      return this._applyOwnDamage(taken, source);
+    }
+    return this._applyOwnDamage(rawAmount, source);
+  }
+
+  /** The actual per-target damage pipeline (multiplier, shields, health) — split out of takeDamage() so Arcane Split can run it once per side instead of once on a single pre-split total. */
+  _applyOwnDamage(rawAmount, source) {
+    let actual = rawAmount;
     if (source) actual = Math.max(0, Math.round(actual * this.getStatusDamageMultiplier(source)));
     // A damageReductionPercent/Hits shield tagged includesStatusDamage
     // (see CombatManager.executeMove) also covers status-tick damage, not
@@ -277,6 +307,7 @@ export class Character {
     this.guardState = null;
     this.reflectSplitPercent = 0;
     this.reflectSplitTurnsRemaining = 0;
+    this.combatOpponent = null;
     this.guaranteedDodgeTurnsRemaining = 0;
     this.pendingReactiveHeal = null;
     this.pendingReactiveHealTurnsRemaining = 0;

@@ -560,7 +560,11 @@ export class StateManager {
       }
     });
 
-    this.gameState.run.savedHealth = this.combatManager.player.currentHealth;
+    // Clamp here, not just at the next fight's resetBattleState() — an
+    // in-combat overheal (lifesteal, a heal move) can leave currentHealth
+    // above max, which is fine mid-fight but read as a genuine bug once it
+    // showed up in the Explore HUD as e.g. "685/645" until combat next began.
+    this.gameState.run.savedHealth = Math.min(this.combatManager.player.currentHealth, this.combatManager.player.getMaxHealth());
     // The Vanguard was never one of the floor's regular ENEMY tiles (its
     // own separate HIDDEN_ENEMY tile isn't counted in dungeon.enemiesRemaining
     // — see DungeonGenerator) — decrementing here for it too would desync
