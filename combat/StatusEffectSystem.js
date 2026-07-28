@@ -108,7 +108,9 @@ export class StatusEffectSystem {
   applyDebuffs(target, debuffs, attacker) {
     const applied = [];
     debuffs?.forEach((debuff) => {
-      if (rollChance(target.getStat('statusResist'))) return;
+      // unstoppable (Abyssal Cascade): bypasses statusResist entirely —
+      // "blocked" isn't a possible outcome for this application.
+      if (!debuff.unstoppable && rollChance(target.getStat('statusResist'))) return;
       let stacks = debuff.stacksFromCasterEnergy && attacker
         ? Math.round(attacker.energy)
         : debuff.stacks ?? (debuff.stacksMin
@@ -144,9 +146,11 @@ export class StatusEffectSystem {
       // buff reflects that % of the incoming stack count straight back
       // onto the attacker, the remainder still lands on the target (see
       // statusEffectConfig.js). Effects flagged noReflect (Frostbite,
-      // Darkness) always land on the target in full, no split.
+      // Darkness) always land on the target in full, no split — same for
+      // any debuff entry flagged unstoppable (Abyssal Cascade), regardless
+      // of what the underlying status itself normally allows.
       const config = CONFIG[debuff.effect];
-      const canReflect = attacker && attacker !== target && !config?.noReflect;
+      const canReflect = !debuff.unstoppable && attacker && attacker !== target && !config?.noReflect;
       const reflectPercent = canReflect
         ? target.getStatusStacks('statusReflection') * (CONFIG.statusReflection.reflectPercentPerStack ?? 0)
         : 0;

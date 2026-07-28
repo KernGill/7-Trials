@@ -50,7 +50,7 @@ const DETAILS = {
     const dmgBonus = stacks * FROST_DAMAGE_BONUS * 100;
     return [
       `No periodic tick — works continuously instead.`,
-      `Reduces both Accuracy and Dodge by ${pct(FROST_HIT_PENALTY)} per stack.`,
+      `Reduces both Accuracy and Dodge by ${pct(FROST_HIT_PENALTY)} per stack — lower Accuracy makes this character's own attacks more likely to miss, and lower Dodge makes this character easier for opponents to hit.`,
       `At ${stacks} stack${stacks === 1 ? '' : 's'}: Accuracy -${Math.round(acc)} (now ${Math.round(character.getStat('accuracy'))}), Dodge -${Math.round(acc)} (now ${Math.round(character.getStat('dodge'))}).`,
       `Also makes this character take ${pct(FROST_DAMAGE_BONUS)} more physical damage per stack — at ${stacks} stacks, +${Math.round(dmgBonus)}% physical damage taken.`,
       `If a single application would push Frost to ${FROST_MAX_STACKS} stacks or more, all of it is replaced by 1 stack of Frostbite instead.`,

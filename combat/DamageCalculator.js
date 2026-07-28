@@ -49,7 +49,12 @@ export class DamageCalculator {
    * Dodge/accuracy only ever move via frost (see Character.getStat).
    * Excess dodge (>100) is a chance to evade; excess accuracy (>100)
    * cancels out excess dodge point-for-point. Accuracy below 100 is a
-   * flat miss chance that stacks on top of whatever dodge gets through.
+   * flat miss chance that stacks on top of whatever dodge gets through —
+   * and symmetrically, dodge below 100 is a flat chance-to-HIT bonus
+   * (cancelling accuracy deficit point-for-point) rather than doing
+   * nothing: a defender with reduced dodge (e.g. from Frost) really is
+   * easier to land a hit on, not just less able to evade excess dodge
+   * they never had.
    */
   static calculateHitChance(attacker, defender) {
     // Ethereal Form's "100% dodge chance" is a full guarantee, not a
@@ -60,7 +65,8 @@ export class DamageCalculator {
     const accuracyExcess = Math.max(0, attacker.getStat('accuracy') - 100);
     const effectiveDodge = Math.max(0, dodgeExcess - accuracyExcess);
     const accuracyDeficit = Math.max(0, 100 - attacker.getStat('accuracy'));
-    const missChance = clamp(effectiveDodge + accuracyDeficit, 0, 100);
+    const dodgeDeficit = Math.max(0, 100 - defender.getStat('dodge'));
+    const missChance = clamp(effectiveDodge + accuracyDeficit - dodgeDeficit, 0, 100);
     return clamp(100 - missChance, 0, 100);
   }
 

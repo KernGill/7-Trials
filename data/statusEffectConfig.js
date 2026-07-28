@@ -6,7 +6,11 @@ export const STATUS_EFFECTS = {
     icon: 'B',
     color: '#c0392b',
     tickOn: 'character_turn_start',
-    formula: (stacks, target) => Math.max(1, Math.ceil(target.getMaxHealth() * 0.01 * stacks)),
+    // 1% of max health per stack normally; against bosses (isBoss —
+    // covers both a regular arc boss like Indebted Fallen — Warden and a
+    // hidden superboss like Vanguard of Darkness, same flag) it's a
+    // third of that: 0.33% per stack, i.e. every 3 stacks is 1%.
+    formula: (stacks, target) => Math.max(1, Math.ceil(target.getMaxHealth() * (target.isBoss ? stacks / 300 : stacks * 0.01))),
     stacksDecrease: false,
   },
   poison: {

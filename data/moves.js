@@ -332,9 +332,8 @@ export const MOVE_TEMPLATES = {
     // they're cast (see CombatManager.endActorTurn -> tickCharacterTurn,
     // called right after executeMove in the same synchronous call) — so a
     // declared cooldown of N only ever blocks N-1 of the caster's own
-    // subsequent turns in practice. Was 3 (effectively 2); bumped to 4 to
-    // restore the intended 3-turn gap.
-    cooldown: 4,
+    // subsequent turns in practice. A genuine 5-turn gap needs field 6.
+    cooldown: 6,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     debuffs: [{ effect: 'bleed', stacks: 1 }],
   },
@@ -989,7 +988,7 @@ export const MOVE_TEMPLATES = {
   vanguard_abyssal_cascade: {
     id: 'vanguard_abyssal_cascade',
     name: 'Abyssal Cascade',
-    description: 'An unavoidable torrent of every affliction: 6 Frost, 8 Burn, 6 Bleed, 10 Poison, 2 Frostbite, and 2 Abyssal Fire — which waits out the whole fight turn, then detonates for half of everything else that damaged you this turn, per stack.',
+    description: 'An unstoppable torrent of every affliction — can never miss, be resisted, or be reflected: 6 Frost, 8 Burn, 6 Bleed, 10 Poison, 2 Frostbite, and 2 Abyssal Fire — which waits out the whole fight turn, then detonates for half of everything else that damaged you this turn, per stack.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.AOE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -997,17 +996,22 @@ export const MOVE_TEMPLATES = {
     energyCost: 15,
     cooldown: 20,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
+    // unstoppable: true on every entry — see StatusEffectSystem.applyDebuffs.
+    // Bypasses statusResist ("blocked") and Status Reflection
+    // ("reflected") entirely; "miss" was already impossible for this move
+    // (damage:0/scaling:none skips the hit-roll — see CombatManager.
+    // executeMove's gating on result/result.hit).
     debuffs: [
-      { effect: 'frost', stacks: 6 },
-      { effect: 'fire', stacks: 8 },
-      { effect: 'bleed', stacks: 6 },
-      { effect: 'poison', stacks: 10 },
-      { effect: 'frostbite', stacks: 2 },
+      { effect: 'frost', stacks: 6, unstoppable: true },
+      { effect: 'fire', stacks: 8, unstoppable: true },
+      { effect: 'bleed', stacks: 6, unstoppable: true },
+      { effect: 'poison', stacks: 10, unstoppable: true },
+      { effect: 'frostbite', stacks: 2, unstoppable: true },
       // Listed after fire on purpose — StatusEffectSystem.tickFightTurnEnd
       // ticks every other fight_turn_end effect before Abyssal Fire
       // regardless of this order, but keeping it last here still reads
       // correctly as "everything else, then the detonation."
-      { effect: 'abyssalFire', stacks: 2 },
+      { effect: 'abyssalFire', stacks: 2, unstoppable: true },
     ],
   },
   vanguard_umbral_ward: {
