@@ -231,6 +231,7 @@ const MARKER_COLORS = {
   [TILE_TYPES.TREASURE]: 0x7a6a1f,
   [TILE_TYPES.TEMPORAL_CHEST]: 0x1f5fd9,
   [TILE_TYPES.HIDDEN_ENEMY]: 0x000000,
+  [TILE_TYPES.ELEVATOR]: 0x2ecc71,
 };
 
 function tileKey(x, y) {
@@ -835,6 +836,11 @@ export class DungeonRenderer3D {
       // Pure black cube — deliberately reads as an anomaly against the
       // dark-but-not-black dungeon palette, for a player who's already
       // gone looking somewhere the game gives them no other reason to.
+      geo = this._geo.enemyCube;
+      height = TILE_SIZE * 0.4;
+    } else if (tile.type === TILE_TYPES.ELEVATOR) {
+      // Genuine cube, same treatment as TEMPORAL_CHEST — a permanent
+      // landmark, never one-shot/consumed like the flatter default marker.
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
     }

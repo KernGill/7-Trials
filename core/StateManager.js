@@ -14,7 +14,7 @@ import { InnSystem } from '../systems/InnSystem.js';
 import { BestiarySystem } from '../systems/BestiarySystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
-import { Tile } from '../exploration/Tile.js';
+import { Tile, TILE_TYPES } from '../exploration/Tile.js';
 import { getArcForFloor } from '../data/arcs.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -354,6 +354,12 @@ export class StateManager {
   // --- Run lifecycle -----------------------------------------------------
 
   startRun() {
+    // A brand new run must never collide with a previous run's archived
+    // elevator floors sitting under the same floor numbers — wipe them
+    // before the outgoing run object is replaced below.
+    if (this.gameState.run?.visitedFloors?.length) {
+      this.saveSystem.clearFloors(this.gameState.run.visitedFloors);
+    }
     const arc = this.progression.getCurrentArc();
     this.gameState.run = {
       active: true,
@@ -369,6 +375,10 @@ export class StateManager {
       savedHealth: null,
       floorMessage: null,
       cards: [],
+      // Floors this run has actually generated — the elevator (see
+      // travelToFloor/archiveCurrentFloor) can only ever warp to one of
+      // these, each archived to its own lazily-loaded SaveSystem key.
+      visitedFloors: [1],
     };
     // A fresh run (or one explicitly started over via "Begin Anew")
     // discards any pending "Continue: Floor N" offer.
@@ -423,15 +433,76 @@ export class StateManager {
   }
 
   generateFloor() {
-    const arc = getArcForFloor(this.gameState.run.floor);
+    const run = this.gameState.run;
+    const arc = getArcForFloor(run.floor);
     const generator = new DungeonGenerator(arc);
-    const dungeon = generator.generate(this.gameState.run.floor);
-    this.gameState.run.dungeon = dungeon;
-    this.gameState.run.playerPosition = { ...dungeon.playerPos };
-    this.gameState.run.enemiesRemaining = dungeon.enemiesRemaining;
-    this.gameState.run.tilesExplored = 0;
+    const dungeon = generator.generate(run.floor);
+    run.dungeon = dungeon;
+    run.playerPosition = { ...dungeon.playerPos };
+    run.enemiesRemaining = dungeon.enemiesRemaining;
+    run.tilesExplored = 0;
     const start = dungeon.tiles.find((t) => t.x === dungeon.playerPos.x && t.y === dungeon.playerPos.y);
-    if (start) { start.explored = true; this.gameState.run.tilesExplored = 1; }
+    if (start) { start.explored = true; run.tilesExplored = 1; }
+    // Single choke point for "this floor now genuinely exists" — both
+    // startRun() (floor 1) and stairs-descent route through here, so the
+    // elevator's travel list stays correct with no extra bookkeeping at
+    // either call site.
+    run.visitedFloors = run.visitedFloors ?? [];
+    if (!run.visitedFloors.includes(run.floor)) run.visitedFloors.push(run.floor);
+  }
+
+  /**
+   * Snapshots the per-floor-mutable subset of `run` (NOT the run-wide
+   * fields like cards/consumables/materials) into its own lazily-loaded
+   * SaveSystem key, keyed by the floor being left — called right before
+   * `run.floor` changes, whether via stairs (applyCardPick) or the
+   * elevator (travelToFloor), so nothing about a floor's progress is lost
+   * when the player moves on from it.
+   */
+  archiveCurrentFloor() {
+    const run = this.gameState.run;
+    if (!run.dungeon) return;
+    this.saveSystem.saveFloor(run.floor, {
+      dungeon: run.dungeon,
+      playerPosition: run.playerPosition,
+      facing: run.facing,
+      tilesExplored: run.tilesExplored,
+      enemiesRemaining: run.enemiesRemaining,
+    });
+  }
+
+  /**
+   * The elevator: warps to any floor already in run.visitedFloors, restored
+   * EXACTLY as it was left (tiles, fog, resolved chests/doors, remaining
+   * enemies) rather than regenerated — the whole point of archiveCurrentFloor
+   * above. Player always arrives standing on the target floor's own
+   * elevator tile, not wherever they happened to be standing when they left
+   * it. Returns false (no-op) for an unvisited or the current floor.
+   */
+  travelToFloor(targetFloor) {
+    const run = this.gameState.run;
+    if (targetFloor === run.floor || !run.visitedFloors?.includes(targetFloor)) return false;
+
+    this.archiveCurrentFloor();
+    run.floor = targetFloor;
+
+    const archived = this.saveSystem.loadFloor(targetFloor);
+    if (!archived) {
+      // Shouldn't happen (visitedFloors implies an archive was written),
+      // but a corrupted/cleared localStorage entry shouldn't crash the
+      // run — regenerate fresh rather than get stuck.
+      console.warn(`Elevator: no archive found for floor ${targetFloor}, regenerating.`);
+      this.generateFloor();
+      return true;
+    }
+
+    run.dungeon = { ...archived.dungeon, tiles: archived.dungeon.tiles.map((t) => Tile.fromJSON(t)) };
+    run.tilesExplored = archived.tilesExplored;
+    run.enemiesRemaining = archived.enemiesRemaining;
+    run.facing = archived.facing;
+    const elevatorTile = run.dungeon.tiles.find((t) => t.type === TILE_TYPES.ELEVATOR);
+    run.playerPosition = elevatorTile ? { x: elevatorTile.x, y: elevatorTile.y } : { ...archived.playerPosition };
+    return true;
   }
 
   createPlayer() {

@@ -72,10 +72,41 @@ export class SaveSystem {
   }
 
   clearSlot(slot) {
+    const snapshot = this.peek(slot);
+    if (snapshot?.run?.visitedFloors?.length) this.clearFloors(snapshot.run.visitedFloors, slot);
     localStorage.removeItem(this.slotKey(slot));
   }
 
   clear() {
     this.clearSlot(this.activeSlot);
+  }
+
+  floorKey(floorNum, slot) {
+    return `${this.slotKey(slot)}_floor_${floorNum}`;
+  }
+
+  /**
+   * Per-floor archive, kept OUT of the main slot blob entirely — this is
+   * what makes floor persistence lazy: the live gameState (and every
+   * normal save()/load()) only ever holds the CURRENT floor's tiles.
+   * A past floor's data sits inertly under its own key until
+   * StateManager.travelToFloor() specifically asks for it.
+   */
+  saveFloor(floorNum, snapshot, slot = this.activeSlot) {
+    localStorage.setItem(this.floorKey(floorNum, slot), JSON.stringify(snapshot));
+  }
+
+  loadFloor(floorNum, slot = this.activeSlot) {
+    const raw = localStorage.getItem(this.floorKey(floorNum, slot));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  clearFloors(floorNumbers, slot = this.activeSlot) {
+    floorNumbers.forEach((floorNum) => localStorage.removeItem(this.floorKey(floorNum, slot)));
   }
 }

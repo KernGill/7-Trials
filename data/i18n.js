@@ -166,6 +166,10 @@ export const TRANSLATIONS = {
     'explore.enemies_wander': 'Enemies still wander about',
     'explore.hidden_gate_opened': 'A distant rumble echoes through the dungeon...',
     'explore.boss_locked': 'Something guards this place — it won\'t engage until the rest of the floor is cleared.',
+    'explore.elevator_title': 'ELEVATOR',
+    'explore.elevator_prompt': 'Travel to a floor you\'ve visited before:',
+    'explore.elevator_no_floors': 'No other floors visited yet.',
+    'explore.elevator_floor_button': 'Floor {n}',
     'explore.locked_room_opened': 'LOCKED ROOM — OPENED',
     'explore.locked_room_failed': 'LOCKED ROOM — FAILED',
     'explore.chest_opened': 'CHEST — OPENED',
@@ -235,6 +239,7 @@ export const TRANSLATIONS = {
     'log.used_consumable_heal': 'Used {name}, healed {n} HP.',
     'log.used_consumable_buff': 'Used {name}. Its effect will apply at the start of your next fight.',
     'log.descended': 'Descended to floor {n}.',
+    'log.elevator_traveled': 'Traveled to floor {n} via elevator.',
 
     // Failure reasons
     'reason.not_your_turn': 'Not your turn.',
@@ -412,6 +417,10 @@ export const TRANSLATIONS = {
     'explore.hp': 'PV: {current}/{max}',
     'explore.enemies_wander': 'Aún merodean enemigos',
     'explore.boss_locked': 'Algo custodia este lugar — no atacará hasta que el resto del piso esté despejado.',
+    'explore.elevator_title': 'ASCENSOR',
+    'explore.elevator_prompt': 'Viaja a un piso que ya has visitado:',
+    'explore.elevator_no_floors': 'Aún no has visitado otro piso.',
+    'explore.elevator_floor_button': 'Piso {n}',
     'explore.locked_room_opened': 'SALA CERRADA — ABIERTA',
     'explore.locked_room_failed': 'SALA CERRADA — FALLIDA',
     'explore.chest_opened': 'COFRE — ABIERTO',
@@ -459,6 +468,7 @@ export const TRANSLATIONS = {
     'log.used_consumable_heal': 'Usaste {name}, curaste {n} PV.',
     'log.used_consumable_buff': 'Usaste {name}. Su efecto se aplicará al inicio de tu próximo combate.',
     'log.descended': 'Descendiste al piso {n}.',
+    'log.elevator_traveled': 'Viajaste al piso {n} en ascensor.',
 
     // Failure reasons
     'reason.not_your_turn': 'No es tu turno.',

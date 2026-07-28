@@ -12,6 +12,11 @@ export const TILE_TYPES = {
   // "remaining events" HUD counter and from tilesTotal/tilesExplored, so
   // it never shows up as a discoverable objective.
   HIDDEN_ENEMY: 'hidden_enemy',
+  // Never one-shot/resolved (unlike LOCKED_DOOR/TREASURE/TEMPORAL_CHEST) —
+  // stays permanently interactive, same spirit as STAIRS. Opens a
+  // floor-picker letting the player warp to any floor in run.visitedFloors —
+  // see ExploreState.handleTileEffect and StateManager.travelToFloor.
+  ELEVATOR: 'elevator',
 };
 
 export class Tile {

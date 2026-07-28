@@ -22,6 +22,25 @@ export const COMBAT_PHASE = {
   DEFEAT: 'defeat',
 };
 
+/**
+ * Scales an array of buff/debuff entries by `count` — used when N equipped
+ * copies of the same passive move fire together as ONE combined application
+ * instead of N separate small ones (see CombatManager.triggerPassives).
+ * Multiplies whichever numeric field the entry actually uses (`stacks` for
+ * status effects, `amount` for a flat stat buff); an entry with neither
+ * (e.g. `type: 'conFromInt'`, whose value is computed live off a stat, not
+ * a static number here) has nothing to scale, so it's just repeated as its
+ * own separate entry `count` times instead.
+ */
+function scaleEntries(entries, count) {
+  if (count <= 1) return entries;
+  return entries.flatMap((entry) => {
+    if (entry.stacks !== undefined) return [{ ...entry, stacks: entry.stacks * count }];
+    if (entry.amount !== undefined) return [{ ...entry, amount: entry.amount * count }];
+    return Array(count).fill(entry);
+  });
+}
+
 export class CombatManager {
   constructor(eventBus) {
     this.eventBus = eventBus;
@@ -721,8 +740,24 @@ export class CombatManager {
   triggerPassives(trigger, actor = null) {
     const actors = actor ? [actor] : this.combatants;
     actors.forEach((character) => {
+      // Group by template id first — duplicate equipped copies of the same
+      // passive (e.g. 4x Ember Curse) fire together as ONE combined
+      // application instead of N separate small ones. This matters most
+      // for self-inflicted debuffs: StatusEffectSystem.applyDebuffs' Status
+      // Reflection self-redirect rounds PER application — at 1 stack per
+      // instance, a single reflect roll could swallow the WHOLE
+      // application every time, making self-burn effectively vanish.
+      // Totaling first means the redirect only ever shaves off its actual
+      // percentage of the real combined total, same as a single big hit.
+      const groups = new Map();
       character.moves.forEach((move) => {
         if (move.template.trigger !== trigger) return;
+        if (!groups.has(move.template.id)) groups.set(move.template.id, []);
+        groups.get(move.template.id).push(move);
+      });
+      groups.forEach((instances) => {
+        const move = instances[0]; // representative instance for once-per-fire state (hasFiredOnce/passiveCounter)
+        const count = instances.length;
         // triggerOnFightTurn fires exactly once per fight, on the specific
         // numbered fight turn given (Flesh Eater's Palm: fight turn 5) —
         // mutually exclusive with triggerInterval below.
@@ -739,18 +774,19 @@ export class CombatManager {
           if (move.passiveCounter % move.template.triggerInterval !== 0) return;
         }
         if (move.template.buffs) {
-          this.applySelfBuffs(character, move.template.buffs);
+          this.applySelfBuffs(character, scaleEntries(move.template.buffs, count));
         }
         if (move.template.debuffs) {
           const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
           if (chanceOk) {
+            const scaledDebuffs = scaleEntries(move.template.debuffs, count);
             // aoeDebuffs (Ember Curse): hits every alive enemy at once
             // instead of just whichever one is currently targeted.
             if (character.isPlayer && move.template.aoeDebuffs) {
-              this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, move.template.debuffs, character)));
+              this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, scaledDebuffs, character)));
             } else {
               const target = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
-              if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, move.template.debuffs, character));
+              if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, scaledDebuffs, character));
             }
           }
         }
@@ -758,17 +794,17 @@ export class CombatManager {
         // `selfDebuffs` targets the passive's own owner — Ash Eater.
         if (move.template.selfDebuffs) {
           const opposingSide = character.isPlayer ? this.enemies : [this.player];
-          this.logDebuffResults(this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character, opposingSide));
+          this.logDebuffResults(this.statusSystem.applyDebuffs(character, scaleEntries(move.template.selfDebuffs, count), character, opposingSide));
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
         }
         if (move.template.grantGoldFlat) {
-          character.pendingGoldBonus = (character.pendingGoldBonus ?? 0) + move.template.grantGoldFlat;
+          character.pendingGoldBonus = (character.pendingGoldBonus ?? 0) + move.template.grantGoldFlat * count;
         }
         if (move.template.physicalDamageReductionPercent) {
           character.physicalDamageReductionPercent =
-            (character.physicalDamageReductionPercent ?? 0) + move.template.physicalDamageReductionPercent;
+            (character.physicalDamageReductionPercent ?? 0) + move.template.physicalDamageReductionPercent * count;
         }
         if (move.template.statusDamageMultipliers) {
           // Multiplied (not overwritten) so two copies of the same passive
@@ -776,7 +812,7 @@ export class CombatManager {
           const current = character.statusDamageMultipliers ?? {};
           const next = { ...current };
           Object.entries(move.template.statusDamageMultipliers).forEach(([key, mult]) => {
-            next[key] = (current[key] ?? 1) * mult;
+            next[key] = (current[key] ?? 1) * mult ** count;
           });
           character.statusDamageMultipliers = next;
         }

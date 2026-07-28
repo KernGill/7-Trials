@@ -18,6 +18,7 @@ const STRAIGHT_BIAS = 0.7;
 const LOCKED_DOOR_COUNT = 3;
 const TREASURE_COUNT = 2;
 const TEMPORAL_CHEST_COUNT = 1;
+const ELEVATOR_COUNT = 1;
 
 // Floor 5 only: a secret, disconnected 40-tile hallway starting near the
 // stairs, ending in a 7x7 arena guarding a single hidden enemy — see
@@ -598,6 +599,15 @@ export class DungeonGenerator {
       const temporalChestTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + i];
       if (temporalChestTile) {
         temporalChestTile.type = TILE_TYPES.TEMPORAL_CHEST;
+      }
+    }
+
+    // One elevator per floor — never resolved/consumed (see TILE_TYPES.ELEVATOR),
+    // lets the player warp back to any previously-visited floor.
+    for (let i = 0; i < ELEVATOR_COUNT; i += 1) {
+      const elevatorTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + TEMPORAL_CHEST_COUNT + i];
+      if (elevatorTile) {
+        elevatorTile.type = TILE_TYPES.ELEVATOR;
       }
     }
 

@@ -37,6 +37,10 @@ const QTE_DIRECTION_KEYS = {
 };
 const QTE_BASE_SECONDS = 5;
 const QTE_DEX_SECONDS_INTERVAL = 50;
+// Halved per user request (to make Thief's flat qteBonusSeconds gear more
+// worth chasing than just stacking raw dex) — was 1 full second per
+// QTE_DEX_SECONDS_INTERVAL dex, now 0.5.
+const QTE_DEX_SECONDS_PER_INTERVAL = 0.5;
 const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
 // Base door/chest/temporal-chest reward amounts (LOCKED_ROOM_GOLD_REWARD,
 // the chest randomInt(2,4) material roll, etc) are quartered via
@@ -44,8 +48,10 @@ const QTE_BASE_ARROWS = 7; // + 1 per floor (floor 1 = 8, floor 10 = 17)
 // additive) via REWARD_FLOOR_BONUS_PER_FLOOR — see getRewardMultiplier.
 const REWARD_INITIAL_SCALE = 0.25;
 const REWARD_FLOOR_BONUS_PER_FLOOR = 0.25;
-const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.25;
-const TEMPORAL_CHEST_REWARD_MULTIPLIER = 2;
+// 50% harder than a regular chest (arrow count).
+const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.5;
+// Base reward bumped +50% on top of its prior 2x-a-regular-chest value.
+const TEMPORAL_CHEST_REWARD_MULTIPLIER = 3;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
 const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material pool
 
@@ -558,6 +564,11 @@ export class ExploreState {
         }, HIDDEN_BOSS_TRANSITION_MS);
         break;
       }
+      case TILE_TYPES.ELEVATOR: {
+        // Never resolved/consumed — always reopens the picker, every visit.
+        this.showElevatorPicker();
+        break;
+      }
       default:
         break;
     }
@@ -640,6 +651,63 @@ export class ExploreState {
   }
 
   /**
+   * Elevator floor-picker — mirrors showResult()'s blocking-modal pattern.
+   * Lists every floor in run.visitedFloors except the current one; picking
+   * one hands off to useElevator() for the actual travel.
+   */
+  showElevatorPicker() {
+    this.resultOpen = true;
+    this.pauseMouseLookForEvent();
+    const { app } = this;
+    const run = app.gameState.run;
+    const otherFloors = (run.visitedFloors ?? []).filter((f) => f !== run.floor).sort((a, b) => a - b);
+
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box elevator-box">
+        <h2>${t('explore.elevator_title')}</h2>
+        ${otherFloors.length
+          ? `<div class="result-line">${t('explore.elevator_prompt')}</div>
+             <div class="elevator-floor-list">
+               ${otherFloors.map((f) => `<button class="cat-btn" data-floor="${f}">${t('explore.elevator_floor_button', { n: f })}</button>`).join('')}
+             </div>`
+          : `<div class="result-line">${t('explore.elevator_no_floors')}</div>`}
+        <button class="result-close">${t('explore.close')}</button>
+      </div>`;
+    this.root.appendChild(modal);
+    modal.querySelectorAll('[data-floor]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = Number(btn.dataset.floor);
+        modal.remove();
+        this.resultOpen = false;
+        this.restoreMouseLookAfterEvent();
+        this.useElevator(target);
+      });
+    });
+    modal.querySelector('.result-close').addEventListener('click', () => {
+      modal.remove();
+      this.resultOpen = false;
+      this.restoreMouseLookAfterEvent();
+    });
+  }
+
+  /** Actual travel, once a target floor is picked — mirrors applyCardPick's post-transition orchestration (player rebuild, 3D/minimap resync, save). */
+  useElevator(targetFloor) {
+    const { app } = this;
+    const run = app.gameState.run;
+    run.savedHealth = this.player.currentHealth;
+    if (!app.travelToFloor(targetFloor)) return;
+    app.gameState.addLog(t('log.elevator_traveled', { n: run.floor }));
+    this.player = app.createPlayer();
+    this.syncDungeon3D();
+    this.syncPlayer3D();
+    this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /**
    * Live per-floor streak toward "Thief's Instinct" (see the shared
    * achievementCardHTML's liveThiefProgressHTML) — deliberately NOT the
    * permanent AchievementSystem progress field (that's cross-run/capped at
@@ -660,6 +728,7 @@ export class ExploreState {
     const { app } = this;
     const run = app.gameState.run;
     run.cards.push(picked);
+    app.archiveCurrentFloor(); // commit the floor being left before it's overwritten
     run.floor += 1;
     run.savedHealth = this.player.currentHealth;
     run.achievementProgress = run.achievementProgress ?? {};
@@ -684,7 +753,7 @@ export class ExploreState {
     const arrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * arrowMultiplier);
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
     const dex = this.player.getStat('dex');
-    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) + this.getPassiveSum('qteBonusSeconds');
+    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
 
     this.resultOpen = true;
     this.pauseMouseLookForEvent();

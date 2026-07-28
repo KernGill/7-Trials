@@ -13,6 +13,7 @@ const TILE_COLORS = {
   [TILE_TYPES.LOCKED_DOOR]: '#7c4fd1',
   [TILE_TYPES.TREASURE]: '#c9962a',
   [TILE_TYPES.TEMPORAL_CHEST]: '#1f5fd9',
+  [TILE_TYPES.ELEVATOR]: '#2ecc71',
 };
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';
