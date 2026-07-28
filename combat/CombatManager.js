@@ -375,6 +375,10 @@ export class CombatManager {
   }
 
   executeMove(attacker, defender, move) {
+    // See Character.hasActedInCombat — read by EnemyAI.chooseMove to
+    // guarantee an opening-priority move (Extreme Ignition) only ever fires
+    // on this character's actual first move of the fight.
+    attacker.hasActedInCombat = true;
     // Torch's fire-move discount: any move that applies the 'fire' debuff
     // costs 1 less energy for a player wielding it — data-driven off the
     // move's own debuffs list (not a hardcoded move-id allowlist), so it
@@ -396,6 +400,29 @@ export class CombatManager {
     if (move.template.healMaxPercent) {
       const healed = attacker.healMissingPercent(move.template.healMaxPercent);
       this.logMessage(t('log.heals', { name: attacker.name, n: healed }));
+    }
+
+    // Cure: reduces each of the caster's own negative status stacks by a
+    // percentage, rounded down independently per effect (so 3 stacks at
+    // 30% rounds to 0 removed, matching the move's own description).
+    // Effects flagged cannotCleanse (Frostbite, Darkness) are skipped
+    // entirely rather than partially reduced — see statusEffectConfig.js.
+    if (move.template.cleanseNegativePercent) {
+      const percent = move.template.cleanseNegativePercent / 100;
+      attacker.statusEffects.forEach((effect) => {
+        const config = STATUS_EFFECTS[effect.id];
+        if (config?.type !== 'debuff' || config?.cannotCleanse) return;
+        const amount = Math.floor(effect.stacks * percent);
+        if (amount > 0) {
+          effect.stacks -= amount;
+          this.logMessage(t('log.status_cured', {
+            name: attacker.name,
+            n: amount,
+            status: tData('status', effect.id, config.name),
+          }));
+        }
+      });
+      attacker.statusEffects = attacker.statusEffects.filter((e) => e.stacks > 0);
     }
 
     // Erratic Combustion: consumed BEFORE this move's own debuffs apply —
@@ -480,7 +507,10 @@ export class CombatManager {
       const { damagePerStatus, excludeSelf = [] } = move.template.clearAllStatusesForDamage;
       let removedCount = 0;
       [attacker, defender].forEach((character) => {
-        const toRemove = character.statusEffects.filter((e) => !(character === attacker && excludeSelf.includes(e.id)));
+        // cannotCleanse effects (Frostbite, Darkness) survive even a
+        // full status wipe — see statusEffectConfig.js.
+        const toRemove = character.statusEffects.filter((e) => !(character === attacker && excludeSelf.includes(e.id))
+          && !STATUS_EFFECTS[e.id]?.cannotCleanse);
         toRemove.forEach((effect) => { character.removeStatusEffect(effect.id); removedCount += 1; });
       });
       if (removedCount > 0) {

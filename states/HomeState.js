@@ -19,7 +19,7 @@ export class HomeState {
         <div class="home-grid">
           <button class="home-tile home-tile-icon" data-a="shop"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.shop')}</span></button>
           <button class="home-tile home-tile-icon" data-a="encyclopedia"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.encyclopedia')}</span></button>
-          <button class="home-tile" data-a="inn">${t('home.inn')}</button>
+          <button class="home-tile home-tile-icon" data-a="inn"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.inn')}</span></button>
           <button class="home-tile home-tile-battle" data-a="battle">${t('home.battle')}</button>
           <button class="home-tile home-tile-icon" data-a="settings"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.settings')}</span></button>
           <button class="home-tile home-tile-icon" data-a="locker"><span class="home-tile-icon-img"></span><span class="home-tile-label">${t('home.locker')}</span></button>
@@ -69,12 +69,18 @@ export class HomeState {
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
     modal.innerHTML = `
+      <button class="back-btn">${t('common.return_home')}</button>
       <div class="result-box">
         <h2>${t('home.resume_run_title')}</h2>
         <button class="continue-run-btn">${t('home.continue_run', { floor: snapshot.run.floor })}</button>
         <button class="begin-anew-btn">${t('home.begin_anew')}</button>
       </div>`;
     this.root.appendChild(modal);
+
+    // Already on Home underneath this modal — "return home" here just
+    // dismisses the prompt without starting or continuing anything,
+    // leaving the abandoned run snapshot intact for next time.
+    modal.querySelector('.back-btn').addEventListener('click', () => modal.remove());
 
     const continueBtn = modal.querySelector('.continue-run-btn');
     this.tooltip.bind(continueBtn, () => {

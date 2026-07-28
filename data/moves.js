@@ -47,15 +47,21 @@ export const MOVE_TEMPLATES = {
   stance_shatter: {
     id: 'stance_shatter',
     name: 'Stance Shatter',
-    description: "Lowers the target's Defense for 3 turns.",
+    description: "Permanently lowers the target's Defense by 15% per stack — stacks, and never wears off.",
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.STR,
     critChance: 5,
     energyCost: 1,
-    cooldown: 2,
+    // 1 effectively means "no cooldown" — same-turn tick convention (see
+    // entities/Move.js's startCooldown) means a 1-cooldown move is back up
+    // immediately, spammable every character turn.
+    cooldown: 1,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    debuffs: [{ effect: 'defenceReduction', stacks: 1, durationFightTurns: 3 }],
+    // No durationFightTurns — permanent, unlike every other stacking
+    // debuff in this file. See Character.getStat's defenceReduction case
+    // for the 15%-per-stack math.
+    debuffs: [{ effect: 'defenceReduction', stacks: 1 }],
   },
   deliberate_blow: {
     id: 'deliberate_blow',
@@ -109,6 +115,24 @@ export const MOVE_TEMPLATES = {
     cooldown: 6,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     healMaxPercent: 33,
+  },
+  cure: {
+    id: 'cure',
+    name: 'Cure',
+    description: 'Removes 30% of each of your own negative status stacks, rounded down per status — effects that resist cleansing (Frostbite, Darkness) are untouched.',
+    properties: [MOVE_PROPERTIES.HEALING],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 2,
+    // Same-turn-tick convention as bone_shards/stance_shatter: startCooldown
+    // sets currentCooldown to this value, then this very turn's own
+    // tickCharacterTurn immediately drops it by 1 — so cooldown 3 here is
+    // what actually produces a genuine 2-turn gap before Cure is usable
+    // again, matching "a 2 turn cooldown" as actually experienced in play.
+    cooldown: 3,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    cleanseNegativePercent: 30,
   },
   arcane_split: {
     id: 'arcane_split',
@@ -744,17 +768,22 @@ export const MOVE_TEMPLATES = {
   extreme_ignition: {
     id: 'extreme_ignition',
     name: 'Extreme Ignition',
-    description: "A devastating strike that applies 20 stacks of Burn to the opponent — but burns the user for 50% of their own current health if the hit lands.",
+    description: "Always used as the opening move: a devastating strike that applies 10 stacks of Burn to the opponent — but burns the user for 50% of their own current health if the hit lands.",
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.MELEE],
     damage: 30,
     scaling: SCALING_TYPES.STR,
     critChance: 0,
     energyCost: 6,
-    cooldown: 20,
+    cooldown: 12,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    debuffs: [{ effect: 'fire', stacks: 20 }],
+    debuffs: [{ effect: 'fire', stacks: 10 }],
     // Only applied if the attack actually lands (see CombatManager.executeMove).
     selfDamagePercentOnHit: 50,
+    // Guaranteed as this character's very first move of the fight — see
+    // Character.hasActedInCombat / EnemyAI.chooseMove. After that opening
+    // use it behaves like any other move on cooldown: eligible for normal
+    // random selection once it comes back up, never forced again.
+    usePriorityAsOpeningMove: true,
   },
   vine_trap: {
     id: 'vine_trap',

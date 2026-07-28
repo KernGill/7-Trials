@@ -18,6 +18,24 @@ export class EnemyAI {
   }
 
   chooseMove(enemy, player) {
+    // usePriorityAsOpeningMove (Extreme Ignition): guaranteed as this
+    // character's very first move of the fight, checked before the
+    // health-threshold priority below — see Character.hasActedInCombat,
+    // set the instant any move actually executes, so this can never fire
+    // a second time. Energy is topped up (not granted for free — only up
+    // to exactly what the move costs) rather than gating on
+    // isAvailable(), since a fresh combatant starts every fight at 0
+    // energy and only gains a little per turn: without this, "always the
+    // opening move" would silently fail to fire on any move pricier than
+    // whatever the first turn-start energy roll happens to grant.
+    if (!enemy.hasActedInCombat) {
+      const opener = enemy.moves.find((m) => isActiveMove(m) && m.template.usePriorityAsOpeningMove);
+      if (opener && !opener.isOnCooldown()) {
+        if (enemy.energy < opener.energyCost) enemy.energy = opener.energyCost;
+        return opener;
+      }
+    }
+
     // Each priority move carries its OWN threshold (final_rites: 10%,
     // Erratic Combustion: 50%) rather than one shared cutoff — checked
     // per-move so different enemies' priority specials can trigger at

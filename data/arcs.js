@@ -9,6 +9,11 @@ export const ARCS = {
     enemiesPerFloor: 5,
     enemyPool: ['indebted_fallen', 'the_hollowed', 'false_apparition', 'torch_eater'],
     bossId: 'indebted_fallen_boss',
+    // Discoverable in the Bestiary once defeated, same as any other enemy,
+    // but deliberately kept out of enemyPool (no normal random encounter
+    // roll) and bossId (no normal floor-10 boss fight) — it only exists
+    // behind the floor-5 hidden hallway. See BestiaryState.renderAll.
+    secretBossIds: ['vanguard_of_darkness'],
     materials: ['bones', 'flesh', 'mana_stone'],
     shopTier: 'arc0',
     startFloor: 1,

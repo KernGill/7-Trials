@@ -44,6 +44,13 @@ export class Character {
     this.storedSpeed = 0;
     this.energy = 0;
     this.hasMoved = false;
+    // Set the first time CombatManager.executeMove runs with this character
+    // as the attacker — unlike hasMoved (reset every fight turn), this
+    // stays true for the rest of the fight. Lets a move's own template flag
+    // (usePriorityAsOpeningMove — see Extreme Ignition, EnemyAI.chooseMove)
+    // guarantee "always the very first move of the fight" without the AI
+    // needing to track turn counts itself.
+    this.hasActedInCombat = false;
     this.skippedThisFightTurn = false;
     this.pendingDamageReduction = null;
     this.guardState = null;
@@ -130,8 +137,13 @@ export class Character {
 
     this.statusEffects.forEach((effect) => {
       const template = effect.id;
+      // Percent, not flat, and additive per stack — same convention as
+      // frost's accuracy penalty (see the accuracy/dodge special case
+      // above): 3 stacks is a straightforward 45% reduction, not a
+      // compounding 85%^3, so "each stack reduces defense by 15%" reads
+      // exactly as stated rather than quietly underselling itself.
       if (template === 'defenceReduction' && stat === 'def') {
-        value -= 10 * effect.stacks;
+        value *= Math.max(0, 1 - 0.15 * effect.stacks);
       }
       if (template === 'strength' && stat === 'str') {
         value += effect.stacks;
@@ -302,6 +314,7 @@ export class Character {
     this.storedSpeed = 0;
     this.energy = 0;
     this.hasMoved = false;
+    this.hasActedInCombat = false;
     this.skippedThisFightTurn = false;
     this.pendingDamageReduction = null;
     this.guardState = null;

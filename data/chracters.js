@@ -38,6 +38,7 @@ export const CHARACTERS = {
       'guard',
       'minor_heal',
       'arcane_split',
+      'cure',
     ],
     unlockedByDefault: true,
     unlockArc: 'arc0',

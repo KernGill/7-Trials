@@ -169,6 +169,7 @@ select {
 .home-tile-icon[data-a="shop"] .home-tile-icon-img { background-image: url('assets/sprites/ui/shop_coins.png'); }
 .home-tile-icon[data-a="encyclopedia"] .home-tile-icon-img { background-image: url('assets/sprites/ui/bestiary_rock.png'); }
 .home-tile-icon[data-a="locker"] .home-tile-icon-img { background-image: url('assets/sprites/ui/locker_satchel.png'); }
+.home-tile-icon[data-a="inn"] .home-tile-icon-img { background-image: url('assets/sprites/characters/artius.png'); }
 .home-tile-icon[data-a="settings"] .home-tile-icon-img {
   /* Stretched taller than its native square crop per user request — reads
      more like a hanging curtain than a folded cloth at this height. */

@@ -1,5 +1,6 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { getArcConfig, ARCS } from '../data/arcs.js';
+import { getEnemyConfig } from '../data/enemies.js';
 import { getMoveTemplate } from '../data/moves.js';
 import { getEnemySprite } from '../data/sprites.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
@@ -84,22 +85,32 @@ export class BestiaryState {
     this.els.prevBtn.disabled = this.arcIndex <= 0;
     this.els.nextBtn.disabled = this.arcIndex >= MAX_ARC_INDEX;
 
-    const poolIds = [...(arc.enemyPool ?? [])];
+    // secretBossIds (e.g. Vanguard of Darkness) are discoverable once
+    // defeated, same gating as everything else below, but deliberately
+    // excluded from enemyPool/bossId so they never show up in a normal
+    // random encounter roll or the floor-10 boss fight.
+    const poolIds = [...(arc.enemyPool ?? []), ...(arc.secretBossIds ?? [])];
     if (arc.bossId) poolIds.push(arc.bossId);
     const slots = Array.from({ length: SLOTS_PER_ARC }).map((_, i) => poolIds[i] ?? null);
 
     this.els.grid.innerHTML = slots.map((enemyId) => {
+      // The bestiary entry only ever gates *discovery* (have you killed
+      // this enemy at least once) — its name/stats/moves are a snapshot
+      // frozen at kill time, so all actual display content below reads
+      // straight from the live data/enemies.js config instead, meaning a
+      // later balance patch shows up immediately without needing a re-kill.
       const entry = enemyId ? this.app.bestiary.getEntry(enemyId) : null;
       if (!entry) {
         return `<div class="bestiary-tile locked">${enemyId ? t('bestiary.unknown') : t('bestiary.future_enemy')}</div>`;
       }
-      return `<button class="bestiary-tile discovered" data-enemy="${enemyId}">${tData('enemy', enemyId, entry.name)}</button>`;
+      const config = getEnemyConfig(enemyId);
+      return `<button class="bestiary-tile discovered" data-enemy="${enemyId}">${tData('enemy', enemyId, config.name)}</button>`;
     }).join('');
 
     this.els.grid.querySelectorAll('[data-enemy]').forEach((tile) => {
       const enemyId = tile.dataset.enemy;
-      const entry = this.app.bestiary.getEntry(enemyId);
-      this.tooltip.bind(tile, () => `<h4>${tData('enemy', enemyId, entry.name)}</h4>${statsListHTML(entry.stats)}`);
+      const config = getEnemyConfig(enemyId);
+      this.tooltip.bind(tile, () => `<h4>${tData('enemy', enemyId, config.name)}</h4>${statsListHTML(config.baseStats)}`);
       tile.addEventListener('click', () => {
         this.openEnemyId = enemyId;
         this.renderDetail();
@@ -118,18 +129,19 @@ export class BestiaryState {
       return;
     }
 
+    const config = getEnemyConfig(this.openEnemyId);
     const sprite = getEnemySprite(this.openEnemyId);
-    const enemyName = tData('enemy', this.openEnemyId, entry.name);
+    const enemyName = tData('enemy', this.openEnemyId, config.name);
     this.els.detail.classList.remove('hidden');
     this.els.detail.innerHTML = `
       <button class="detail-close" data-a="close">&times;</button>
       <div class="detail-left">
         <div class="detail-name">${enemyName}</div>
         <div class="detail-image">${sprite ? `<img src="${sprite}" alt="${enemyName}">` : t('bestiary.no_image')}</div>
-        <div class="detail-stats">${statsListHTML(entry.stats)}</div>
+        <div class="detail-stats">${statsListHTML(config.baseStats)}</div>
       </div>
       <div class="detail-moves">
-        ${entry.moveIds.map((id) => {
+        ${config.moveIds.map((id) => {
           const move = getMoveTemplate(id);
           if (!move) return '';
           return `

@@ -116,5 +116,9 @@ export const STATUS_EFFECTS = {
     icon: 'Dk',
     color: '#2c2c54',
     stacksDecrease: false,
+    // Same flag frostbite already carries — see Cure's cleanseNegativePercent
+    // and Umbral Purge's clearAllStatusesForDamage in CombatManager.js,
+    // the only two mechanics that ever strip statuses off a character.
+    cannotCleanse: true,
   },
 };
