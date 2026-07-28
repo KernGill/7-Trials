@@ -96,12 +96,14 @@ export function enemyStatMultiplierForFloor(floor) {
 export const FROST_MAX_STACKS = 25;
 export const FROST_HIT_PENALTY = 0.03;
 export const FROST_DAMAGE_BONUS = 0.01;
-// Darkness (Vanguard of Darkness): -5% accuracy per stack, and a
-// stacks*10% chance per attacker-turn-start for the inflicting side to
-// steal 1 energy — see Character.getStat's accuracy branch and
-// CombatManager.resolveEnemyTurn.
-export const DARKNESS_ACCURACY_PENALTY = 0.05;
-export const DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK = 10;
+// Darkness (Vanguard of Darkness): -2.5% accuracy per stack, and a
+// stacks*4% "energy steal budget" per attacker-turn-start for the
+// inflicting side — floor(budget) is guaranteed stolen, the fractional
+// remainder is one more steal's worth of chance (25 stacks = 100% budget =
+// exactly 1 guaranteed; 50 stacks = 200% budget = exactly 2 guaranteed) —
+// see Character.getStat's accuracy branch and CombatManager.resolveEnemyTurn.
+export const DARKNESS_ACCURACY_PENALTY = 0.025;
+export const DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK = 4;
 export const THORNS_REFLECT_PER_STACK = 0.03;
 export const LIFESTEAL_PER_STACK = 0.05;
 export const FIRE_DECAY_RATIO = 0.35;

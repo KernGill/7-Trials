@@ -27,6 +27,10 @@ export class StatusEffectSystem {
 
   tickFightTurnStart(combatants, log, onTick) {
     combatants.forEach((character) => {
+      // Reset BEFORE this turn's own ticks run, so Abyssal Fire (see
+      // tickFightTurnEnd) only ever sees status damage taken THIS fight
+      // turn, never carried over from the last one.
+      character.statusDamageThisFightTurn = 0;
       character.statusEffects.forEach((effect) => {
         const template = CONFIG[effect.id];
         if (!template || template.tickOn !== 'fight_turn_start') return;
@@ -47,15 +51,28 @@ export class StatusEffectSystem {
    */
   tickFightTurnEnd(combatants, log, onTick) {
     combatants.forEach((character) => {
-      character.statusEffects.forEach((effect) => {
-        const template = CONFIG[effect.id];
-        if (!template || template.tickOn !== 'fight_turn_end') return;
+      // Two passes: every other fight_turn_end effect ticks first (fire
+      // included), THEN Abyssal Fire — guaranteed to see the full turn's
+      // accumulated status damage regardless of statusEffects' insertion
+      // order, rather than depending on incidentally being applied last.
+      const runTick = (effect, template) => {
         const damage = template.formula(effect.stacks, character);
         if (damage > 0) {
           const actual = character.takeDamage(damage, { source: effect.id });
           log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
           onTick?.({ character, effectId: effect.id, amount: actual });
         }
+      };
+      character.statusEffects.forEach((effect) => {
+        const template = CONFIG[effect.id];
+        if (!template || template.tickOn !== 'fight_turn_end' || effect.id === 'abyssalFire') return;
+        runTick(effect, template);
+      });
+      character.statusEffects.forEach((effect) => {
+        if (effect.id !== 'abyssalFire') return;
+        const template = CONFIG[effect.id];
+        if (!template) return;
+        runTick(effect, template);
       });
 
       character.statusEffects = character.statusEffects.filter((effect) => {
@@ -92,33 +109,52 @@ export class StatusEffectSystem {
     const applied = [];
     debuffs?.forEach((debuff) => {
       if (rollChance(target.getStat('statusResist'))) return;
-      // Status Reflection: each stack is a 10% chance for this specific
-      // debuff to land on the original attacker instead of the target.
-      const reflectChance = target.getStatusStacks('statusReflection') * 10;
-      const recipient = (attacker && attacker !== target && reflectChance > 0 && rollChance(reflectChance))
-        ? attacker : target;
-      let stacks = debuff.stacks ?? (debuff.stacksMin
-        ? Math.floor(Math.random() * ((debuff.stacksMax ?? debuff.stacksMin) - debuff.stacksMin + 1)) + debuff.stacksMin
-        : 1);
+      let stacks = debuff.stacksFromCasterEnergy && attacker
+        ? Math.round(attacker.energy)
+        : debuff.stacks ?? (debuff.stacksMin
+          ? Math.floor(Math.random() * ((debuff.stacksMax ?? debuff.stacksMin) - debuff.stacksMin + 1)) + debuff.stacksMin
+          : 1);
       if (debuff.bonusPerDex && attacker) {
         stacks += Math.floor(attacker.getStat('dex') * debuff.bonusPerDex);
       }
-      if (debuff.effect === 'frost') {
-        const current = recipient.getStatusStacks('frost') + stacks;
-        if (current >= FROST_MAX_STACKS) {
-          recipient.removeStatusEffect('frost');
-          recipient.addStatusEffect('frostbite', 1);
-          applied.push({ recipient, effectId: 'frostbite', stacks: 1 });
-        } else {
-          recipient.addStatusEffect('frost', stacks);
-          applied.push({ recipient, effectId: 'frost', stacks });
+      if (stacks <= 0) return;
+
+      const applyToRecipient = (recipient, amount) => {
+        if (amount <= 0) return;
+        if (debuff.effect === 'frost') {
+          const current = recipient.getStatusStacks('frost') + amount;
+          if (current >= FROST_MAX_STACKS) {
+            recipient.removeStatusEffect('frost');
+            recipient.addStatusEffect('frostbite', 1);
+            applied.push({ recipient, effectId: 'frostbite', stacks: 1 });
+          } else {
+            recipient.addStatusEffect('frost', amount);
+            applied.push({ recipient, effectId: 'frost', stacks: amount });
+          }
+          return;
         }
-        return;
-      }
-      recipient.addStatusEffect(debuff.effect, stacks, {
-        durationFightTurns: debuff.durationFightTurns ?? -1,
-      });
-      applied.push({ recipient, effectId: debuff.effect, stacks });
+        recipient.addStatusEffect(debuff.effect, amount, {
+          durationFightTurns: debuff.durationFightTurns ?? -1,
+        });
+        applied.push({ recipient, effectId: debuff.effect, stacks: amount });
+      };
+
+      // Status Reflection: no longer a chance to redirect the whole
+      // application — each stack of the TARGET's own Status Reflection
+      // buff reflects that % of the incoming stack count straight back
+      // onto the attacker, the remainder still lands on the target (see
+      // statusEffectConfig.js). Effects flagged noReflect (Frostbite,
+      // Darkness) always land on the target in full, no split.
+      const config = CONFIG[debuff.effect];
+      const canReflect = attacker && attacker !== target && !config?.noReflect;
+      const reflectPercent = canReflect
+        ? target.getStatusStacks('statusReflection') * (CONFIG.statusReflection.reflectPercentPerStack ?? 0)
+        : 0;
+      const reflectedStacks = reflectPercent > 0 ? Math.round(stacks * Math.min(reflectPercent, 100) / 100) : 0;
+      const remainderStacks = stacks - reflectedStacks;
+
+      applyToRecipient(target, remainderStacks);
+      applyToRecipient(attacker, reflectedStacks);
     });
     return applied;
   }

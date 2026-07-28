@@ -381,7 +381,7 @@ export const MOVE_TEMPLATES = {
   gluttonous_maw: {
     id: 'gluttonous_maw',
     name: 'Gluttonous Maw',
-    description: 'Every 4th fight turn, gains 1-2 stacks of Lifesteal.',
+    description: 'Once per fight, at the start of the 5th fight turn, gains 3 stacks of Lifesteal.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -389,11 +389,15 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 1,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
-    buffs: [{ effect: 'lifesteal', stacksMin: 1, stacksMax: 2 }],
-    // Every 4th fight turn (globally), not every one of the owner's own
-    // character turns — was granting lifesteal far too often.
+    // Fixed 3, not a random 1-2 roll — a flat, predictable amount per
+    // equipped copy (2 equipped = 2 independent Move instances = 6
+    // total), matching the "doesn't keep stacking" request.
+    buffs: [{ effect: 'lifesteal', stacks: 3 }],
+    // Fires exactly once (see Move.hasFiredOnce / CombatManager.
+    // triggerPassives), not every Nth occurrence — was granting lifesteal
+    // indefinitely, forever, every 4 turns.
     trigger: 'fight_turn_start',
-    triggerInterval: 4,
+    triggerOnFightTurn: 5,
   },
   potion_maniac: {
     id: 'potion_maniac',
@@ -776,7 +780,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 6,
     cooldown: 12,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    debuffs: [{ effect: 'fire', stacks: 10 }],
+    debuffs: [{ effect: 'fire', stacks: 15 }],
     // Only applied if the attack actually lands (see CombatManager.executeMove).
     selfDamagePercentOnHit: 50,
     // Guaranteed as this character's very first move of the fight — see
@@ -934,10 +938,10 @@ export const MOVE_TEMPLATES = {
   vanguard_dark_strike: {
     id: 'vanguard_dark_strike',
     name: 'Dark Strike',
-    description: 'A basic melee strike.',
+    description: 'A basic melee strike, scaling off Strength — which Dark Empowerment can push far above his base 0.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE],
     damage: 10,
-    scaling: SCALING_TYPES.NONE,
+    scaling: SCALING_TYPES.STR,
     critChance: 0,
     energyCost: 0,
     cooldown: 1,
@@ -946,7 +950,7 @@ export const MOVE_TEMPLATES = {
   vanguard_crippling_shadow: {
     id: 'vanguard_crippling_shadow',
     name: 'Crippling Shadow',
-    description: 'Deals damage and cuts the opponent\'s Speed by 50% for 5 turns.',
+    description: 'Deals damage and permanently lowers the opponent\'s Speed by a flat 10 per cast — never wears off, though Speed can never drop below 5.',
     properties: [MOVE_PROPERTIES.PHYSICAL, MOVE_PROPERTIES.MELEE, MOVE_PROPERTIES.DEBUFF],
     damage: 8,
     scaling: SCALING_TYPES.NONE,
@@ -963,7 +967,11 @@ export const MOVE_TEMPLATES = {
     // (Dark Strike, Umbral Ward) stay on character_turn so he still has
     // something to do turn after turn even mid-streak.
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
-    percentStatDebuff: { stat: 'spd', percent: -50, durationFightTurns: 5 },
+    // Flat, permanent, additive per cast — see Character.getStat's
+    // speedReduction branch and the global spd floor of 5 right below it.
+    // No durationFightTurns: unlike defenceReduction's percent design,
+    // this one never expires.
+    debuffs: [{ effect: 'speedReduction', stacks: 1 }],
   },
   vanguard_frostbite_touch: {
     id: 'vanguard_frostbite_touch',
@@ -981,26 +989,31 @@ export const MOVE_TEMPLATES = {
   vanguard_abyssal_cascade: {
     id: 'vanguard_abyssal_cascade',
     name: 'Abyssal Cascade',
-    description: 'An unavoidable torrent of every affliction: 3 Frost, 4 Burn, 2 Bleed, 5 Poison, and 1 Frostbite.',
+    description: 'An unavoidable torrent of every affliction: 6 Frost, 8 Burn, 6 Bleed, 10 Poison, 2 Frostbite, and 2 Abyssal Fire — which waits out the whole fight turn, then detonates for half of everything else that damaged you this turn, per stack.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.AOE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
     critChance: 0,
-    energyCost: 10,
+    energyCost: 15,
     cooldown: 20,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     debuffs: [
-      { effect: 'frost', stacks: 3 },
-      { effect: 'fire', stacks: 4 },
-      { effect: 'bleed', stacks: 2 },
-      { effect: 'poison', stacks: 5 },
-      { effect: 'frostbite', stacks: 1 },
+      { effect: 'frost', stacks: 6 },
+      { effect: 'fire', stacks: 8 },
+      { effect: 'bleed', stacks: 6 },
+      { effect: 'poison', stacks: 10 },
+      { effect: 'frostbite', stacks: 2 },
+      // Listed after fire on purpose — StatusEffectSystem.tickFightTurnEnd
+      // ticks every other fight_turn_end effect before Abyssal Fire
+      // regardless of this order, but keeping it last here still reads
+      // correctly as "everything else, then the detonation."
+      { effect: 'abyssalFire', stacks: 2 },
     ],
   },
   vanguard_umbral_ward: {
     id: 'vanguard_umbral_ward',
     name: 'Umbral Ward',
-    description: 'Reduces all damage taken, including from status effects, by 70% for the next hit.',
+    description: 'Reduces all damage taken, including from status effects, by 70% for the next hit. Cast twice or more in a row and every cast after the first also inflicts 1 stack of Darkness — he isn\'t wasting his turn by blocking repeatedly during a speed streak.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -1011,11 +1024,14 @@ export const MOVE_TEMPLATES = {
     damageReductionPercent: 70,
     damageReductionHits: 1,
     includesStatusDamage: true,
+    // See CombatManager.executeMove's consecutiveMoveCount tracking —
+    // only applies from the 2nd consecutive cast of this exact move on.
+    debuffOnRepeatCast: { effect: 'darkness', stacks: 1 },
   },
   vanguard_dread_grasp: {
     id: 'vanguard_dread_grasp',
     name: 'Dread Grasp',
-    description: 'Arms a trap that never wears off: the next time the opponent attacks the Vanguard, of any kind, they get stunned instead of the attack landing.',
+    description: 'Arms a trap that never wears off: the next time the opponent attacks the Vanguard, of any kind, they get stunned for 2 turns instead of the attack landing.',
     properties: [MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -1025,12 +1041,13 @@ export const MOVE_TEMPLATES = {
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
     // Not a status effect (no buff icon) — see DamageCalculator.resolveAttack.
     // durationFightTurns: -1 = no timed expiry, lasts until it triggers.
-    attackerStunTrap: { durationFightTurns: -1 },
+    // stunStacks: 2 = a genuine 2-turn stun, not Vine Trap's default 1.
+    attackerStunTrap: { durationFightTurns: -1, stunStacks: 2 },
   },
   vanguard_shroud_of_malice: {
     id: 'vanguard_shroud_of_malice',
     name: 'Shroud of Malice',
-    description: 'Inflicts 5 stacks of Darkness on the opponent and shields the user with 50% damage reduction for the next 3 hits.',
+    description: 'Inflicts 3 stacks of Darkness on the opponent and shields the user with 50% damage reduction for the next 3 hits.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.DEFENCE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -1038,7 +1055,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 5,
     cooldown: 20,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
-    debuffs: [{ effect: 'darkness', stacks: 5 }],
+    debuffs: [{ effect: 'darkness', stacks: 3 }],
     damageReductionPercent: 50,
     damageReductionHits: 3,
   },
@@ -1059,7 +1076,7 @@ export const MOVE_TEMPLATES = {
   vanguard_umbral_purge: {
     id: 'vanguard_umbral_purge',
     name: 'Umbral Purge',
-    description: 'Only usable after reviving: strips every status effect from both fighters (except the user\'s own Frostbite), dealing 10 damage for each one removed, then inflicts 5 stacks of Darkness.',
+    description: 'Only usable after reviving: strips every buff from the opponent (their negative status effects stay put) and every status from the user (except their own Frostbite), dealing 10 damage for each one removed, then inflicts 5 stacks of Darkness.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -1072,8 +1089,40 @@ export const MOVE_TEMPLATES = {
     cooldown: 0,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
     requiresRevived: true,
+    // Defender-side only strips type:'buff' effects now — see
+    // CombatManager.executeMove's clearAllStatusesForDamage handling.
     clearAllStatusesForDamage: { damagePerStatus: 10, excludeSelf: ['frostbite'] },
     debuffs: [{ effect: 'darkness', stacks: 5 }],
+  },
+  vanguard_wearing_darkness: {
+    id: 'vanguard_wearing_darkness',
+    name: 'Wearing Darkness',
+    description: 'Every other turn, afflicts the opponent with a 2-turn debuff that lowers both Speed and Defense by 5% per stack — stack count equals the Vanguard\'s own current energy at the moment it triggers.',
+    properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.DEBUFF],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    trigger: 'character_turn_start',
+    triggerInterval: 2,
+    debuffs: [{ effect: 'wearingDarkness', stacksFromCasterEnergy: true, durationFightTurns: 2 }],
+  },
+  vanguard_dark_empowerment: {
+    id: 'vanguard_dark_empowerment',
+    name: 'Dark Empowerment',
+    description: "A living passive: the Vanguard's Strength always equals however many stacks of Darkness currently afflict his opponent, rising and falling with the fight in real time. Dark Strike scales off this.",
+    properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
+    damage: 0,
+    scaling: SCALING_TYPES.NONE,
+    critChance: 0,
+    energyCost: 0,
+    cooldown: 0,
+    cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    // No trigger — read live every time getStat('str') is called. See
+    // Character.getStat's grantsStrFromOpponentDarkness branch.
+    grantsStrFromOpponentDarkness: true,
   },
 
   // ---------------- Vanguard of Darkness drop-set moves ----------------

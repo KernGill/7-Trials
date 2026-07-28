@@ -77,10 +77,24 @@ export class Character {
     // and clears itself if it never triggers in time (Vine Trap).
     this.stunTrapActive = false;
     this.stunTrapTurnsRemaining = 0;
+    // How many stun stacks the trap applies once it triggers — set from
+    // the arming move's own template (attackerStunTrap.stunStacks) at the
+    // moment it's armed, defaulting to 1 (Vine Trap's original behavior).
+    // See CombatManager.executeMove and DamageCalculator.resolveAttack.
+    this.stunTrapStunStacks = 1;
     // One-time on-death revive passive (Vanguard of Darkness) — see
     // CombatManager.checkFightEnd. Never reset mid-fight; only cleared on
     // resetBattleState() for the next fight.
     this.hasRevived = false;
+    // Running total of status-tick damage (source-tagged takeDamage calls)
+    // taken so far THIS fight turn — reset at the start of every fight
+    // turn (StatusEffectSystem.tickFightTurnStart), read by Abyssal Fire's
+    // own end-of-turn formula. See _applyOwnDamage.
+    this.statusDamageThisFightTurn = 0;
+    // Tracks repeated same-move casts in a row (Vanguard's Umbral Ward) —
+    // see CombatManager.executeMove's debuffOnRepeatCast handling.
+    this.lastMoveId = null;
+    this.consecutiveMoveCount = 0;
     this.moveIds = [...(config.moveIds ?? [])];
     this.moves = [];
     this.combatLogTag = config.combatLogTag ?? this.name;
@@ -148,8 +162,30 @@ export class Character {
       if (template === 'strength' && stat === 'str') {
         value += effect.stacks;
       }
+      // Vanguard's Wearing Darkness — same additive-percent convention as
+      // defenceReduction above, just spread across two stats at once.
+      if (template === 'wearingDarkness' && (stat === 'def' || stat === 'spd')) {
+        value *= Math.max(0, 1 - 0.05 * effect.stacks);
+      }
+      // Vanguard's Crippling Shadow — permanent flat reduction (not
+      // percent), unlike every other stacking debuff in this file. Floor
+      // is applied below, after every other spd modifier has stacked up.
+      if (template === 'speedReduction' && stat === 'spd') {
+        value -= 10 * effect.stacks;
+      }
     });
 
+    // Vanguard's Dark Empowerment — a live bonus, not a fixed passive
+    // snapshot: recalculated on every read from the opponent's CURRENT
+    // Darkness stacks, so it rises and falls with the fight in real time
+    // rather than being locked in once at fight_start like Cinder Skin's
+    // resistance. Gated by template flag (not a hardcoded move id) so any
+    // future move could grant the same behavior.
+    if (stat === 'str' && this.moves?.some((m) => m.template.grantsStrFromOpponentDarkness)) {
+      value += this.combatOpponent?.getStatusStacks('darkness') ?? 0;
+    }
+
+    if (stat === 'spd') return Math.max(5, value);
     return Math.max(0, value);
   }
 
@@ -268,6 +304,10 @@ export class Character {
       }
     }
     this.currentHealth = clamp(this.currentHealth - actual, 0, this.getMaxHealth());
+    // Every source-tagged damage instance counts toward this fight turn's
+    // running total — read by Abyssal Fire's own end-of-turn formula. Not
+    // scoped to any particular status id: whatever landed, landed.
+    if (source && actual > 0) this.statusDamageThisFightTurn = (this.statusDamageThisFightTurn ?? 0) + actual;
     // Tracks which status effect's tick landed the killing blow, if any —
     // read by achievement checks (e.g. "defeat an enemy via Burn/Bleed").
     if (source && actual > 0 && this.currentHealth <= 0) this.diedFromStatusId = source;
@@ -328,7 +368,11 @@ export class Character {
     this.statusDamageMultipliers = null;
     this.stunTrapActive = false;
     this.stunTrapTurnsRemaining = 0;
+    this.stunTrapStunStacks = 1;
     this.hasRevived = false;
+    this.statusDamageThisFightTurn = 0;
+    this.lastMoveId = null;
+    this.consecutiveMoveCount = 0;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];
@@ -339,6 +383,7 @@ export class Character {
     this.moves.forEach((move) => {
       move.currentCooldown = 0;
       move.passiveCounter = 0;
+      move.hasFiredOnce = false;
     });
   }
 

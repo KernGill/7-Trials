@@ -8,6 +8,10 @@ export class Move {
     this.owner = owner;
     this.currentCooldown = 0;
     this.passiveCounter = 0;
+    // Gluttonous Maw-style one-shot passives (triggerOnFightTurn) fire
+    // exactly once per fight, tracked per Move instance — see
+    // CombatManager.triggerPassives.
+    this.hasFiredOnce = false;
   }
 
   get id() { return this.template.id; }
@@ -59,6 +63,7 @@ export class Move {
       id: this.id,
       currentCooldown: this.currentCooldown,
       passiveCounter: this.passiveCounter,
+      hasFiredOnce: this.hasFiredOnce,
     };
   }
 }

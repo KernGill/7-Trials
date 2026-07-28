@@ -341,12 +341,19 @@ export class CombatManager {
   resolveEnemyTurn(enemy) {
     // Darkness's energy-steal side: keyed off the status itself (whichever
     // enemy is acting), not a specific enemy id — see Character.getStat
-    // for the matching accuracy-penalty side.
+    // for the matching accuracy-penalty side. Guaranteed-plus-remainder
+    // budget (see Constants.js) rather than a single rollChance: past
+    // 100% budget (25+ stacks) this steals more than 1 energy per turn.
     const darknessStacks = this.player.getStatusStacks('darkness');
-    if (darknessStacks > 0 && this.player.energy > 0
-      && rollChance(darknessStacks * DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK)) {
-      const stolen = this.energySystem.stealEnergy(this.player, enemy, 1);
-      if (stolen > 0) this.logMessage(t('log.darkness_steals_energy', { name: enemy.name }));
+    if (darknessStacks > 0 && this.player.energy > 0) {
+      const budget = darknessStacks * DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK / 100;
+      let steals = Math.floor(budget);
+      const remainderChance = (budget - steals) * 100;
+      if (remainderChance > 0 && rollChance(remainderChance)) steals += 1;
+      if (steals > 0) {
+        const stolen = this.energySystem.stealEnergy(this.player, enemy, steals);
+        if (stolen > 0) this.logMessage(t('log.darkness_steals_energy', { name: enemy.name }));
+      }
     }
 
     const move = this.enemyAI.chooseMove(enemy, this.player);
@@ -392,6 +399,12 @@ export class CombatManager {
       return;
     }
 
+    // Umbral Ward's escalating punishment (debuffOnRepeatCast below) needs
+    // to know whether THIS cast is a repeat of the attacker's own last
+    // move — tracked on every successful cast, before anything else runs.
+    attacker.consecutiveMoveCount = attacker.lastMoveId === move.id ? attacker.consecutiveMoveCount + 1 : 1;
+    attacker.lastMoveId = move.id;
+
     if (!rollChance(attacker.getStat('noCooldownChance'))) {
       move.startCooldown();
     }
@@ -400,6 +413,14 @@ export class CombatManager {
     if (move.template.healMaxPercent) {
       const healed = attacker.healMissingPercent(move.template.healMaxPercent);
       this.logMessage(t('log.heals', { name: attacker.name, n: healed }));
+    }
+
+    // debuffOnRepeatCast: applies only from the 2nd consecutive cast of
+    // THIS exact move onward — Umbral Ward's "isn't wasting his turn"
+    // escalation, so blocking over and over during a speed streak has a
+    // real cost instead of being free.
+    if (move.template.debuffOnRepeatCast && attacker.consecutiveMoveCount >= 2) {
+      this.logDebuffResults(this.statusSystem.applyDebuffs(defender, [move.template.debuffOnRepeatCast], attacker));
     }
 
     // Cure: reduces each of the caster's own negative status stacks by a
@@ -508,9 +529,13 @@ export class CombatManager {
       let removedCount = 0;
       [attacker, defender].forEach((character) => {
         // cannotCleanse effects (Frostbite, Darkness) survive even a
-        // full status wipe — see statusEffectConfig.js.
+        // full status wipe — see statusEffectConfig.js. On the defender
+        // specifically, only their own BUFFS get stripped — their
+        // negative status effects stay put, unlike the attacker's own
+        // side, which still loses everything (bar excludeSelf/cannotCleanse).
         const toRemove = character.statusEffects.filter((e) => !(character === attacker && excludeSelf.includes(e.id))
-          && !STATUS_EFFECTS[e.id]?.cannotCleanse);
+          && !STATUS_EFFECTS[e.id]?.cannotCleanse
+          && (character === attacker || STATUS_EFFECTS[e.id]?.type === 'buff'));
         toRemove.forEach((effect) => { character.removeStatusEffect(effect.id); removedCount += 1; });
       });
       if (removedCount > 0) {
@@ -583,6 +608,9 @@ export class CombatManager {
     if (move.template.attackerStunTrap) {
       attacker.stunTrapActive = true;
       attacker.stunTrapTurnsRemaining = move.template.attackerStunTrap.durationFightTurns ?? -1;
+      // Vine Trap's original 1-stack stun stays the default; Dread Grasp
+      // sets its own higher value — see DamageCalculator.resolveAttack.
+      attacker.stunTrapStunStacks = move.template.attackerStunTrap.stunStacks ?? 1;
     }
 
     if (move.template.repeatInstances) {
@@ -662,10 +690,17 @@ export class CombatManager {
     actors.forEach((character) => {
       character.moves.forEach((move) => {
         if (move.template.trigger !== trigger) return;
+        // triggerOnFightTurn fires exactly once per fight, on the specific
+        // numbered fight turn given (Flesh Eater's Palm: fight turn 5) —
+        // mutually exclusive with triggerInterval below.
+        if (move.template.triggerOnFightTurn) {
+          if (move.hasFiredOnce || this.turnOrder.fightTurn !== move.template.triggerOnFightTurn) return;
+          move.hasFiredOnce = true;
+        }
         // triggerInterval lets a passive fire only every Nth time its
         // trigger event happens (e.g. Challenger's Mettle: every 2nd of
-        // its owner's own character_turn_start; Gluttonous Maw: every
-        // 4th fight_turn_start) instead of every single occurrence.
+        // its owner's own character_turn_start) instead of every single
+        // occurrence.
         if (move.template.triggerInterval) {
           move.passiveCounter += 1;
           if (move.passiveCounter % move.template.triggerInterval !== 0) return;

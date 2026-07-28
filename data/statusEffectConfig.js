@@ -59,6 +59,9 @@ export const STATUS_EFFECTS = {
     energyBlockChancePerStack: 0.25,
     stacksDecrease: false,
     cannotCleanse: true,
+    // Can't be redirected back onto the attacker by Status Reflection
+    // either — see StatusEffectSystem.applyDebuffs.
+    noReflect: true,
   },
   lifesteal: {
     id: 'lifesteal',
@@ -87,15 +90,17 @@ export const STATUS_EFFECTS = {
     statBonus: { str: 1 },
     stacksDecrease: false,
   },
+  // Real behavior (15%-per-stack, additive, permanent) is hardcoded in
+  // Character.getStat's def branch — no statBonus/durationFightTurns
+  // fields here, both are dead reads left over from an earlier flat-value
+  // design.
   defenceReduction: {
     id: 'defenceReduction',
     name: 'Shattered Stance',
     type: 'debuff',
     icon: '-D',
     color: '#636e72',
-    statBonus: { def: -10 },
     stacksDecrease: false,
-    durationFightTurns: 3,
   },
   statusReflection: {
     id: 'statusReflection',
@@ -103,7 +108,12 @@ export const STATUS_EFFECTS = {
     type: 'buff',
     icon: 'SR',
     color: '#00cec9',
-    reflectChancePercentPerStack: 10,
+    // Not a chance to redirect the WHOLE application anymore — each stack
+    // reflects this % of whatever stack count was about to be applied
+    // back onto the original attacker, the rest still lands on the
+    // target. 10 fire incoming at 4 stacks (40%) → 4 reflected, 6 still
+    // applies. See StatusEffectSystem.applyDebuffs.
+    reflectPercentPerStack: 10,
     stacksDecrease: false,
   },
   // Pure stack-tracker, same as stun/strength/defenceReduction above — real
@@ -120,5 +130,48 @@ export const STATUS_EFFECTS = {
     // and Umbral Purge's clearAllStatusesForDamage in CombatManager.js,
     // the only two mechanics that ever strip statuses off a character.
     cannotCleanse: true,
+    // Can't be redirected back onto the attacker by Status Reflection
+    // either — see StatusEffectSystem.applyDebuffs.
+    noReflect: true,
+  },
+  // Vanguard's Wearing Darkness passive — real behavior (spd AND def both
+  // reduced 5% per stack, additive) hardcoded in Character.getStat.
+  // Stack count is set per-application from the caster's current energy
+  // (see StatusEffectSystem.applyDebuffs' stacksFromCasterEnergy), not a
+  // fixed number here.
+  wearingDarkness: {
+    id: 'wearingDarkness',
+    name: 'Wearing Darkness',
+    type: 'debuff',
+    icon: 'WD',
+    color: '#1e1b3a',
+    stacksDecrease: false,
+  },
+  // Vanguard's Crippling Shadow — permanent flat -10 speed per stack (see
+  // Character.getStat's spd branch), floored at 5 total speed same as
+  // every other source of speed loss.
+  speedReduction: {
+    id: 'speedReduction',
+    name: 'Speed Reduction',
+    type: 'debuff',
+    icon: '-Sp',
+    color: '#57606f',
+    stacksDecrease: false,
+  },
+  // Vanguard's Abyssal Cascade — end-of-fight-turn-only damage: half the
+  // TOTAL status damage this character took from every other source this
+  // fight turn (poison, bleed, fire, etc — see
+  // Character.statusDamageThisFightTurn), multiplied by stacks. Ticks
+  // last among fight_turn_end effects every turn it's active — see
+  // StatusEffectSystem.tickFightTurnEnd's two-pass ordering.
+  abyssalFire: {
+    id: 'abyssalFire',
+    name: 'Abyssal Fire',
+    type: 'debuff',
+    icon: 'AF',
+    color: '#4b0082',
+    tickOn: 'fight_turn_end',
+    formula: (stacks, target) => Math.round(0.5 * (target.statusDamageThisFightTurn ?? 0) * stacks),
+    stacksDecrease: false,
   },
 };

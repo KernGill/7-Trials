@@ -169,7 +169,7 @@ export class DamageCalculator {
     if (defender.stunTrapActive) {
       defender.stunTrapActive = false;
       defender.stunTrapTurnsRemaining = 0;
-      attacker.addStatusEffect('stun', 1);
+      attacker.addStatusEffect('stun', defender.stunTrapStunStacks ?? 1);
       return { hit: false, damage: 0, healed: 0, reflected: 0, isCrit: false, blocked: true, trapStunned: true };
     }
     if (!forceHit && !rollChance(this.calculateHitChance(attacker, defender))) {
