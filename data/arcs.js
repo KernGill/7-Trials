@@ -17,6 +17,14 @@ export const ARCS = {
     materials: ['bones', 'flesh', 'mana_stone'],
     shopTier: 'arc0',
     startFloor: 1,
+    // How many enemies spawn together in one encounter, by floor bracket —
+    // outside any bracket (or on a boss tile, always forced to 1 regardless
+    // of bracket — see ProgressionSystem.getGroupSize) it's the default
+    // solo 1v1 this game has always been.
+    groupSizeBrackets: [
+      { minFloor: 6, maxFloor: 9, size: 2 },
+      { minFloor: 10, maxFloor: 10, size: 3 },
+    ],
   },
   arc1: {
     id: 'arc1',

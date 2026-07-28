@@ -446,16 +446,19 @@ export class StateManager {
 
   /**
    * Called by ExploreState the instant the player steps onto an enemy
-   * tile. `noScale` bypasses the normal per-floor stat multiplier — used
-   * for the hidden floor-5 boss, whose hand-authored stats are meant to
-   * mean exactly what they say regardless of which floor its arena
-   * happens to sit on.
+   * tile. `enemyIds` is either a single id (the floor-5 hidden Vanguard
+   * fight) or an array (a normal encounter, possibly a multi-enemy group —
+   * see data/arcs.js groupSizeBrackets). `noScale` bypasses the normal
+   * per-floor stat multiplier — used for the hidden floor-5 boss, whose
+   * hand-authored stats are meant to mean exactly what they say regardless
+   * of which floor its arena happens to sit on.
    */
-  startCombat(enemyId, { noScale = false } = {}) {
+  startCombat(enemyIds, { noScale = false } = {}) {
+    const ids = Array.isArray(enemyIds) ? enemyIds : [enemyIds];
     const player = this.createPlayer();
     const mult = noScale ? 1 : enemyStatMultiplierForFloor(this.gameState.run.floor);
     const statMultipliers = Object.fromEntries(STAT_KEYS.map((k) => [k, mult]));
-    const enemy = new Enemy(enemyId, { statMultipliers });
+    const enemies = ids.map((id) => new Enemy(id, { statMultipliers }));
     // FightState has to be listening (via currentStateHandler) *before*
     // combatManager.startCombat() runs its first synchronous cascade —
     // otherwise the very first combat:sequence batch (e.g. the enemy
@@ -464,7 +467,7 @@ export class StateManager {
     this.setState(GAME_STATES.FIGHT);
     this.combatManager.startCombat({
       player,
-      enemies: [enemy],
+      enemies,
       explorationBuffs: this.gameState.run.explorationBuffs ?? [],
     });
     this.gameState.combat = this.combatManager.getState();

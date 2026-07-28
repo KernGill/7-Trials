@@ -80,11 +80,15 @@ const DETAILS = {
     `No periodic tick, and never expires once applied — reduces Defense by 15% per stack, additive (not compounding).`,
     `At ${stacks} stack${stacks === 1 ? '' : 's'}: -${Math.min(100, stacks * 15)}% Defense.`,
   ],
-  statusReflection: (stacks) => [
-    `No periodic tick — whenever an opponent applies a debuff to this character, this reflects that percentage of the incoming STACK COUNT straight back onto whoever applied it (the rest still lands as normal). 10% per stack, capped at 100%.`,
-    `At ${stacks} stack${stacks === 1 ? '' : 's'}: reflects ${pct(Math.min(1, stacks * 0.10))} of any incoming debuff's stacks.`,
-    `Darkness and Frostbite can never be reflected, regardless of stacks.`,
-  ],
+  statusReflection: (stacks) => {
+    const perStack = STATUS_EFFECTS.statusReflection.reflectPercentPerStack / 100;
+    return [
+      `No periodic tick — whenever a debuff lands on this character, this reflects that percentage of the incoming STACK COUNT straight back onto whoever applied it (the rest still lands as normal). ${pct(perStack)} per stack, capped at 100%.`,
+      `At ${stacks} stack${stacks === 1 ? '' : 's'}: reflects ${pct(Math.min(1, stacks * perStack))} of any debuff's stacks.`,
+      `Now also applies to SELF-inflicted debuffs (e.g. Ember Curse's own self-burn) — reflecting a stack back onto yourself would be pointless, so the reflected portion redirects instead to whichever enemy currently has the FEWEST stacks of that exact effect.`,
+      `Darkness and Frostbite can never be reflected, regardless of stacks or source.`,
+    ];
+  },
   darkness: (stacks, character) => {
     const acc = stacks * DARKNESS_ACCURACY_PENALTY * 100;
     const budget = stacks * DARKNESS_ENERGY_STEAL_CHANCE_PER_STACK;

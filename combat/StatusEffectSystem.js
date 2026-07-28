@@ -104,8 +104,16 @@ export class StatusEffectSystem {
     });
   }
 
-  /** Returns one { recipient, effectId, stacks } entry per debuff that actually landed — resisted ones (statusResist) simply don't appear, so callers can log exactly what happened without re-deriving the resist roll. */
-  applyDebuffs(target, debuffs, attacker) {
+  /**
+   * Returns one { recipient, effectId, stacks } entry per debuff that
+   * actually landed — resisted ones (statusResist) simply don't appear,
+   * so callers can log exactly what happened without re-deriving the
+   * resist roll. `redirectCandidates`, when given, is the caster's own
+   * opposing side (e.g. the enemies array for a player's own selfDebuffs,
+   * or [player] for an enemy's) — see the self-inflicted reflect branch
+   * below.
+   */
+  applyDebuffs(target, debuffs, attacker, redirectCandidates = null) {
     const applied = [];
     debuffs?.forEach((debuff) => {
       // unstoppable (Abyssal Cascade): bypasses statusResist entirely —
@@ -149,8 +157,22 @@ export class StatusEffectSystem {
       // Darkness) always land on the target in full, no split — same for
       // any debuff entry flagged unstoppable (Abyssal Cascade), regardless
       // of what the underlying status itself normally allows.
+      //
+      // Self-inflicted debuffs (attacker === target, e.g. Ember Curse's
+      // own self-burn) can now ALSO be reflected — reflecting them back
+      // onto yourself would be pointless, so instead they redirect to
+      // whichever candidate in redirectCandidates (the caster's own
+      // opposing side) currently holds the FEWEST stacks of this exact
+      // effect. With no candidates given, self-inflicted debuffs behave
+      // as before: the caster just keeps the whole thing.
       const config = CONFIG[debuff.effect];
-      const canReflect = !debuff.unstoppable && attacker && attacker !== target && !config?.noReflect;
+      const isSelfInflicted = attacker && attacker === target;
+      const reflectTarget = !isSelfInflicted
+        ? attacker
+        : redirectCandidates?.length
+          ? redirectCandidates.reduce((weakest, c) => (c.getStatusStacks(debuff.effect) < weakest.getStatusStacks(debuff.effect) ? c : weakest))
+          : null;
+      const canReflect = !debuff.unstoppable && reflectTarget && !config?.noReflect;
       const reflectPercent = canReflect
         ? target.getStatusStacks('statusReflection') * (CONFIG.statusReflection.reflectPercentPerStack ?? 0)
         : 0;
@@ -158,7 +180,7 @@ export class StatusEffectSystem {
       const remainderStacks = stacks - reflectedStacks;
 
       applyToRecipient(target, remainderStacks);
-      applyToRecipient(attacker, reflectedStacks);
+      if (reflectedStacks > 0) applyToRecipient(reflectTarget, reflectedStacks);
     });
     return applied;
   }

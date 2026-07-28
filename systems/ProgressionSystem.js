@@ -73,6 +73,14 @@ export class ProgressionSystem {
     return getArcForFloor(floor).bossId;
   }
 
+  /** How many enemies spawn together for a normal (non-boss) encounter on this floor — boss tiles always fight alone. */
+  getGroupSize(floor, { isBoss = false } = {}) {
+    if (isBoss) return 1;
+    const bracket = (getArcForFloor(floor).groupSizeBrackets ?? [])
+      .find((b) => floor >= b.minFloor && floor <= b.maxFloor);
+    return bracket?.size ?? 1;
+  }
+
   /** Purely floor-based: true for ANY arc's boss floor, regardless of progress. */
   isBossFloor(floor) {
     return getArcForFloor(floor).bossFloor === floor;

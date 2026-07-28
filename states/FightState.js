@@ -129,7 +129,7 @@ export class FightState {
         <div class="turn-flash hidden"></div>
         <div class="battle-log"></div>
         <div class="arena">
-          <div class="combatant enemy-slot"></div>
+          <div class="enemy-row"></div>
           <div class="arena-spacer"></div>
           <div class="combatant player-slot"></div>
         </div>
@@ -143,7 +143,8 @@ export class FightState {
       turn: root.querySelector('.fight-turn'),
       flash: root.querySelector('.turn-flash'),
       log: root.querySelector('.battle-log'),
-      enemy: root.querySelector('.enemy-slot'),
+      enemyRow: root.querySelector('.enemy-row'),
+      enemySlots: new Map(), // enemy.instanceId -> its .combatant div, rebuilt every renderAll()
       player: root.querySelector('.player-slot'),
       order: root.querySelector('.move-order'),
       panel: root.querySelector('.category-panel'),
@@ -336,7 +337,7 @@ export class FightState {
       category === 'attack' ? ATTACK_DURATION_MS : category === 'defence' ? DEFENCE_DURATION_MS : SPECIAL_DURATION_MS,
     );
     const peak = this.scaled(category === 'attack' ? ATTACK_PEAK_MS : category === 'defence' ? DEFENCE_PEAK_MS : 0);
-    this.playMoveAnimation(attacker, category, duration);
+    this.playMoveAnimation(attacker, defender, category, duration);
 
     const applyEffects = () => {
       this.setDisplayed(attacker, step.attackerHealth, step.attackerEnergy);
@@ -404,9 +405,28 @@ export class FightState {
     this.els.turn.textContent = t('fight.turn', { n: combat.turnOrder.fightTurn });
     this.els.player.innerHTML = this.combatantHTML(combat.player, t('fight.player'));
     this.bindStatusIcons(this.els.player.querySelector('.status-icons'), combat.player);
+
+    // Rebuilt every renderAll() (full-DOM-replace, same as the player slot
+    // always has been) — one .combatant div per enemy still in the fight,
+    // keyed by instanceId so a group of duplicate-species enemies stays
+    // individually addressable for animation/targeting.
+    this.els.enemySlots = new Map();
+    this.els.enemyRow.innerHTML = '';
+    const canTarget = combat.phase === COMBAT_PHASE.PLAYER_TURN && combat.aliveEnemies.length > 1;
     combat.enemies.forEach((e) => {
-      this.els.enemy.innerHTML = this.combatantHTML(e, t('fight.enemy'));
-      this.bindStatusIcons(this.els.enemy.querySelector('.status-icons'), e);
+      const slot = document.createElement('div');
+      slot.className = `combatant${e === combat.player.combatOpponent ? ' targeted' : ''}`;
+      slot.innerHTML = this.combatantHTML(e, t('fight.enemy'));
+      this.els.enemyRow.appendChild(slot);
+      this.els.enemySlots.set(e.instanceId, slot);
+      this.bindStatusIcons(slot.querySelector('.status-icons'), e);
+      if (canTarget && e.isAlive()) {
+        const box = slot.querySelector('.avatar-box');
+        box.classList.add('targetable');
+        box.addEventListener('click', () => {
+          if (combat.setPlayerTarget(e.instanceId).ok) this.renderAll();
+        });
+      }
     });
 
     this.renderLog();
@@ -456,6 +476,12 @@ export class FightState {
       order.map((c) => `<div class="${c === highlight ? 'order-active' : ''}">${c.name}: ${Math.round(this.getDisplayedSpeed(c))}</div>`).join('');
   }
 
+  /** Resolves a character to its live DOM slot — the fixed player box, or this enemy's own box (keyed by instanceId, since two enemies can share a species id). */
+  slotFor(character) {
+    if (!character) return null;
+    return character.isPlayer ? this.els.player : this.els.enemySlots.get(character.instanceId);
+  }
+
   /**
    * Surgical update, used for every in-playback refresh — only touches
    * the status-icon list and the two stat-line text nodes, leaving the
@@ -464,7 +490,7 @@ export class FightState {
    */
   renderCombatant(character) {
     if (!this.els || !character) return;
-    const slot = character.isPlayer ? this.els.player : this.els.enemy;
+    const slot = this.slotFor(character);
     if (!slot) return;
     const { health, energy } = this.getDisplayed(character);
     const statusEl = slot.querySelector('.status-icons');
@@ -477,16 +503,16 @@ export class FightState {
     if (statLines[1]) statLines[1].textContent = `${energy} / ${character.getMaxEnergy()}`;
   }
 
-  /** `durationMs` is the already gameSpeed-scaled value the JS timers are using for this beat — set as a CSS var so the visual keyframe animation finishes at exactly the same moment, at any speed. */
-  playMoveAnimation(attacker, category, durationMs) {
+  /** `durationMs` is the already gameSpeed-scaled value the JS timers are using for this beat — set as a CSS var so the visual keyframe animation finishes at exactly the same moment, at any speed. `defender` is who this move actually targeted — needed to compute travel distance against the right box when there's more than one enemy on screen. */
+  playMoveAnimation(attacker, defender, category, durationMs) {
     if (!this.els) return;
-    const slot = attacker.isPlayer ? this.els.player : this.els.enemy;
+    const slot = this.slotFor(attacker);
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 
     const animClass = category === 'attack' ? 'anim-attack' : category === 'defence' ? 'anim-defence' : 'anim-special';
 
-    if (category === 'attack') box.style.setProperty('--attack-travel', `${this.attackTravelPx(attacker, box)}px`);
+    if (category === 'attack') box.style.setProperty('--attack-travel', `${this.attackTravelPx(attacker, defender, box)}px`);
     box.style.setProperty('--anim-duration', `${durationMs}ms`);
     box.classList.remove('anim-attack', 'anim-defence', 'anim-special');
     void box.offsetWidth; // restart the animation if it's still mid-flight
@@ -494,9 +520,8 @@ export class FightState {
   }
 
   /** Signed on-screen distance from the attacker's box to the defender's, so the attack lands on the opponent instead of a small nudge. */
-  attackTravelPx(attacker, attackerBox) {
-    const defenderSlot = attacker.isPlayer ? this.els.enemy : this.els.player;
-    const defenderBox = defenderSlot?.querySelector('.avatar-box');
+  attackTravelPx(attacker, defender, attackerBox) {
+    const defenderBox = this.slotFor(defender)?.querySelector('.avatar-box');
     if (!defenderBox) return attacker.isPlayer ? -40 : 40;
 
     const attackerRect = attackerBox.getBoundingClientRect();
@@ -509,7 +534,7 @@ export class FightState {
   /** Floating combat-text at a random spot over the character's avatar box. */
   spawnDamageNumber(character, text, color, isCrit = false) {
     if (!this.els) return;
-    const slot = character.isPlayer ? this.els.player : this.els.enemy;
+    const slot = this.slotFor(character);
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 

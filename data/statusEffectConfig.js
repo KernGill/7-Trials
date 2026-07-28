@@ -115,9 +115,9 @@ export const STATUS_EFFECTS = {
     // Not a chance to redirect the WHOLE application anymore — each stack
     // reflects this % of whatever stack count was about to be applied
     // back onto the original attacker, the rest still lands on the
-    // target. 10 fire incoming at 4 stacks (40%) → 4 reflected, 6 still
+    // target. 10 fire incoming at 8 stacks (40%) → 4 reflected, 6 still
     // applies. See StatusEffectSystem.applyDebuffs.
-    reflectPercentPerStack: 10,
+    reflectPercentPerStack: 5,
     stacksDecrease: false,
   },
   // Pure stack-tracker, same as stun/strength/defenceReduction above — real

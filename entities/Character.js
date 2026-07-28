@@ -11,7 +11,14 @@ import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 import { tData } from '../ui/i18n.js';
 
 export class Character {
+  // Unique per-instance (unlike `id`, which is the shared species/character
+  // config id — two Skeletons in the same fight both have id 'indebted_fallen'
+  // but distinct instanceIds) so targeting can tell duplicate-species enemies
+  // apart. Identity, not battle state — never reset.
+  static _nextInstanceId = 0;
+
   constructor(config) {
+    this.instanceId = ++Character._nextInstanceId;
     this.id = config.id;
     this._name = config.name ?? config.id;
     this.isPlayer = config.isPlayer ?? false;
@@ -270,14 +277,13 @@ export class Character {
     // the *raw* amount before either side's own multiplier/reduction is
     // applied, same as the attack path does with applyDefense, so each
     // side's own resistances apply to their own share rather than one
-    // pre-computed number just being cut in two. One-shot: consumed the
-    // instant it applies to a status hit, same as a direct hit.
+    // pre-computed number just being cut in two. Lasts for every hit within
+    // reflectSplitTurnsRemaining's window, not just the first — see
+    // StatusEffectSystem.decayBuffDurations for the actual expiry.
     if (source && this.reflectSplitPercent > 0 && this.combatOpponent) {
       const split = this.reflectSplitPercent / 100;
       const taken = Math.round(rawAmount * split);
       const returned = rawAmount - taken;
-      this.reflectSplitPercent = 0;
-      this.reflectSplitTurnsRemaining = 0;
       this.combatOpponent.takeDamage(returned, { source });
       return this._applyOwnDamage(taken, source);
     }

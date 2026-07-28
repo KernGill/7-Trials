@@ -569,6 +569,16 @@ export class DungeonGenerator {
       remaining[0].meta.isBoss = true;
     }
 
+    // How many enemies spawn together per tile — the boss always fights
+    // alone regardless of its floor's bracket; every other enemy tile on
+    // this floor uses whichever bracket (if any) covers it, defaulting to
+    // 1 (today's plain 1v1) outside any bracket. See data/arcs.js.
+    const groupSizeBracket = (this.arcConfig.groupSizeBrackets ?? [])
+      .find((b) => floor >= b.minFloor && floor <= b.maxFloor);
+    for (let i = 0; i < enemyCount; i += 1) {
+      remaining[i].meta.groupSize = remaining[i].meta.isBoss ? 1 : (groupSizeBracket?.size ?? 1);
+    }
+
     for (let i = 0; i < LOCKED_DOOR_COUNT; i += 1) {
       const lockedRoomTile = remaining[enemyCount + i];
       if (lockedRoomTile) {

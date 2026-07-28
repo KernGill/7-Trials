@@ -196,8 +196,10 @@ export class DamageCalculator {
       const split = defender.reflectSplitPercent / 100;
       const taken = Math.round(damage * split);
       const returned = damage - taken;
-      defender.reflectSplitPercent = 0;
-      defender.reflectSplitTurnsRemaining = 0;
+      // Not consumed here — Arcane Split covers every hit for its whole
+      // reflectSplitTurnsRemaining window (see StatusEffectSystem.
+      // decayBuffDurations, which ticks it down once per fight turn and
+      // zeroes reflectSplitPercent only once that window actually runs out).
       const takenAfterDefense = this.applyDefense(taken, defender, move, attacker);
       const returnedAfterDefense = this.applyDefense(returned, attacker, move, defender);
       defender.takeDamage(takenAfterDefense);

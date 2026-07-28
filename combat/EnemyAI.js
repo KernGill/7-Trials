@@ -36,6 +36,24 @@ export class EnemyAI {
       }
     }
 
+    // usePriorityWhenAvailable (Abyssal Cascade): whenever this move is
+    // off cooldown, it's always the first choice — not just one option
+    // in the random pool, which could otherwise go many turns without
+    // ever actually getting picked. If off cooldown but not yet
+    // affordable, restrict this turn to free (0-cost) moves only so
+    // energy accumulates toward it instead of getting spent on something
+    // else — mirrors the existing lockMove energy-saving behavior below,
+    // just proactive instead of reactive.
+    const priorityWhenAvailable = enemy.moves.find((m) => isActiveMove(m) && m.template.usePriorityWhenAvailable && !m.isOnCooldown());
+    if (priorityWhenAvailable) {
+      if (priorityWhenAvailable.canAfford(enemy.energy)) return priorityWhenAvailable;
+      const freeMoves = enemy.moves.filter(
+        (m) => isActiveMove(m) && m.isAvailable(enemy.energy) && m.energyCost === 0 && !m.isOnCooldown() && !m.template.usePriorityBelowHealthPercent
+          && (!m.template.requiresRevived || enemy.hasRevived),
+      );
+      return freeMoves.length ? pickRandom(freeMoves) : null;
+    }
+
     // Each priority move carries its OWN threshold (final_rites: 10%,
     // Erratic Combustion: 50%) rather than one shared cutoff — checked
     // per-move so different enemies' priority specials can trigger at

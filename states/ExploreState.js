@@ -481,14 +481,28 @@ export class ExploreState {
     const run = app.gameState.run;
     switch (tile.type) {
       case TILE_TYPES.ENEMY: {
-        const enemyId = tile.meta.isBoss ? app.progression.getBossId(run.floor) : app.progression.getRandomEnemyId(run.floor);
+        // The boss always fights alone, and only once every other enemy
+        // tile on the floor is already cleared — run.enemiesRemaining only
+        // decrements once per cleared tile-encounter (on victory), so ===1
+        // here means this boss tile is the only encounter left, with zero
+        // extra tracking state needed. Tile stays untouched (still walkable,
+        // still an ENEMY tile) so simply walking away and clearing the rest
+        // of the floor first "just works."
+        if (tile.meta.isBoss && run.enemiesRemaining > 1) {
+          run.floorMessage = { text: t('explore.boss_locked'), timer: 2 };
+          break;
+        }
+        const groupSize = tile.meta.isBoss ? 1 : (tile.meta.groupSize ?? 1);
+        const enemyIds = tile.meta.isBoss
+          ? [app.progression.getBossId(run.floor)]
+          : Array.from({ length: groupSize }, () => app.progression.getRandomEnemyId(run.floor));
         run.savedHealth = this.player.currentHealth;
         tile.type = TILE_TYPES.FLOOR;
         // Captured here (not read back off the renderer later — it's
         // about to be torn down by the state switch below) so enter()
         // knows whether to try re-engaging mouse-look once we're back.
         this._pendingMouseLookRestore = this.renderer3d?.isPointerLocked() ?? false;
-        app.startCombat(enemyId); // immediate setState(FIGHT)
+        app.startCombat(enemyIds); // immediate setState(FIGHT)
         break;
       }
       case TILE_TYPES.STAIRS: {

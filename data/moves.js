@@ -380,7 +380,7 @@ export const MOVE_TEMPLATES = {
   gluttonous_maw: {
     id: 'gluttonous_maw',
     name: 'Gluttonous Maw',
-    description: 'Once per fight, at the start of the 5th fight turn, gains 3 stacks of Lifesteal.',
+    description: 'Once per fight, at the start of the 5th fight turn, gains 2 stacks of Lifesteal.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -388,10 +388,10 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 1,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN,
-    // Fixed 3, not a random 1-2 roll — a flat, predictable amount per
-    // equipped copy (2 equipped = 2 independent Move instances = 6
+    // Fixed 2, not a random 1-2 roll — a flat, predictable amount per
+    // equipped copy (2 equipped = 2 independent Move instances = 4
     // total), matching the "doesn't keep stacking" request.
-    buffs: [{ effect: 'lifesteal', stacks: 3 }],
+    buffs: [{ effect: 'lifesteal', stacks: 2 }],
     // Fires exactly once (see Move.hasFiredOnce / CombatManager.
     // triggerPassives), not every Nth occurrence — was granting lifesteal
     // indefinitely, forever, every 4 turns.
@@ -670,7 +670,7 @@ export const MOVE_TEMPLATES = {
   ghosts_thought: {
     id: 'ghosts_thought',
     name: "Ghost's Thought",
-    description: 'At the start of combat, gains 2 stacks of Status Reflection, giving debuffs applied to you a chance to bounce back onto whoever cast them.',
+    description: 'At the start of combat, gains 5 stacks of Status Reflection (5% per stack), reflecting that percentage of any incoming — or now even self-inflicted — debuff back onto whoever inflicted it (self-inflicted ones redirect to whichever enemy has the fewest stacks of it).',
     properties: [MOVE_PROPERTIES.BUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -678,7 +678,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 999,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    buffs: [{ effect: 'statusReflection', stacks: 2 }],
+    buffs: [{ effect: 'statusReflection', stacks: 5 }],
     // Fires exactly once, at the true start of combat.
     trigger: 'fight_start',
   },
@@ -885,7 +885,7 @@ export const MOVE_TEMPLATES = {
   ember_curse: {
     id: 'ember_curse',
     name: 'Ember Curse',
-    description: 'Every turn, applies 2 stacks of Burn to the opponent and 1 stack of Burn to the user.',
+    description: 'Every turn, applies 2 stacks of Burn to every enemy and 1 stack of Burn to the user.',
     properties: [MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -894,19 +894,23 @@ export const MOVE_TEMPLATES = {
     cooldown: 0,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     trigger: 'character_turn_start',
+    aoeDebuffs: true,
     debuffs: [{ effect: 'fire', stacks: 2 }],
     selfDebuffs: [{ effect: 'fire', stacks: 1 }],
   },
   // Chaosbloom Grips — an active version of Erratic Combustion that burns
-  // away BOTH combatants' fire stacks at once (see
-  // consumeStatusForDamageBothSides in CombatManager.executeMove),
-  // 4 damage per stack instead of Erratic Combustion's 7 — a genuine
-  // risk/reward tool: it cleanses your own stacked-up fire (e.g. from
-  // Ember Curse) but you take damage for whatever you had built up too.
+  // away the user's AND every enemy's fire stacks at once (see
+  // consumeStatusForDamageAllEnemies in CombatManager.executeMove). Total
+  // stacks removed (yours + every enemy's, summed) times 4 damage/stack is
+  // dealt IN FULL to every enemy — not split — while the user only takes a
+  // quarter of that same total, rounded down. A genuine risk/reward tool:
+  // it cleanses your own stacked-up fire (e.g. from Ember Curse) and hits
+  // the whole party hard, but the more fire is out there, the more you
+  // take too.
   chaotic_combustion: {
     id: 'chaotic_combustion',
     name: 'Chaotic Combustion',
-    description: "Burns away all current Burn stacks from both the user and the opponent — 4 damage per stack removed, dealt to whichever side had them.",
+    description: "Burns away all current Burn stacks from the user and every enemy — the combined total (4 damage per stack) hits every enemy in full, while the user takes only a quarter of that total.",
     properties: [MOVE_PROPERTIES.DEBUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -914,14 +918,14 @@ export const MOVE_TEMPLATES = {
     energyCost: 4,
     cooldown: 4,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    consumeStatusForDamageBothSides: { effect: 'fire', damagePerStack: 4 },
+    consumeStatusForDamageAllEnemies: { effect: 'fire', damagePerStack: 4, selfDamageDivisor: 4 },
   },
   // Ashen Remembrance — a hybrid ghost/fire bolt, applying both frost and
   // fire in a single cast.
   ember_wisp: {
     id: 'ember_wisp',
     name: 'Ember Wisp',
-    description: 'Deals damage and applies 4 stacks of Frost and 4 stacks of Burn to the opponent, but also applies 1 stack of Burn to the user.',
+    description: 'Deals damage to the targeted enemy and applies 4 stacks of Frost and 4 stacks of Burn to every enemy, but also applies 1 stack of Burn to the user.',
     properties: [MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF],
     damage: 12,
     scaling: SCALING_TYPES.INT,
@@ -929,6 +933,7 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 5,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
+    aoeDebuffs: true,
     debuffs: [{ effect: 'frost', stacks: 4 }, { effect: 'fire', stacks: 4 }],
     selfDebuffs: [{ effect: 'fire', stacks: 1 }],
   },
@@ -988,7 +993,7 @@ export const MOVE_TEMPLATES = {
   vanguard_abyssal_cascade: {
     id: 'vanguard_abyssal_cascade',
     name: 'Abyssal Cascade',
-    description: 'An unstoppable torrent of every affliction — can never miss, be resisted, or be reflected: 6 Frost, 8 Burn, 6 Bleed, 10 Poison, 2 Frostbite, and 2 Abyssal Fire — which waits out the whole fight turn, then detonates for half of everything else that damaged you this turn, per stack.',
+    description: 'An unstoppable torrent of every affliction, always used the instant it comes off cooldown — can never miss, be resisted, or be reflected: 6 Frost, 8 Burn, 6 Bleed, 10 Poison, 2 Frostbite, and 2 Abyssal Fire — which waits out the whole fight turn, then detonates for half of everything else that damaged you this turn, per stack.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.DEBUFF, MOVE_PROPERTIES.AOE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -996,6 +1001,11 @@ export const MOVE_TEMPLATES = {
     energyCost: 15,
     cooldown: 20,
     cooldownType: COOLDOWN_TYPES.FIGHT_TURN, // see vanguard_crippling_shadow's comment
+    // Always the AI's first choice whenever off cooldown — see
+    // EnemyAI.chooseMove. Between casts he sticks to free basic moves
+    // (Dark Strike, Umbral Ward) to save energy toward the next one
+    // rather than spending it on other specials.
+    usePriorityWhenAvailable: true,
     // unstoppable: true on every entry — see StatusEffectSystem.applyDebuffs.
     // Bypasses statusResist ("blocked") and Status Reflection
     // ("reflected") entirely; "miss" was already impossible for this move

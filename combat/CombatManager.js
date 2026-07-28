@@ -86,14 +86,15 @@ export class CombatManager {
     this.pendingExplorationBuffs = explorationBuffs;
 
     [player, ...enemies].forEach((c) => c.resetBattleState());
-    // Every fight in this game is 1v1 — wire each side's combatOpponent
-    // directly to the other so Character.takeDamage() can redirect a
-    // reflectSplitPercent (Arcane Split) share of status damage without
-    // every status-tick call site needing its own attacker reference.
-    if (enemies[0]) {
-      player.combatOpponent = enemies[0];
-      enemies[0].combatOpponent = player;
-    }
+    // Enemies always fight a solo player, so every enemy's combatOpponent
+    // is simply the player, unconditionally. The player's combatOpponent
+    // instead means "the player's currently selected target" (see
+    // setPlayerTarget below) — reused by Character.takeDamage's
+    // reflectSplitPercent (Arcane Split) redirect and Dark Empowerment's
+    // live str bonus, on top of driving move targeting — defaulting to the
+    // first alive enemy until the player picks someone else.
+    enemies.forEach((e) => { e.combatOpponent = player; });
+    player.combatOpponent = enemies.find((e) => e.isAlive()) ?? null;
     this.record({
       kind: 'fightInit',
       combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy, speed: c.battleSpeed })),
@@ -213,7 +214,7 @@ export class CombatManager {
         revivable.currentHealth = Math.round(revivable.getMaxHealth() * 0.5);
         const reviveMove = revivable.moves.find((m) => m.template.trigger === 'on_death');
         if (reviveMove.template.selfDebuffs) {
-          this.logDebuffResults(this.statusSystem.applyDebuffs(revivable, reviveMove.template.selfDebuffs, revivable));
+          this.logDebuffResults(this.statusSystem.applyDebuffs(revivable, reviveMove.template.selfDebuffs, revivable, [this.player]));
         }
         this.logMessage(t('log.enemy_revives', { name: revivable.name }));
         this.record({ kind: 'revive', character: revivable, health: revivable.currentHealth, energy: revivable.energy });
@@ -320,6 +321,12 @@ export class CombatManager {
     }
 
     if (actor.isPlayer) {
+      // Auto-retarget: whoever the player had selected may have died since
+      // their last turn (their own attack, a DoT tick, etc) — never leave
+      // them pointed at a corpse going into their next move.
+      if (this.player.combatOpponent && !this.player.combatOpponent.isAlive()) {
+        this.player.combatOpponent = this.aliveEnemies[0] ?? null;
+      }
       this.phase = COMBAT_PHASE.PLAYER_TURN;
       this.flushSequence();
       this.eventBus.emit('combat:player_turn', this.getState());
@@ -367,13 +374,26 @@ export class CombatManager {
     this.endActorTurn(enemy);
   }
 
+  /** Click-to-target: FightState calls this when the player picks an enemy portrait, before using a move. */
+  setPlayerTarget(instanceId) {
+    const target = this.aliveEnemies.find((e) => e.instanceId === instanceId);
+    if (!target) return { ok: false, reason: 'No valid target.' };
+    this.player.combatOpponent = target;
+    return { ok: true };
+  }
+
   playerUseMove(moveId, targetId = null) {
     if (this.phase !== COMBAT_PHASE.PLAYER_TURN) return { ok: false, reason: 'Not your turn.' };
     const move = this.player.moves.find((m) => m.id === moveId);
     if (!move) return { ok: false, reason: 'Unknown move.' };
     if (!move.isAvailable(this.player.energy)) return { ok: false, reason: 'Move unavailable.' };
 
-    const target = this.enemies.find((e) => e.id === targetId) ?? this.aliveEnemies[0];
+    // `targetId`, when given, overrides the player's standing selection
+    // (combatOpponent, kept current by setPlayerTarget + advanceTurn's
+    // auto-retarget) — instanceId-keyed since `id` is just the shared
+    // species config id and duplicate-species enemies would collide on it.
+    const target = (targetId ? this.enemies.find((e) => e.instanceId === targetId) : this.player.combatOpponent)
+      ?? this.aliveEnemies[0];
     if (!target) return { ok: false, reason: 'No valid target.' };
 
     this.executeMove(this.player, target, move);
@@ -469,22 +489,28 @@ export class CombatManager {
       }
     }
 
-    // Chaotic Combustion: consumes the given status from BOTH sides
-    // independently — each side's damage comes from its OWN removed
-    // stacks (your own pile of self-inflicted fire hurts you, not them),
-    // unlike consumeStatusForDamage above which only ever touches the
-    // defender.
-    if (move.template.consumeStatusForDamageBothSides) {
-      const { effect, damagePerStack } = move.template.consumeStatusForDamageBothSides;
-      const defenderStacks = defender.getStatusStacks(effect);
-      if (defenderStacks > 0) {
-        defender.removeStatusEffect(effect);
-        defender.takeDamage(defenderStacks * damagePerStack, { source: effect });
-      }
-      const attackerStacks = attacker.getStatusStacks(effect);
-      if (attackerStacks > 0) {
-        attacker.removeStatusEffect(effect);
-        attacker.takeDamage(attackerStacks * damagePerStack, { source: effect });
+    // Chaotic Combustion: consumes the given status from the attacker AND
+    // every alive enemy, summed into one combined total — that total
+    // (times damagePerStack) hits every enemy IN FULL (not split between
+    // them), while the attacker only takes a fraction of that same total.
+    // Doesn't depend on `defender` at all — it always hits the whole party
+    // regardless of which enemy is currently targeted.
+    if (move.template.consumeStatusForDamageAllEnemies) {
+      const { effect, damagePerStack, selfDamageDivisor = 4 } = move.template.consumeStatusForDamageAllEnemies;
+      let totalStacks = attacker.getStatusStacks(effect);
+      if (totalStacks > 0) attacker.removeStatusEffect(effect);
+      this.aliveEnemies.forEach((enemy) => {
+        const stacks = enemy.getStatusStacks(effect);
+        if (stacks > 0) {
+          totalStacks += stacks;
+          enemy.removeStatusEffect(effect);
+        }
+      });
+      if (totalStacks > 0) {
+        const totalDamage = totalStacks * damagePerStack;
+        this.aliveEnemies.forEach((enemy) => enemy.takeDamage(totalDamage, { source: effect }));
+        attacker.takeDamage(Math.floor(totalDamage / selfDamageDivisor), { source: effect });
+        this.logMessage(t('log.chaotic_combustion', { name: attacker.name, n: totalDamage }));
       }
     }
 
@@ -545,7 +571,14 @@ export class CombatManager {
       }
     }
     if (move.template.debuffs && (!result || result.hit)) {
-      this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
+      // aoeDebuffs (Ember Wisp): the status effects land on every alive
+      // enemy at once — only the move's own direct-damage roll (above)
+      // stays aimed at whichever single enemy was actually targeted.
+      if (move.template.aoeDebuffs) {
+        this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, move.template.debuffs, attacker)));
+      } else {
+        this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
+      }
     }
     // Percent-of-current-stat debuff on the opponent (Vanguard's Crippling
     // Shadow: -50% speed for 5 turns) — computed here (not baked into the
@@ -567,7 +600,7 @@ export class CombatManager {
     // whether the bolt itself connects. Mirrors triggerPassives' handling
     // of the same field for passive moves (Ash Eater, Ember Curse).
     if (move.template.selfDebuffs) {
-      this.logDebuffResults(this.statusSystem.applyDebuffs(attacker, move.template.selfDebuffs, attacker));
+      this.logDebuffResults(this.statusSystem.applyDebuffs(attacker, move.template.selfDebuffs, attacker, [defender]));
     }
     if (move.template.buffs) {
       this.applySelfBuffs(attacker, move.template.buffs);
@@ -676,7 +709,7 @@ export class CombatManager {
       this.logBuffResults(this.player, this.statusSystem.applyBuffs(this.player, [effect.buff], this.player));
     }
     if (effect.debuff) {
-      const target = this.aliveEnemies[0];
+      const target = this.player.combatOpponent ?? this.aliveEnemies[0];
       if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, [effect.debuff], this.player));
     }
 
@@ -709,14 +742,23 @@ export class CombatManager {
           this.applySelfBuffs(character, move.template.buffs);
         }
         if (move.template.debuffs) {
-          const target = character.isPlayer ? this.aliveEnemies[0] : this.player;
           const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
-          if (target && chanceOk) this.logDebuffResults(this.statusSystem.applyDebuffs(target, move.template.debuffs, character));
+          if (chanceOk) {
+            // aoeDebuffs (Ember Curse): hits every alive enemy at once
+            // instead of just whichever one is currently targeted.
+            if (character.isPlayer && move.template.aoeDebuffs) {
+              this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, move.template.debuffs, character)));
+            } else {
+              const target = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
+              if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, move.template.debuffs, character));
+            }
+          }
         }
         // Unlike `debuffs` (always routed to the opponent above),
         // `selfDebuffs` targets the passive's own owner — Ash Eater.
         if (move.template.selfDebuffs) {
-          this.logDebuffResults(this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character));
+          const opposingSide = character.isPlayer ? this.enemies : [this.player];
+          this.logDebuffResults(this.statusSystem.applyDebuffs(character, move.template.selfDebuffs, character, opposingSide));
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
@@ -750,7 +792,7 @@ export class CombatManager {
   applySelfBuffs(character, buffs) {
     const applied = this.statusSystem.applyBuffs(character, buffs, character);
     this.logBuffResults(character, applied);
-    const opponent = character.isPlayer ? this.aliveEnemies[0] : this.player;
+    const opponent = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
     if (!opponent) return;
     const stealChance = opponent.moves.reduce((max, m) => Math.max(max, m.template.stealBuffChance ?? 0), 0);
     if (stealChance > 0 && rollChance(stealChance)) {
