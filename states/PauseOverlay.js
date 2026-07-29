@@ -196,6 +196,14 @@ export class PauseOverlay {
           <input type="range" min="1" max="5" step="1" value="${s.gameSpeed ?? 2}" class="gamespeed-slider">
         </div>
         <div class="pause-row">
+          <span class="damage-number-duration-label">${t('settings.damage_number_duration', { mult: (s.damageNumberDuration ?? 1).toFixed(1) })}</span>
+          <input type="range" min="1" max="10" step="0.5" value="${s.damageNumberDuration ?? 1}" class="damage-number-duration-slider">
+        </div>
+        <div class="pause-row">
+          <span class="damage-number-size-label">${t('settings.damage_number_size', { mult: (s.damageNumberSize ?? 1).toFixed(1) })}</span>
+          <input type="range" min="1" max="3" step="0.1" value="${s.damageNumberSize ?? 1}" class="damage-number-size-slider">
+        </div>
+        <div class="pause-row">
           <span>${t('settings.language')}</span>
           <select class="language-select">
             ${LANGUAGE_OPTIONS.map((lang) => `<option value="${lang}" ${lang === s.language ? 'selected' : ''}>${t(`settings.language.${lang}`)}</option>`).join('')}
@@ -220,6 +228,16 @@ export class PauseOverlay {
     this.el.querySelector('.gamespeed-slider').addEventListener('input', (e) => {
       s.gameSpeed = clamp(Number(e.target.value), 1, 5);
       this.el.querySelector('.gamespeed-label').textContent = t('settings.game_speed', { mult: s.gameSpeed });
+    });
+    this.el.querySelector('.damage-number-duration-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.damage-number-duration-slider').addEventListener('input', (e) => {
+      s.damageNumberDuration = clamp(Number(e.target.value), 1, 10);
+      this.el.querySelector('.damage-number-duration-label').textContent = t('settings.damage_number_duration', { mult: s.damageNumberDuration.toFixed(1) });
+    });
+    this.el.querySelector('.damage-number-size-slider').addEventListener('change', () => app.saveSystem.save());
+    this.el.querySelector('.damage-number-size-slider').addEventListener('input', (e) => {
+      s.damageNumberSize = clamp(Number(e.target.value), 1, 3);
+      this.el.querySelector('.damage-number-size-label').textContent = t('settings.damage_number_size', { mult: s.damageNumberSize.toFixed(1) });
     });
     this.el.querySelector('.language-select').addEventListener('change', (e) => {
       app.setLanguage(e.target.value);

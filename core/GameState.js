@@ -70,6 +70,13 @@ export class GameState {
     // explicitly has its own gameSpeed value).
     this.settings = {
       brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true,
+      // damageNumberDuration: 1-10x multiplier on how long floating combat
+      // text (damage numbers, status/stat call-outs) stays on screen — 1x
+      // is exactly today's baseline duration, 10x is ten times as long.
+      // damageNumberSize: 1-3x multiplier on how large that same floating
+      // text renders. Both read by FightState.spawnDamageNumber.
+      damageNumberDuration: 1,
+      damageNumberSize: 1,
       // cameraAngle: 0 (horizontal) - 90 (bird's eye) degrees. cameraHeight: multiplier
       // on the previous fixed camera height, 1/3 - 1.5. Sourced from ui/CameraSettings.js
       // so this stays in sync with the Camera Orientation slider's own default.

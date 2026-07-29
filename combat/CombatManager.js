@@ -148,7 +148,7 @@ export class CombatManager {
     this.statusSystem.tickFightTurnStart(this.combatants, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'fightTurnStart'));
     this.processDotEffects();
     this.cooldownSystem.tickFightTurn(this.combatants);
-    this.triggerPassives('fight_turn_start');
+    this.triggerPassives('fight_turn_start', null, { announce: true });
     this.advanceTurn();
     this.eventBus.emit('combat:started', this.getState());
   }
@@ -324,7 +324,7 @@ export class CombatManager {
       this.processDotEffects();
       if (this.checkFightEnd()) return;
       this.cooldownSystem.tickFightTurn(this.combatants);
-      this.triggerPassives('fight_turn_start');
+      this.triggerPassives('fight_turn_start', null, { announce: true });
     }
 
     const actor = this.turnOrder.getNextActor(this.combatants);
@@ -350,7 +350,7 @@ export class CombatManager {
     this.record({ kind: 'turnStart', character: actor, health: actor.currentHealth, energy: actor.energy });
     this.statusSystem.tickCharacterTurnStart(actor, (m) => this.logMessage(m), (tick) => this.recordTick(tick, 'characterTurnStart'));
     if (this.checkFightEnd()) return;
-    this.triggerPassives('character_turn_start', actor);
+    this.triggerPassives('character_turn_start', actor, { announce: true });
     const gained = this.energySystem.gainEnergy(actor);
     if (gained > 0) {
       this.logMessage(t('log.gains_energy', { name: actor.name, n: gained }));
@@ -449,6 +449,17 @@ export class CombatManager {
     // guarantee an opening-priority move (Extreme Ignition) only ever fires
     // on this character's actual first move of the fight.
     attacker.hasActedInCombat = true;
+    // Collects every status/stat/heal/damage change this move causes —
+    // attached to the recorded 'move' step below so FightState can flash a
+    // floating call-out for each one at the move's animation peak (the
+    // moment the attacker and defender are visually close together), same
+    // beat as the damage number, instead of only ever showing in the text
+    // log. `events` covers applied AND removed status/stat changes (kind:
+    // 'status' | 'removed' | 'stat'); `extraDamage` covers damage dealt
+    // outside the normal DamageCalculator result (Erratic Combustion,
+    // Chaotic Combustion, Umbral Purge's bonus damage) — none of which had
+    // ANY floating number before, only ever the text log.
+    const moveEffects = { events: [], heal: null, extraDamage: [] };
     // Torch's fire-move discount: any move that applies the 'fire' debuff
     // costs 1 less energy for a player wielding it — data-driven off the
     // move's own debuffs list (not a hardcoded move-id allowlist), so it
@@ -476,6 +487,7 @@ export class CombatManager {
     if (move.template.healMaxPercent) {
       const healed = attacker.healMissingPercent(move.template.healMaxPercent);
       this.logMessage(t('log.heals', { name: attacker.name, n: healed }));
+      if (healed > 0) moveEffects.heal = { recipient: attacker, amount: healed };
     }
 
     // debuffOnRepeatCast: applies only from the 2nd consecutive cast of
@@ -504,6 +516,7 @@ export class CombatManager {
             n: amount,
             status: tData('status', effect.id, config.name),
           }));
+          moveEffects.events.push({ recipient: attacker, kind: 'removed', effectId: effect.id, stacks: amount });
         }
       });
       attacker.statusEffects = attacker.statusEffects.filter((e) => e.stacks > 0);
@@ -518,12 +531,19 @@ export class CombatManager {
       const stacks = defender.getStatusStacks(effect);
       if (stacks > 0) {
         defender.removeStatusEffect(effect);
+        moveEffects.events.push({ recipient: defender, kind: 'removed', effectId: effect, stacks });
         // Tagged with the consumed effect as its damage source (e.g.
         // 'fire' for Erratic Combustion) so it correctly scales with
         // getStatusDamageMultiplier — same as any other status tick — so
         // a target's fire vulnerability (Formless) or fire resistance
         // applies to it too, not just literal burn ticks.
-        defender.takeDamage(stacks * damagePerStack, { source: effect });
+        const dealt = defender.takeDamage(stacks * damagePerStack, { source: effect });
+        moveEffects.extraDamage.push({ recipient: defender, amount: dealt });
+        this.logMessage(t('log.consumed_status_damage', {
+          name: defender.name,
+          n: dealt,
+          status: tData('status', effect, STATUS_EFFECTS[effect]?.name ?? effect),
+        }));
         // diedFromStatusId alone can't tell "died to Erratic Combustion"
         // apart from any other fire-tagged death (a burn tick, Chaotic
         // Combustion) — achievement checks that need the specific move
@@ -540,19 +560,29 @@ export class CombatManager {
     // regardless of which enemy is currently targeted.
     if (move.template.consumeStatusForDamageAllEnemies) {
       const { effect, damagePerStack, selfDamageDivisor = 4 } = move.template.consumeStatusForDamageAllEnemies;
-      let totalStacks = attacker.getStatusStacks(effect);
-      if (totalStacks > 0) attacker.removeStatusEffect(effect);
+      let totalStacks = 0;
+      const attackerStacks = attacker.getStatusStacks(effect);
+      if (attackerStacks > 0) {
+        attacker.removeStatusEffect(effect);
+        moveEffects.events.push({ recipient: attacker, kind: 'removed', effectId: effect, stacks: attackerStacks });
+        totalStacks += attackerStacks;
+      }
       this.aliveEnemies.forEach((enemy) => {
         const stacks = enemy.getStatusStacks(effect);
         if (stacks > 0) {
-          totalStacks += stacks;
           enemy.removeStatusEffect(effect);
+          moveEffects.events.push({ recipient: enemy, kind: 'removed', effectId: effect, stacks });
+          totalStacks += stacks;
         }
       });
       if (totalStacks > 0) {
         const totalDamage = totalStacks * damagePerStack;
-        this.aliveEnemies.forEach((enemy) => enemy.takeDamage(totalDamage, { source: effect }));
-        attacker.takeDamage(Math.floor(totalDamage / selfDamageDivisor), { source: effect });
+        this.aliveEnemies.forEach((enemy) => {
+          const dealt = enemy.takeDamage(totalDamage, { source: effect });
+          moveEffects.extraDamage.push({ recipient: enemy, amount: dealt });
+        });
+        const selfDealt = attacker.takeDamage(Math.floor(totalDamage / selfDamageDivisor), { source: effect });
+        moveEffects.extraDamage.push({ recipient: attacker, amount: selfDealt });
         this.logMessage(t('log.chaotic_combustion', { name: attacker.name, n: totalDamage }));
       }
     }
@@ -605,11 +635,16 @@ export class CombatManager {
         const toRemove = character.statusEffects.filter((e) => !(character === attacker && excludeSelf.includes(e.id))
           && !STATUS_EFFECTS[e.id]?.cannotCleanse
           && (character === attacker || STATUS_EFFECTS[e.id]?.type === 'buff'));
-        toRemove.forEach((effect) => { character.removeStatusEffect(effect.id); removedCount += 1; });
+        toRemove.forEach((effect) => {
+          character.removeStatusEffect(effect.id);
+          moveEffects.events.push({ recipient: character, kind: 'removed', effectId: effect.id, stacks: effect.stacks });
+          removedCount += 1;
+        });
       });
       if (removedCount > 0) {
         const bonus = removedCount * damagePerStatus;
-        defender.takeDamage(bonus);
+        const dealt = defender.takeDamage(bonus);
+        moveEffects.extraDamage.push({ recipient: defender, amount: dealt });
         this.logMessage(t('log.status_purge_damage', { name: defender.name, n: bonus, count: removedCount }));
       }
     }
@@ -618,9 +653,15 @@ export class CombatManager {
       // enemy at once — only the move's own direct-damage roll (above)
       // stays aimed at whichever single enemy was actually targeted.
       if (move.template.aoeDebuffs) {
-        this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, move.template.debuffs, attacker)));
+        this.aliveEnemies.forEach((e) => {
+          const applied = this.statusSystem.applyDebuffs(e, move.template.debuffs, attacker);
+          this.logDebuffResults(applied);
+          applied.forEach((d) => moveEffects.events.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
+        });
       } else {
-        this.logDebuffResults(this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker));
+        const applied = this.statusSystem.applyDebuffs(defender, move.template.debuffs, attacker);
+        this.logDebuffResults(applied);
+        applied.forEach((d) => moveEffects.events.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
       }
     }
     // Percent-of-current-stat debuff on the opponent (Vanguard's Crippling
@@ -635,6 +676,7 @@ export class CombatManager {
       const applied = this.statusSystem.applyBuffs(defender, [{ type: 'stat', stat, amount, durationFightTurns }], attacker);
       applied.forEach((buff) => {
         this.logMessage(t('log.stat_debuff_applied', { name: defender.name, n: Math.abs(buff.amount), stat: statLabel(buff.stat) }));
+        moveEffects.events.push({ recipient: defender, kind: 'stat', stat: buff.stat, amount: buff.amount });
       });
     }
     // Unlike `debuffs` above (routed to the defender, gated on a hit),
@@ -643,10 +685,16 @@ export class CombatManager {
     // whether the bolt itself connects. Mirrors triggerPassives' handling
     // of the same field for passive moves (Ash Eater, Ember Curse).
     if (move.template.selfDebuffs) {
-      this.logDebuffResults(this.statusSystem.applyDebuffs(attacker, move.template.selfDebuffs, attacker, [defender]));
+      const applied = this.statusSystem.applyDebuffs(attacker, move.template.selfDebuffs, attacker, [defender]);
+      this.logDebuffResults(applied);
+      applied.forEach((d) => moveEffects.events.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
     }
     if (move.template.buffs) {
-      this.applySelfBuffs(attacker, move.template.buffs);
+      const applied = this.applySelfBuffs(attacker, move.template.buffs);
+      applied.forEach((buff) => {
+        if (buff.type === 'stat') moveEffects.events.push({ recipient: attacker, kind: 'stat', stat: buff.stat, amount: buff.amount });
+        else if (buff.type === 'effect') moveEffects.events.push({ recipient: attacker, kind: 'status', effectId: buff.effectId, stacks: buff.stacks });
+      });
     }
 
     // The exact percent/flat amount varies per move (and isn't known
@@ -701,21 +749,25 @@ export class CombatManager {
       defender.playerHitCount = (defender.playerHitCount ?? 0) + 1;
     }
 
-    // Reactive passives (Mind Erosion): fired on the defender, scoped to
-    // just them, whenever a melee attack actually lands on them. Mirrors
-    // the debuffs guard above — no result at all (0-damage touch moves)
-    // counts as an automatic hit, same as a rolled one.
+    // Reactive passives (Mind Erosion, Retaliatory Soul): fired on the
+    // defender, scoped to just them, whenever a melee attack actually lands
+    // on them. Mirrors the debuffs guard above — no result at all (0-damage
+    // touch moves) counts as an automatic hit, same as a rolled one. Merged
+    // into THIS move's own moveEffects (rather than getting a standalone
+    // beat) so e.g. Retaliatory Soul's bleed flashes at the exact same peak
+    // moment as the attacker's hit landing — the whole point of it being a
+    // reaction to that specific contact.
     if ((!result || (result.hit && !result.split)) && move.properties.includes(MOVE_PROPERTIES.MELEE)) {
-      this.triggerPassives('melee_hit_taken', defender);
+      moveEffects.events.push(...this.triggerPassives('melee_hit_taken', defender));
     }
 
     // Reactive passive (Icy Ward): fired on the defender whenever the
     // PLAYER specifically uses the basic 'guard' move against them —
     // scoped by move id, not by any property, since Guard is the one
     // always-available, no-real-cost defensive option this is meant to
-    // punish.
+    // punish. Also merged into this move's own beat, same reasoning.
     if (attacker.isPlayer && move.template.id === 'guard') {
-      this.triggerPassives('player_guarded', defender);
+      moveEffects.events.push(...this.triggerPassives('player_guarded', defender));
     }
 
     this.record({
@@ -728,6 +780,7 @@ export class CombatManager {
       attackerEnergy: attacker.energy,
       defenderHealth: defender.currentHealth,
       defenderEnergy: defender.energy,
+      effects: moveEffects,
     });
 
     this.eventBus.emit('combat:move_resolved', { attacker, defender, move, result });
@@ -761,8 +814,23 @@ export class CombatManager {
     return { ok: true };
   }
 
-  triggerPassives(trigger, actor = null) {
+  /**
+   * Returns a flat array of every status/stat change this call actually
+   * applied — `{ recipient, kind: 'status', effectId, stacks } |
+   * { recipient, kind: 'stat', stat, amount }` — same shape executeMove
+   * uses for its own moveEffects.events, so both feed FightState's floating
+   * call-out rendering identically. `{ announce: true }` additionally
+   * records a standalone 'passiveEffect' beat (grouped per affected
+   * character) for triggers with no move animation of their own to piggy-
+   * back on (fight_turn_start, character_turn_start) — reactive triggers
+   * fired from inside executeMove (melee_hit_taken, player_guarded) leave
+   * announce off and let the caller merge this return value into the
+   * move's own beat instead, so e.g. Retaliatory Soul's bleed flashes at
+   * the same peak moment as the hit that provoked it.
+   */
+  triggerPassives(trigger, actor = null, { announce = false } = {}) {
     const actors = actor ? [actor] : this.combatants;
+    const appliedEvents = [];
     actors.forEach((character) => {
       // Group by template id first — duplicate equipped copies of the same
       // passive (e.g. 4x Ember Curse) fire together as ONE combined
@@ -798,7 +866,11 @@ export class CombatManager {
           if (move.passiveCounter % move.template.triggerInterval !== 0) return;
         }
         if (move.template.buffs) {
-          this.applySelfBuffs(character, scaleEntries(move.template.buffs, count));
+          const applied = this.applySelfBuffs(character, scaleEntries(move.template.buffs, count));
+          applied.forEach((buff) => {
+            if (buff.type === 'stat') appliedEvents.push({ recipient: character, kind: 'stat', stat: buff.stat, amount: buff.amount });
+            else if (buff.type === 'effect') appliedEvents.push({ recipient: character, kind: 'status', effectId: buff.effectId, stacks: buff.stacks });
+          });
         }
         if (move.template.debuffs) {
           const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
@@ -807,10 +879,18 @@ export class CombatManager {
             // aoeDebuffs (Ember Curse): hits every alive enemy at once
             // instead of just whichever one is currently targeted.
             if (character.isPlayer && move.template.aoeDebuffs) {
-              this.aliveEnemies.forEach((e) => this.logDebuffResults(this.statusSystem.applyDebuffs(e, scaledDebuffs, character)));
+              this.aliveEnemies.forEach((e) => {
+                const applied = this.statusSystem.applyDebuffs(e, scaledDebuffs, character);
+                this.logDebuffResults(applied);
+                applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
+              });
             } else {
               const target = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
-              if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, scaledDebuffs, character));
+              if (target) {
+                const applied = this.statusSystem.applyDebuffs(target, scaledDebuffs, character);
+                this.logDebuffResults(applied);
+                applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
+              }
             }
           }
         }
@@ -818,7 +898,9 @@ export class CombatManager {
         // `selfDebuffs` targets the passive's own owner — Ash Eater.
         if (move.template.selfDebuffs) {
           const opposingSide = character.isPlayer ? this.enemies : [this.player];
-          this.logDebuffResults(this.statusSystem.applyDebuffs(character, scaleEntries(move.template.selfDebuffs, count), character, opposingSide));
+          const applied = this.statusSystem.applyDebuffs(character, scaleEntries(move.template.selfDebuffs, count), character, opposingSide);
+          this.logDebuffResults(applied);
+          applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
         }
         if (move.template.grantConsumables) {
           character.combatConsumables = { ...move.template.grantConsumables };
@@ -842,6 +924,25 @@ export class CombatManager {
         }
       });
     });
+
+    if (announce && appliedEvents.length) {
+      const byRecipient = new Map();
+      appliedEvents.forEach((event) => {
+        if (!byRecipient.has(event.recipient)) byRecipient.set(event.recipient, []);
+        byRecipient.get(event.recipient).push(event);
+      });
+      byRecipient.forEach((events, character) => {
+        this.record({
+          kind: 'passiveEffect',
+          character,
+          events,
+          health: character.currentHealth,
+          energy: character.energy,
+        });
+      });
+    }
+
+    return appliedEvents;
   }
 
   /**
@@ -853,12 +954,13 @@ export class CombatManager {
     const applied = this.statusSystem.applyBuffs(character, buffs, character);
     this.logBuffResults(character, applied);
     const opponent = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
-    if (!opponent) return;
+    if (!opponent) return applied;
     const stealChance = opponent.moves.reduce((max, m) => Math.max(max, m.template.stealBuffChance ?? 0), 0);
     if (stealChance > 0 && rollChance(stealChance)) {
       const stolen = this.statusSystem.applyBuffs(opponent, buffs, opponent);
       this.logBuffResults(opponent, stolen);
     }
+    return applied;
   }
 
   finishVictory() {

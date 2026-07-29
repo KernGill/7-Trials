@@ -367,10 +367,11 @@ select {
   animation: damage-number-float var(--damage-number-duration, 1s) ease-out forwards;
 }
 .damage-number.crit { font-size: 20px; }
+/* --damage-number-scale (Settings: damageNumberSize, 1-3x) multiplies every keyframe's own scale rather than the base font-size, so it stacks cleanly with the existing crit-is-bigger sizing instead of overriding it. */
 @keyframes damage-number-float {
-  0% { opacity: 0; transform: translate(-50%, 0) scale(0.8); }
-  15% { opacity: 1; transform: translate(-50%, -6px) scale(1.1); }
-  100% { opacity: 0; transform: translate(-50%, -42px) scale(1); }
+  0% { opacity: 0; transform: translate(-50%, 0) scale(calc(0.8 * var(--damage-number-scale, 1))); }
+  15% { opacity: 1; transform: translate(-50%, -6px) scale(calc(1.1 * var(--damage-number-scale, 1))); }
+  100% { opacity: 0; transform: translate(-50%, -42px) scale(var(--damage-number-scale, 1)); }
 }
 
 /* Attack: travels all the way to the opposing character and back. --attack-travel is set in JS from the actual on-screen gap between the two avatar boxes; --anim-duration is set in JS from the gameSpeed-scaled move duration so the visual animation always finishes exactly when the JS timeline expects it to. */

@@ -64,9 +64,32 @@ const VISIBLE_RADIUS = 9; // max distance (tiles) anything renders at all — +2
 // ~5 tiles out — visibilityStrength(5..7) drops off much faster than
 // visibilityStrength(0..4) does, matching "hard to see from 5 onward".
 const VISIBILITY_FALLOFF_POWER = 2.5;
-const MAX_FLOOR_KEEP = 0.55; // floor color-keep fraction at distance 0 (rest blended to background) — floor stays legible as "the path"
-const MAX_WALL_KEEP = 0.2; // wall color-keep fraction at distance 0 — deliberately low so even nearby walls sit close to the background color
+// Bumped up from 0.45/0.15 — per user request the un-torched view should
+// read as "a little brighter" overall, on top of the moonlight hue shift
+// below (moonHue) doing most of the actual visual lift near the player.
+const MAX_FLOOR_KEEP = 0.62; // floor color-keep fraction at distance 0 (rest blended to background) — floor stays legible as "the path"
+const MAX_WALL_KEEP = 0.28; // wall color-keep fraction at distance 0 — deliberately low so even nearby walls sit close to the background color
 const MAX_MARKER_OPACITY = 1; // marker opacity at distance 0
+
+// Ambient (no Torch) lighting reads as pale moonlight falling on whatever's
+// closest to the player, fading through a series of increasingly dark,
+// desaturated blues the farther a tile sits, finally dissolving into the
+// same near-black BACKGROUND_COLOR everything else fades to — see moonHue()
+// below, the un-torched equivalent of torchHue() above.
+const MOON_COLOR_NEAR = 0xc3ecf7; // white/grey/blue moonlight spotlight, right at the player
+const MOON_COLOR_STEP2 = 0x87b8d4; // desaturated light navy blue
+const MOON_COLOR_STEP3 = 0x84acb8; // slightly desaturated darkish blue
+const MOON_COLOR_STEP4 = 0x2f5561; // really dark blue
+const MOON_COLOR_FAR = 0x000000; // black — full darkness, right at the edge of sight
+
+/** Ambient equivalent of torchHue(): pale moonlight near, fading through five color stops (moonlight -> light navy -> darkish blue -> really dark blue -> black) across four equal quarter-segments of the visible radius — no background blending yet (see blendColor for that half, applied on top via MAX_FLOOR_KEEP/MAX_WALL_KEEP same as before). */
+function moonHue(dist) {
+  const t = clamp(dist / VISIBLE_RADIUS, 0, 1);
+  if (t < 0.25) return new THREE.Color(MOON_COLOR_NEAR).lerp(new THREE.Color(MOON_COLOR_STEP2), t / 0.25);
+  if (t < 0.5) return new THREE.Color(MOON_COLOR_STEP2).lerp(new THREE.Color(MOON_COLOR_STEP3), (t - 0.25) / 0.25);
+  if (t < 0.75) return new THREE.Color(MOON_COLOR_STEP3).lerp(new THREE.Color(MOON_COLOR_STEP4), (t - 0.5) / 0.25);
+  return new THREE.Color(MOON_COLOR_STEP4).lerp(new THREE.Color(MOON_COLOR_FAR), (t - 0.75) / 0.25);
+}
 
 /**
  * Smooth per-tile-distance visibility strength in [0,1]: 1 at distance 0,
@@ -220,9 +243,9 @@ const MOUSE_PITCH_SENSITIVITY = 0.24; // degrees per pixel of mouse movementY
 // only needs to reinforce it briefly.
 const MOUSELOOK_ESC_HINT_MS = 4000;
 
-// Same palette as the old .dtile CSS classes, so the 3D view stays
-// visually consistent with the rest of the app during the transition.
-const COLOR_FLOOR = 0x222222;
+// Floor/wall ambient color now comes from moonHue() (see above) instead of a
+// flat constant — COLOR_WALL survives only for the flat behindWall overlay
+// below, which isn't distance-graded.
 const COLOR_WALL = 0x3a3a3a; // walls had no prior color — they were invisible blank cells in the old grid
 const MARKER_COLORS = {
   [TILE_TYPES.ENEMY]: 0x7a1f1f,
@@ -446,9 +469,10 @@ export class DungeonRenderer3D {
     const wallByDist = [];
     for (let d = 0; d <= VISIBLE_RADIUS; d += 1) {
       const v = visibilityStrength(d);
-      floorByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(COLOR_FLOOR, MAX_FLOOR_KEEP * v, BACKGROUND_COLOR) }));
+      const hue = moonHue(d);
+      floorByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, MAX_FLOOR_KEEP * v, BACKGROUND_COLOR) }));
       // vertexColors picks up the wallPanel geometries' vertical shading ramp (see applyWallHeightGradient) as a per-vertex multiplier on top of this flat distance color.
-      wallByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(COLOR_WALL, MAX_WALL_KEEP * v, BACKGROUND_COLOR), vertexColors: true }));
+      wallByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, MAX_WALL_KEEP * v, BACKGROUND_COLOR), vertexColors: true }));
     }
     const markerByDist = Object.fromEntries(
       Object.entries(MARKER_COLORS).map(([type, color]) => [
@@ -466,8 +490,8 @@ export class DungeonRenderer3D {
     );
     // Torch-equipped equivalents — see the TORCH_* constants' comment above.
     // Same structure as floorByDist/markerByDist, just sized to
-    // TORCH_VISIBLE_RADIUS and colored via torchHue() instead of a fixed
-    // COLOR_FLOOR/COLOR_WALL. Markers keep their own distinct colors
+    // TORCH_VISIBLE_RADIUS and colored via torchHue() instead of moonHue().
+    // Markers keep their own distinct colors
     // (re-hueing an enemy cube red-to-yellow would blur what it means) —
     // only their opacity falloff uses the torch's longer reach. Walls have
     // no per-distance material of their own here — torchWallGeoNSByDist/EW

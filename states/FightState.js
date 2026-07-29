@@ -37,12 +37,14 @@ const ATTACK_TRAVEL_RATIO = 0.85;
 // than at the very start of the animation, so it actually looks like the
 // hit (or the brace) is what's causing the effect.
 const FIGHT_TURN_FLASH_MS = 1000;
+const CHARACTER_TURN_FLASH_MS = 700; // shorter than the fight-turn flash — one per character-turn, every turn, so it can't drag the pace down
 const INTER_TURN_GAP_MS = 1000; // pause after a turn ends, before the next one's first beat
 const SPEED_CHECK_MS = 1000; // holding both speeds on screen, winner highlighted, before their turn begins
 const TURN_END_SPEED_HOLD_MS = 600; // holding the post-loss speed once a turn ends, before the inter-turn gap
 const STATUS_TICK_MS = 500;
 const TURN_SKIP_MS = 600;
 const CONSUMABLE_BEAT_MS = 500;
+const PASSIVE_EFFECT_MS = 500; // standalone beat for a passive that fired outside of any move (Golden Calling, Accumulating Mana, Ash Eater, ...)
 const ATTACK_DURATION_MS = 1500;
 const ATTACK_PEAK_MS = 750; // 50% — matches the anim-attack keyframe's midpoint
 const DEFENCE_DURATION_MS = 500;
@@ -53,6 +55,10 @@ const DAMAGE_NUMBER_LIFETIME_MS = 1200;
 const CRIT_COLOR = '#f1c40f';
 const REGULAR_DAMAGE_COLOR = '#fff';
 const MISS_COLOR = '#999';
+const HEAL_COLOR = '#2ecc71';
+const BUFF_STAT_COLOR = '#2ecc71';
+const DEBUFF_STAT_COLOR = '#e74c3c';
+const BLOCKED_COLOR = '#7f8c8d';
 
 const FILTERS = {
   [MOVE_CATEGORIES.ATTACKS]: isAttack,
@@ -218,6 +224,7 @@ export class FightState {
       case 'turnSkip': return this.playTurnSkipStep(step);
       case 'move': return this.playMoveStep(step);
       case 'consumable': return this.playConsumableStep(step);
+      case 'passiveEffect': return this.playPassiveEffectStep(step);
       case 'turnEnd': return this.playTurnEndStep(step);
       default: return this.finishStep();
     }
@@ -292,11 +299,25 @@ export class FightState {
     this.timers.push(setTimeout(() => this.finishStep(), this.scaled(STATUS_TICK_MS)));
   }
 
+  /** "(Name)'s Turn" flash — same flash element the fight-turn banner uses, held for a shorter beat since this one fires every single character-turn. */
   playTurnStartStep(step) {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
     this.renderMoveOrder(step.character);
-    this.finishStep();
+    this.els.flash.textContent = t('fight.character_turn_flash', { name: step.character.name });
+    this.els.flash.classList.remove('hidden');
+    this.timers.push(setTimeout(() => {
+      this.els.flash.classList.add('hidden');
+      this.finishStep();
+    }, this.scaled(CHARACTER_TURN_FLASH_MS)));
+  }
+
+  /** A passive that fired outside of any move's own beat (character_turn_start/fight_turn_start triggers, e.g. Golden Calling, Accumulating Mana) — a short hold with its own floating call-out(s) so it's visible without checking the log. */
+  playPassiveEffectStep(step) {
+    this.setDisplayed(step.character, step.health, step.energy);
+    this.renderCombatant(step.character);
+    this.spawnEffectNumbers(step.events);
+    this.timers.push(setTimeout(() => this.finishStep(), this.scaled(PASSIVE_EFFECT_MS)));
   }
 
   /** Turn-start energy gain has no beat of its own — refresh the display immediately (no delay) right after it happens, so x/max energy doesn't stay stuck on the pre-gain value shown by the turnStart step above. */
@@ -344,7 +365,26 @@ export class FightState {
       this.setDisplayed(defender, step.defenderHealth, step.defenderEnergy);
       this.renderCombatant(attacker);
       this.renderCombatant(defender);
+      // Every buff/debuff/removal/extra-damage this move touched (its own,
+      // plus anything a reactive passive like Retaliatory Soul added, plus
+      // AOE status-consumption moves like Chaotic Combustion — see
+      // CombatManager.executeMove's moveEffects) can land on someone other
+      // than just attacker/defender — refresh those recipients' health and
+      // icon list too, not just the two already covered above. Safe to read
+      // their CURRENT health/energy directly (not a step-carried snapshot):
+      // the whole cascade already ran synchronously before this step's peak
+      // ever fires, so nothing else can have mutated them since.
+      const extraRecipients = new Set();
+      step.effects?.events.forEach((e) => extraRecipients.add(e.recipient));
+      step.effects?.extraDamage.forEach((e) => extraRecipients.add(e.recipient));
+      if (step.effects?.heal) extraRecipients.add(step.effects.heal.recipient);
+      extraRecipients.forEach((c) => {
+        if (c === attacker || c === defender) return;
+        this.setDisplayed(c, c.currentHealth, c.energy);
+        this.renderCombatant(c);
+      });
       this.spawnMoveDamageNumbers(step);
+      this.spawnMoveExtraNumbers(step);
     };
 
     this.timers.push(setTimeout(applyEffects, peak));
@@ -368,6 +408,51 @@ export class FightState {
     if (result.reflected > 0) {
       this.spawnDamageNumber(attacker, `-${result.reflected}`, STATUS_EFFECTS.thorns?.color ?? REGULAR_DAMAGE_COLOR);
     }
+  }
+
+  /**
+   * Everything beyond the raw hit/miss/damage number: status/stat changes
+   * (this move's own debuffs/buffs, plus any reactive passive it provoked —
+   * see CombatManager.executeMove's moveEffects), a heal, lifesteal, damage
+   * blocked/reduced, and a defensive-stance announcement — all unconditional
+   * on hit/miss/split, since several of these (selfDebuffs, buffs,
+   * healMaxPercent) apply regardless of whether the attack itself landed.
+   */
+  spawnMoveExtraNumbers(step) {
+    const { attacker, defender, move, result } = step;
+    this.spawnEffectNumbers(step.effects?.events);
+    // Damage dealt outside the normal attack-roll result — Erratic
+    // Combustion/Chaotic Combustion's consumed-status damage, Umbral
+    // Purge's purge bonus — previously had no floating number (or log
+    // line) of their own at all.
+    step.effects?.extraDamage.forEach((d) => {
+      if (d.amount > 0) this.spawnDamageNumber(d.recipient, `-${d.amount}`, REGULAR_DAMAGE_COLOR);
+    });
+    if (step.effects?.heal) {
+      this.spawnDamageNumber(step.effects.heal.recipient, `+${step.effects.heal.amount}`, HEAL_COLOR);
+    }
+    if (result?.hit && !result.split) {
+      if (result.healed > 0) this.spawnDamageNumber(attacker, `+${result.healed}`, HEAL_COLOR);
+      if (result.reducedAmount > 0) this.spawnDamageNumber(defender, t('fight.blocked_popup', { n: result.reducedAmount }), BLOCKED_COLOR);
+    }
+    if (move?.template?.guardPercent || move?.template?.damageReductionPercent) {
+      this.spawnDamageNumber(attacker, t('fight.guard_popup'), STATUS_EFFECTS.thorns?.color ?? BUFF_STAT_COLOR);
+    }
+  }
+
+  /** Shared by move-tied effects and standalone passiveEffect beats — one floating call-out per applied OR removed status/stat change, on whichever character actually received it. */
+  spawnEffectNumbers(events) {
+    events?.forEach((event) => {
+      if (event.kind === 'status' || event.kind === 'removed') {
+        const cfg = STATUS_EFFECTS[event.effectId];
+        const label = tData('status', event.effectId, cfg?.name ?? event.effectId);
+        const sign = event.kind === 'removed' ? '-' : '+';
+        this.spawnDamageNumber(event.recipient, `${sign}${event.stacks} ${label}`, cfg?.color ?? REGULAR_DAMAGE_COLOR);
+      } else if (event.kind === 'stat') {
+        const sign = event.amount >= 0 ? '+' : '';
+        this.spawnDamageNumber(event.recipient, `${sign}${event.amount} ${statLabel(event.stat)}`, event.amount >= 0 ? BUFF_STAT_COLOR : DEBUFF_STAT_COLOR);
+      }
+    });
   }
 
   // --- Rendering -----------------------------------------------------------
@@ -531,19 +616,27 @@ export class FightState {
     return (defenderCenterY - attackerCenterY) * ATTACK_TRAVEL_RATIO;
   }
 
-  /** Floating combat-text at a random spot over the character's avatar box. */
+  /**
+   * Floating combat-text at a random spot over the character's avatar box.
+   * `damageNumberDuration` (Settings: 1-10x) stretches how long it stays on
+   * screen, layered on top of the existing gameSpeed scaling — 1x is
+   * exactly today's baseline. `damageNumberSize` (Settings: 1-3x) grows it
+   * via the `--damage-number-scale` CSS var the keyframes read.
+   */
   spawnDamageNumber(character, text, color, isCrit = false) {
     if (!this.els) return;
     const slot = this.slotFor(character);
     const box = slot?.querySelector('.avatar-box');
     if (!box) return;
 
-    const lifetime = this.scaled(DAMAGE_NUMBER_LIFETIME_MS);
+    const s = this.app.gameState.settings;
+    const lifetime = this.scaled(DAMAGE_NUMBER_LIFETIME_MS) * (s.damageNumberDuration ?? 1);
     const el = document.createElement('div');
     el.className = `damage-number${isCrit ? ' crit' : ''}`;
     el.textContent = text;
     el.style.color = color;
     el.style.setProperty('--damage-number-duration', `${lifetime}ms`);
+    el.style.setProperty('--damage-number-scale', s.damageNumberSize ?? 1);
     const offsetX = Math.round((Math.random() - 0.5) * 64);
     const offsetY = Math.round((Math.random() - 0.5) * 30) - 6;
     el.style.left = `calc(50% + ${offsetX}px)`;
