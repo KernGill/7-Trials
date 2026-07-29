@@ -1,4 +1,9 @@
 import { TILE_TYPES } from './Tile.js';
+import { getMoveTemplate } from '../data/moves.js';
+
+// Thief's Future (Thief's Idol): these tile types count as "events" that
+// get marked on the map before they're actually explored.
+const REVEALABLE_EVENT_TYPES = [TILE_TYPES.LOCKED_DOOR, TILE_TYPES.TREASURE, TILE_TYPES.TEMPORAL_CHEST];
 
 const RADIUS = 4; // 9x9 visible window, per user request ("4 block radius")
 const CELL_SIZE = 16;
@@ -66,6 +71,11 @@ export class Minimap {
     this.applyRotationDeg(0);
   }
 
+  /** Thief's Future (Thief's Idol): checked straight off equipped item ids, not a live Player instance — Minimap only ever has `this.app`, not ExploreState's cached player. */
+  hasEventRevealPassive() {
+    return this.app.inventory.getEquippedMoveIds().some((id) => getMoveTemplate(id)?.revealsUnexploredEvents);
+  }
+
   unmount() {
     this.wrapper?.removeEventListener('click', this._onClick);
     this.wrapper?.remove();
@@ -97,12 +107,17 @@ export class Minimap {
     const ctx = this.canvas.getContext('2d');
     ctx.fillStyle = UNKNOWN_COLOR;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const revealEvents = this.hasEventRevealPassive();
     dungeon.tiles.forEach((tile) => {
       // meta.hiddenPastGate (floor-5 secret hallway, past its blocking
       // gate, plus the arena) never draws here — per user request, the
       // map should only ever show the harmless dead-end-looking stub
       // before the gate, never the secret half, even once explored.
-      if (!tile.explored || tile.meta?.hiddenPastGate) return;
+      if (tile.meta?.hiddenPastGate) return;
+      // Thief's Future: an unresolved event tile draws even before it's
+      // actually been explored.
+      const revealed = revealEvents && !tile.meta?.resolved && REVEALABLE_EVENT_TYPES.includes(tile.type);
+      if (!tile.explored && !revealed) return;
       ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
@@ -152,8 +167,11 @@ export class Minimap {
     ctx.fillStyle = UNKNOWN_COLOR;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    const revealEvents = this.hasEventRevealPassive();
     dungeon.tiles.forEach((tile) => {
-      if (!tile.explored || tile.meta?.hiddenPastGate) return;
+      if (tile.meta?.hiddenPastGate) return;
+      const revealed = revealEvents && !tile.meta?.resolved && REVEALABLE_EVENT_TYPES.includes(tile.type);
+      if (!tile.explored && !revealed) return;
       ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * cellSize, tile.y * cellSize, cellSize, cellSize);
     });

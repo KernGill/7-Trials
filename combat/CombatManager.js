@@ -64,6 +64,29 @@ export class CombatManager {
     this.sequence = [];
     this.turnOrder.reset();
     this.enemyAI.reset();
+    // Thief's Guilt (Thief's Skin) needs to know which enemy died LAST in
+    // a multi-enemy fight — see stampEnemyDeaths/finishVictory.
+    this.deathCounter = 0;
+  }
+
+  /**
+   * Stamps `enemy.deathOrder` (a monotonic sequence number) on any enemy
+   * that's newly dead since the last call — called at the top of every
+   * checkFightEnd(), which already runs after essentially every
+   * damage-dealing action in the game, so real single-target kills get
+   * their true chronological order. Simultaneous AOE kills within one
+   * move (which all become non-alive together, with no checkFightEnd in
+   * between) fall back to array order as a deterministic tie-break —
+   * invisible in practice since the player can't perceive sub-turn
+   * ordering anyway.
+   */
+  stampEnemyDeaths() {
+    this.enemies.forEach((e) => {
+      if (!e.isAlive() && e.deathOrder === undefined) {
+        this.deathCounter += 1;
+        e.deathOrder = this.deathCounter;
+      }
+    });
   }
 
   /**
@@ -215,6 +238,7 @@ export class CombatManager {
    * Returns true if the fight ended (caller should stop immediately).
    */
   checkFightEnd() {
+    this.stampEnemyDeaths();
     if (!this.player?.isAlive()) {
       this.phase = COMBAT_PHASE.DEFEAT;
       this.flushSequence();
@@ -845,12 +869,24 @@ export class CombatManager {
     this.player.pendingGoldBonus = 0;
     const drops = { materials: {}, items: [], consumables: {} };
 
+    // Thief's Guilt (Thief's Skin): the enemy with the HIGHEST deathOrder
+    // stamp (see stampEnemyDeaths) is the one that died last in the party
+    // — its material table gets rolled 3 independent times instead of 1,
+    // for variety (not just 3x the quantity of a single roll).
+    const tripleLastKillDrops = this.player.moves.some((m) => m.template.tripleLastKillDrops);
+    const lastKilledEnemy = tripleLastKillDrops
+      ? this.enemies.reduce((latest, e) => ((e.deathOrder ?? -1) > (latest?.deathOrder ?? -1) ? e : latest), null)
+      : null;
+
     this.enemies.forEach((enemy) => {
       const config = enemy.drops;
-      config.materials?.forEach((drop) => {
-        const qty = rollDrop(drop);
-        if (qty > 0) drops.materials[drop.id] = (drops.materials[drop.id] ?? 0) + qty;
-      });
+      const materialRolls = enemy === lastKilledEnemy ? 3 : 1;
+      for (let i = 0; i < materialRolls; i += 1) {
+        config.materials?.forEach((drop) => {
+          const qty = rollDrop(drop);
+          if (qty > 0) drops.materials[drop.id] = (drops.materials[drop.id] ?? 0) + qty;
+        });
+      }
       config.items?.forEach((drop) => {
         const qty = rollDrop(drop);
         if (qty > 0) {

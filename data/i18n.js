@@ -104,6 +104,11 @@ export const TRANSLATIONS = {
     'locker.tab_equipment': 'EQUIPMENT',
     'locker.tab_materials': 'MATERIALS',
     'locker.tab_consumables': 'CONSUMABLES',
+    'locker.tab_loadouts': 'LOADOUTS',
+    'locker.save': 'Save',
+    'locker.load': 'Load',
+    'locker.loadout_placeholder': 'Loadout {n}',
+    'locker.loadout_skipped_items': '{n} item(s) from that loadout are no longer owned and were left unequipped.',
     'locker.equipped': 'Equipped',
     'locker.owned': 'Owned',
     'locker.empty': '(empty)',
@@ -178,6 +183,7 @@ export const TRANSLATIONS = {
     'explore.reward_gold': 'Reward: +{n} gold.',
     'explore.lock_held': 'The lock held. No harm done.',
     'explore.reward_material': 'Reward: {n}x {material}.',
+    'explore.reward_heal': 'Healed {n} HP.',
     'explore.chest_trapped_line': 'The chest was trapped! Took {n} damage.',
     'explore.close': 'CLOSE',
     'explore.choose_card': 'CHOOSE A CARD',
@@ -240,6 +246,8 @@ export const TRANSLATIONS = {
     'log.used_consumable_buff': 'Used {name}. Its effect will apply at the start of your next fight.',
     'log.descended': 'Descended to floor {n}.',
     'log.elevator_traveled': 'Traveled to floor {n} via elevator.',
+    'log.thiefs_curiosity_retry': 'You get one more try...',
+    'log.thiefs_curiosity_damage': 'The second attempt failed too — took {n} damage.',
 
     // Failure reasons
     'reason.not_your_turn': 'Not your turn.',
@@ -362,6 +370,11 @@ export const TRANSLATIONS = {
     'locker.tab_equipment': 'EQUIPO',
     'locker.tab_materials': 'MATERIALES',
     'locker.tab_consumables': 'CONSUMIBLES',
+    'locker.tab_loadouts': 'EQUIPACIONES',
+    'locker.save': 'Guardar',
+    'locker.load': 'Cargar',
+    'locker.loadout_placeholder': 'Equipación {n}',
+    'locker.loadout_skipped_items': '{n} objeto(s) de esa equipación ya no están en posesión y se dejaron sin equipar.',
     'locker.equipped': 'Equipado',
     'locker.owned': 'En posesión',
     'locker.empty': '(vacío)',
@@ -428,6 +441,7 @@ export const TRANSLATIONS = {
     'explore.reward_gold': 'Recompensa: +{n} de oro.',
     'explore.lock_held': 'La cerradura resistió. No pasó nada.',
     'explore.reward_material': 'Recompensa: {n}x {material}.',
+    'explore.reward_heal': 'Curaste {n} PV.',
     'explore.chest_trapped_line': '¡El cofre era una trampa! Recibiste {n} de daño.',
     'explore.close': 'CERRAR',
 
@@ -469,6 +483,8 @@ export const TRANSLATIONS = {
     'log.used_consumable_buff': 'Usaste {name}. Su efecto se aplicará al inicio de tu próximo combate.',
     'log.descended': 'Descendiste al piso {n}.',
     'log.elevator_traveled': 'Viajaste al piso {n} en ascensor.',
+    'log.thiefs_curiosity_retry': 'Tienes una oportunidad más...',
+    'log.thiefs_curiosity_damage': 'El segundo intento también falló — recibiste {n} de daño.',
 
     // Failure reasons
     'reason.not_your_turn': 'No es tu turno.',

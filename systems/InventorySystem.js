@@ -1,5 +1,8 @@
 import { SINGLE_EQUIPMENT_SLOTS, MULTI_EQUIPMENT_SLOTS, STAT_KEYS } from '../utils/Constants.js';
 import { getItemConfig } from '../data/items.js';
+import { deepClone } from '../utils/MathUtils.js';
+
+const LOADOUT_SLOT_COUNT = 5;
 
 /**
  * Equipment model: single slots (mainWeapon, offHand, chest, head,
@@ -225,5 +228,65 @@ export class InventorySystem {
         return config ? { ...config, ownedCount: count } : null;
       })
       .filter(Boolean);
+  }
+
+  /** Backfills to exactly LOADOUT_SLOT_COUNT slots — old saves made before loadouts existed just get empty ones appended. */
+  ensureLoadoutsStructure() {
+    if (!Array.isArray(this.player.loadouts)) this.player.loadouts = [];
+    while (this.player.loadouts.length < LOADOUT_SLOT_COUNT) {
+      this.player.loadouts.push({ name: null, equipped: null });
+    }
+  }
+
+  getLoadouts() {
+    this.ensureLoadoutsStructure();
+    return this.player.loadouts;
+  }
+
+  /** Snapshots the CURRENT equipped setup into slot `index`. An empty/whitespace-only name defaults to "Loadout {n}" (1-indexed), per user request. */
+  saveLoadout(index, name) {
+    this.ensureEquippedStructure();
+    this.ensureLoadoutsStructure();
+    const trimmed = name?.trim();
+    this.player.loadouts[index] = {
+      name: trimmed || `Loadout ${index + 1}`,
+      equipped: deepClone(this.player.equipped),
+    };
+  }
+
+  /**
+   * Restores slot `index`'s saved setup as the current equipped loadout.
+   * Anything no longer owned in sufficient quantity (sold since saving) is
+   * silently dropped rather than blocking the whole load — returns the
+   * dropped item ids so the caller can tell the player what got skipped.
+   */
+  loadLoadout(index) {
+    this.ensureLoadoutsStructure();
+    const loadout = this.player.loadouts[index];
+    if (!loadout?.equipped) return { ok: false, reason: 'Empty loadout slot.' };
+
+    const skipped = [];
+    const next = {};
+    SINGLE_EQUIPMENT_SLOTS.forEach((slot) => {
+      const itemId = loadout.equipped[slot] ?? null;
+      if (itemId && this.getOwnedCount(itemId) < 1) {
+        skipped.push(itemId);
+        next[slot] = null;
+      } else {
+        next[slot] = itemId;
+      }
+    });
+    Object.keys(MULTI_EQUIPMENT_SLOTS).forEach((category) => {
+      const remaining = {};
+      next[category] = (loadout.equipped[category] ?? []).filter((itemId) => {
+        if (remaining[itemId] === undefined) remaining[itemId] = this.getOwnedCount(itemId);
+        if (remaining[itemId] > 0) { remaining[itemId] -= 1; return true; }
+        skipped.push(itemId);
+        return false;
+      });
+    });
+
+    this.player.equipped = next;
+    return { ok: true, skipped };
   }
 }

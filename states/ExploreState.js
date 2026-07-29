@@ -54,6 +54,9 @@ const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.5;
 const TEMPORAL_CHEST_REWARD_MULTIPLIER = 3;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
 const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material pool
+// Thief's Curiosity (Thief's Skeleton): flat penalty for failing the
+// one-time retry — see finishQTE.
+const QTE_SECOND_CHANCE_FAIL_DAMAGE = 100;
 
 // Hidden floor-5 boss encounter (see DungeonGenerator's placeHiddenArena
 // and the TILE_TYPES.HIDDEN_ENEMY case below): shake+darken plays over the
@@ -753,21 +756,38 @@ export class ExploreState {
    * success chance, per user request), and arrow count/rewards both scale
    * with the current floor — see resolveLockedDoor/resolveTreasure.
    */
-  startQTE(onResolve, { arrowMultiplier = 1 } = {}) {
+  startQTE(onResolve, { arrowMultiplier = 1, isRetry = false } = {}) {
     const run = this.app.gameState.run;
-    const arrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * arrowMultiplier);
+    const baseArrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * arrowMultiplier);
+    // Thief's Providence (Thief's Ring) reduces arrow count; Thief's
+    // Resolve (Thief's Sleeves) increases it — both flat percents, summed
+    // into one net multiplier so equipping both nets their difference
+    // rather than compounding in some arbitrary order.
+    const arrowReductionPercent = this.getPassiveSum('qteArrowReductionPercent');
+    const arrowIncreasePercent = this.getPassiveSum('qteArrowIncreasePercent');
+    const netPercent = arrowIncreasePercent - arrowReductionPercent;
+    const arrowCount = Math.max(1, Math.ceil(baseArrowCount * (1 + netPercent / 100)));
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
     const dex = this.player.getStat('dex');
     const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
 
     this.resultOpen = true;
     this.pauseMouseLookForEvent();
+    // Thief's Prophecy (Thief's Goggles): every OTHER arrow gets auto-cleared
+    // for free (see advanceQTE), always starting from index 0 — so which
+    // arrows actually need a press is fixed and known up front. Marked
+    // visually (red underglow = press this one, greyscale = it's free) so
+    // the player can tell at a glance which ones to ignore.
+    const doubleAdvance = this.hasPassiveFlag('qteDoubleAdvance');
     const modal = document.createElement('div');
     modal.className = 'qte-overlay';
     modal.innerHTML = `
       <div class="qte-box">
         <div class="qte-strip">
-          ${directions.map((d) => `<div class="qte-key" data-dir="${d}">${arrowIconSVG(d)}</div>`).join('')}
+          ${directions.map((d, i) => {
+            const emphasisClass = doubleAdvance ? (i % 2 === 0 ? ' qte-key-press' : ' qte-key-skip') : '';
+            return `<div class="qte-key${emphasisClass}" data-dir="${d}">${arrowIconSVG(d)}</div>`;
+          }).join('')}
         </div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
         <div class="qte-touch-pad">
@@ -794,7 +814,7 @@ export class ExploreState {
     // step behind the (still-correct) internal index.
     const keyElements = Array.from(modal.querySelectorAll('.qte-key'));
 
-    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, keyElements, onResolve };
+    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, keyElements, onResolve, arrowMultiplier, isRetry };
     this.updateQTETimerUI();
   }
 
@@ -816,11 +836,20 @@ export class ExploreState {
     }
   }
 
+  /**
+   * Thief's Prophecy (Thief's Goggles): a correct press also auto-completes
+   * the NEXT arrow in the sequence for free, regardless of what it is — so
+   * each real press covers 2 spots instead of 1. Advances by 1 as normal
+   * without the passive, or when only one arrow is left either way.
+   */
   advanceQTE() {
-    const keyEl = this.qte.keyElements[this.qte.index];
-    keyEl?.classList.add('correct');
-    setTimeout(() => keyEl?.remove(), 120);
-    this.qte.index += 1;
+    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
+    for (let i = 0; i < advance && this.qte.index < this.qte.directions.length; i += 1) {
+      const keyEl = this.qte.keyElements[this.qte.index];
+      keyEl?.classList.add('correct');
+      setTimeout(() => keyEl?.remove(), 120);
+      this.qte.index += 1;
+    }
     if (this.qte.index >= this.qte.directions.length) {
       this.finishQTE(true);
     }
@@ -832,8 +861,34 @@ export class ExploreState {
     if (fill) fill.style.width = `${Math.max(0, (this.qte.remaining / this.qte.timeLimit) * 100)}%`;
   }
 
+  /**
+   * Thief's Curiosity (Thief's Skeleton): a failed QTE gets ONE retry — a
+   * completely fresh attempt (new arrows, fresh timer), transparent to
+   * the caller (onResolve still only ever fires once, exactly as before).
+   * Failing the retry too costs a flat QTE_SECOND_CHANCE_FAIL_DAMAGE — its
+   * own distinct penalty for having taken the second chance at all, NOT
+   * "damage from failing a QTE" in the sense Thief's Experience/
+   * noQteFailDamage protects against (that's about the event's own
+   * chest-trap-style damage), so it always applies even with the full
+   * Thief's set equipped.
+   */
   finishQTE(success) {
-    const { onResolve, modal } = this.qte;
+    const { onResolve, modal, isRetry, arrowMultiplier } = this.qte;
+    if (!success && this.hasPassiveFlag('qteSecondChance') && !isRetry) {
+      modal.remove();
+      this.qte = null;
+      this.resultOpen = false;
+      this.app.gameState.addLog(t('log.thiefs_curiosity_retry'));
+      this.startQTE(onResolve, { arrowMultiplier, isRetry: true });
+      return;
+    }
+    if (!success && isRetry) {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - QTE_SECOND_CHANCE_FAIL_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      this.app.gameState.run.savedHealth = this.player.currentHealth;
+      if (dealt > 0) this.app.gameState.addLog(t('log.thiefs_curiosity_damage', { n: dealt }));
+    }
     modal.remove();
     this.qte = null;
     this.resultOpen = false;
@@ -845,6 +900,23 @@ export class ExploreState {
     return REWARD_INITIAL_SCALE * (1 + REWARD_FLOOR_BONUS_PER_FLOOR) ** run.floor * (1 + this.getPassiveSum('rewardBonusPercent') / 100);
   }
 
+  /**
+   * Thief's Repentance (Thief's Halo): a flat % of max HP back on any
+   * successful event, clamped to max — returns the amount ACTUALLY
+   * gained (Character.heal()'s own return value is the pre-clamp
+   * attempted amount, which overstates this near max HP, so the real
+   * gain is computed from the before/after health delta instead).
+   */
+  applyEventSuccessHeal() {
+    const percent = this.getPassiveSum('eventSuccessHealPercent');
+    if (percent <= 0) return 0;
+    const before = this.player.currentHealth;
+    this.player.heal(Math.round(this.player.getMaxHealth() * percent / 100));
+    const healed = this.player.currentHealth - before;
+    if (healed > 0) this.app.gameState.run.savedHealth = this.player.currentHealth;
+    return healed;
+  }
+
   resolveLockedDoor(success, tile) {
     const { app } = this;
     const run = app.gameState.run;
@@ -854,7 +926,10 @@ export class ExploreState {
       run.achievementProgress = run.achievementProgress ?? {};
       run.achievementProgress.doorOpenedFloor = run.floor;
       tile.meta.looted = true;
-      this.showResult(t('explore.locked_room_opened'), [t('explore.reward_gold', { n: amount })]);
+      const lines = [t('explore.reward_gold', { n: amount })];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.locked_room_opened'), lines);
     } else {
       this.showResult(t('explore.locked_room_failed'), [t('explore.lock_held')]);
     }
@@ -876,7 +951,10 @@ export class ExploreState {
       run.achievementProgress.chestOpenedFloor = run.floor;
       run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
       tile.meta.looted = true;
-      this.showResult(t('explore.chest_opened'), [t('explore.reward_material', { n: amount, material: materialName })]);
+      const lines = [t('explore.reward_material', { n: amount, material: materialName })];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.chest_opened'), lines);
     } else if (this.hasPassiveFlag('noQteFailDamage')) {
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
     } else {
@@ -921,10 +999,13 @@ export class ExploreState {
       run.achievementProgress.chestsOpenedThisRun = (run.achievementProgress.chestsOpenedThisRun ?? 0) + 1;
       tile.meta.looted = true;
 
-      this.showResult(t('explore.temporal_chest_opened'), [
+      const lines = [
         t('explore.reward_gold', { n: goldAmount }),
         t('explore.reward_material', { n: materialAmount, material: materialName }),
-      ]);
+      ];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.temporal_chest_opened'), lines);
     } else if (this.hasPassiveFlag('noQteFailDamage')) {
       this.showResult(t('explore.chest_trapped_title'), [t('explore.chest_trapped_line', { n: 0 })]);
     } else {

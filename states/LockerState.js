@@ -19,6 +19,7 @@ export class LockerState {
           <button class="tab-btn" data-tab="equipment">${t('locker.tab_equipment')}</button>
           <button class="tab-btn" data-tab="materials">${t('locker.tab_materials')}</button>
           <button class="tab-btn" data-tab="consumables">${t('locker.tab_consumables')}</button>
+          <button class="tab-btn" data-tab="loadouts">${t('locker.tab_loadouts')}</button>
         </div>
         <div class="locker-body"></div>
       </div>`;
@@ -41,6 +42,7 @@ export class LockerState {
     });
     if (this.tab === 'materials') this.renderMaterials();
     else if (this.tab === 'consumables') this.renderConsumables();
+    else if (this.tab === 'loadouts') this.renderLoadouts();
     else this.renderEquipment();
   }
 
@@ -111,6 +113,55 @@ export class LockerState {
       btn.addEventListener('click', () => {
         const result = app.inventory.equipItem(btn.dataset.equip);
         if (!result.ok) app.gameState.addLog(tReason(result.reason));
+        app.saveSystem.save();
+        this.renderAll();
+      });
+    });
+  }
+
+  /**
+   * 5 fixed slots — Save snapshots the CURRENT equipped setup into a slot
+   * (named via the slot's own text input, defaulting to "Loadout N" if
+   * left blank); Load restores that slot's saved setup as current,
+   * dropping anything no longer owned in sufficient quantity. Built for
+   * quickly swapping to e.g. a full Thief set without re-equipping by hand.
+   */
+  renderLoadouts() {
+    const { app } = this;
+    const loadouts = app.inventory.getLoadouts();
+
+    this.body.innerHTML = `
+      <div class="loadout-list">
+        ${loadouts.map((slot, i) => `
+          <div class="loadout-row" data-slot="${i}">
+            <input type="text" class="loadout-name-input" data-name-input="${i}" placeholder="${t('locker.loadout_placeholder', { n: i + 1 })}">
+            <button data-save-loadout="${i}">${t('locker.save')}</button>
+            <button data-load-loadout="${i}" ${slot?.equipped ? '' : 'disabled'}>${t('locker.load')}</button>
+          </div>`).join('')}
+      </div>`;
+
+    // Set via the DOM property (not an HTML attribute) so a saved name
+    // containing quotes/special characters can never break the markup.
+    this.body.querySelectorAll('[data-name-input]').forEach((input) => {
+      input.value = loadouts[Number(input.dataset.nameInput)]?.name ?? '';
+    });
+
+    this.body.querySelectorAll('[data-save-loadout]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.saveLoadout);
+        const input = this.body.querySelector(`[data-name-input="${i}"]`);
+        app.inventory.saveLoadout(i, input.value);
+        app.saveSystem.save();
+        this.renderAll();
+      });
+    });
+    this.body.querySelectorAll('[data-load-loadout]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.loadLoadout);
+        const result = app.inventory.loadLoadout(i);
+        if (result.ok && result.skipped.length) {
+          app.gameState.addLog(t('locker.loadout_skipped_items', { n: result.skipped.length }));
+        }
         app.saveSystem.save();
         this.renderAll();
       });

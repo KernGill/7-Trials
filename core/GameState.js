@@ -44,6 +44,10 @@ const DEFAULT_PLAYER = {
   backpackMaterials: {},
   consumables: { minor_potion: 2 },
   lockerMaterials: {},
+  // 5 fixed slots, each { name, equipped } | null — see
+  // InventorySystem.saveLoadout/loadLoadout. Lazily backfilled to length 5
+  // for old saves too (see InventorySystem.ensureLoadoutsStructure).
+  loadouts: [],
 };
 
 export class GameState {
