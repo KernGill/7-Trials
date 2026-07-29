@@ -205,9 +205,18 @@ select {
   background: #000; line-height: 0; overflow: hidden;
 }
 .minimap:hover { border-color: #e94560; }
-.minimap-expanded-box { align-items: center; width: auto; max-width: 94vw; }
-.minimap-scroll { max-width: 90vw; max-height: 70vh; overflow: auto; }
-.minimap-expanded-canvas { display: block; image-rendering: pixelated; }
+.minimap-expanded-box { align-items: center; width: auto; max-width: 96vw; }
+.minimap-scroll {
+  max-width: 94vw; max-height: 82vh; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+/* Fixed square crop window the rotated canvas sits/rotates inside — sized
+   off both vw and vh (not just vw) so it stays a real square and actually
+   fills the available width instead of the old auto-sized, often-narrow
+   box. overflow:hidden crops whatever a heading-up rotation swings past
+   its edges, same trade-off the corner minimap already accepts. */
+.minimap-expanded-viewport { position: relative; width: min(84vw, 76vh); height: min(84vw, 76vh); overflow: hidden; background: #000; border-radius: 4px; }
+.minimap-expanded-canvas { image-rendering: pixelated; }
 
 .descend-prompt {
   position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); z-index: 5;

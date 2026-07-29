@@ -7,7 +7,6 @@ const REVEALABLE_EVENT_TYPES = [TILE_TYPES.LOCKED_DOOR, TILE_TYPES.TREASURE, TIL
 
 const RADIUS = 4; // 9x9 visible window, per user request ("4 block radius")
 const CELL_SIZE = 16;
-const EXPANDED_MAX_CELL_SIZE = 14;
 const VIEWPORT_SIZE = (RADIUS * 2 + 1) * CELL_SIZE;
 
 const TILE_COLORS = {
@@ -23,6 +22,16 @@ const TILE_COLORS = {
 };
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';
+
+// Absolute compass angle (radians, 0 = up/north, clockwise) for each
+// run.facing value — baked straight into the marker's canvas pixels at the
+// SAME angle regardless of which view is drawing it. Both the corner view's
+// CSS rotation (0 in Fixed Minimap mode, -yaw in heading-up mode) and the
+// expanded view's (always -yaw, see drawExpanded) get applied to the whole
+// canvas, arrow included — so a compass-angle arrow automatically ends up
+// pointing screen-up in heading-up mode (facing ≈ yaw, so compass angle +
+// (-yaw) ≈ 0) with zero extra fixed/heading-up special-casing needed here.
+const FACING_TO_ANGLE = { north: 0, east: Math.PI / 2, south: Math.PI, west: (3 * Math.PI) / 2 };
 
 /** A resolved chest/door (already opened — see ExploreState.handleTileEffect's meta.resolved gate) reads as plain floor, since it no longer does anything when walked onto. */
 function tileColor(tile) {
@@ -156,14 +165,27 @@ export class Minimap {
     this.canvas.style.transform = `rotate(${angleDeg}deg)`;
   }
 
-  /** Draws every explored tile of the current floor onto a caller-provided canvas (the expanded modal view). No "close" bonus — memory only. Always north-up, independent of the corner view's rotation. */
-  drawExpanded(canvas) {
+  /**
+   * Draws every explored tile of the current floor onto a caller-provided
+   * canvas (the expanded modal view opened by clicking the corner minimap
+   * or pressing M), sized+positioned to fill `viewport` (a fixed-size
+   * square element) and rotated to `angleDeg` — per user request, "heading
+   * up" (whichever way the player is currently looking) rather than
+   * always north-up. Uses the exact same "center the player's pixel,
+   * rotate around it" CSS technique as the corner view's redrawMap(), just
+   * scaled up: the canvas is drawn at native CELL_SIZE resolution, then
+   * CSS-scaled so its LONGER axis exactly fills the viewport (its shorter
+   * axis, and anything rotated past the viewport's edges, gets cropped by
+   * the viewport's own overflow:hidden — same crop trade-off the corner
+   * view already makes while rotating, just on a bigger, still mostly-
+   * unclipped canvas instead of a tiny fixed 9x9 window).
+   */
+  drawExpanded(canvas, viewport, angleDeg = 0) {
     const run = this.app.gameState.run;
     const dungeon = run?.dungeon;
-    if (!dungeon) return;
-    const cellSize = Math.min(EXPANDED_MAX_CELL_SIZE, Math.max(4, Math.floor(600 / Math.max(dungeon.width, dungeon.height))));
-    canvas.width = dungeon.width * cellSize;
-    canvas.height = dungeon.height * cellSize;
+    if (!dungeon || !viewport) return;
+    canvas.width = dungeon.width * CELL_SIZE;
+    canvas.height = dungeon.height * CELL_SIZE;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = UNKNOWN_COLOR;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -174,17 +196,40 @@ export class Minimap {
       const revealed = revealEvents && !tile.meta?.resolved && REVEALABLE_EVENT_TYPES.includes(tile.type);
       if (!tile.explored && !revealed) return;
       ctx.fillStyle = tileColor(tile);
-      ctx.fillRect(tile.x * cellSize, tile.y * cellSize, cellSize, cellSize);
+      ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
 
     const { x: px, y: py } = run.playerPosition;
-    this._drawPlayerMarker(ctx, px * cellSize + cellSize / 2, py * cellSize + cellSize / 2, cellSize);
+    const pixelX = px * CELL_SIZE + CELL_SIZE / 2;
+    const pixelY = py * CELL_SIZE + CELL_SIZE / 2;
+    this._drawPlayerMarker(ctx, pixelX, pixelY, CELL_SIZE);
+
+    const viewportPx = viewport.clientWidth;
+    const scale = viewportPx / Math.max(canvas.width, canvas.height);
+    canvas.style.position = 'absolute';
+    canvas.style.width = `${canvas.width * scale}px`;
+    canvas.style.height = `${canvas.height * scale}px`;
+    canvas.style.left = `${viewportPx / 2 - pixelX * scale}px`;
+    canvas.style.top = `${viewportPx / 2 - pixelY * scale}px`;
+    canvas.style.transformOrigin = `${pixelX * scale}px ${pixelY * scale}px`;
+    canvas.style.transform = `rotate(${angleDeg}deg)`;
   }
 
+  /** White arrow (not a plain dot) so facing is readable at a glance — points in run.facing's compass direction, drawn pointing up (0 rotation) then rotated to FACING_TO_ANGLE. See that constant's comment for why baking the absolute compass angle in here (rather than something view-mode-specific) already comes out correct in both Fixed Minimap and heading-up rotation modes. */
   _drawPlayerMarker(ctx, x, y, cellSize) {
+    const angle = FACING_TO_ANGLE[this.app.gameState.run?.facing] ?? 0;
+    const r = Math.max(3, cellSize * 0.55);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
     ctx.fillStyle = PLAYER_COLOR;
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(2, cellSize * 0.3), 0, Math.PI * 2);
+    ctx.moveTo(0, -r); // tip
+    ctx.lineTo(r * 0.62, r * 0.75); // back-right
+    ctx.lineTo(0, r * 0.4); // concave back-notch, reads as an arrowhead rather than a plain triangle
+    ctx.lineTo(-r * 0.62, r * 0.75); // back-left
+    ctx.closePath();
     ctx.fill();
+    ctx.restore();
   }
 }

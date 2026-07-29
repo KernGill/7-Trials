@@ -5,6 +5,7 @@ import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
   CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
+  CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
 } from '../ui/CameraSettings.js';
 
 const FPS_OPTIONS = [30, 60, 90, 120, 144];
@@ -143,6 +144,10 @@ export class SettingsState {
         <span class="camera-sensitivity-label">${t('settings.camera_sensitivity', { percent: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100) })}</span>
         <input type="range" min="${CAMERA_SENSITIVITY_MIN_PERCENT}" max="${CAMERA_SENSITIVITY_MAX_PERCENT}" step="1" value="${Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100)}" class="camera-sensitivity-slider">
       </div>
+      <div class="settings-row">
+        <span class="camera-fov-label">${t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) })}</span>
+        <input type="range" min="${CAMERA_ZOOM_MIN_PERCENT}" max="${CAMERA_ZOOM_MAX_PERCENT}" step="1" value="${Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT)}" class="camera-fov-slider">
+      </div>
       ${this.cameraSectionHTML(s)}`;
     this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
@@ -184,6 +189,11 @@ export class SettingsState {
     this.body.querySelector('.camera-sensitivity-slider').addEventListener('input', (e) => {
       s.cameraSensitivity = clamp(Number(e.target.value) / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
       this.body.querySelector('.camera-sensitivity-label').textContent = t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
+    });
+    this.body.querySelector('.camera-fov-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.camera-fov-slider').addEventListener('input', (e) => {
+      s.cameraZoom = clamp(Number(e.target.value), CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
+      this.body.querySelector('.camera-fov-label').textContent = t('settings.camera_fov', { percent: Math.round(s.cameraZoom) });
     });
     this.bindCameraEvents(s);
   }

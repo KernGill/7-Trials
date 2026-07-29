@@ -4,8 +4,8 @@ import { clamp } from '../utils/MathUtils.js';
 import { t } from '../ui/i18n.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
-  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
-  linkedHeightPercentForAngle,
+  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
+  linkedHeightPercentForAngle, zoomMultiplierForPercent,
 } from '../ui/CameraSettings.js';
 
 const BACKGROUND_COLOR = 0x0b0c10;
@@ -682,12 +682,28 @@ export class DungeonRenderer3D {
     const h = this.container.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
-    const aspect = w / h;
-    const viewWidth = VIEW_HEIGHT * aspect;
+    this._aspect = w / h;
+    this._applyZoom();
+  }
+
+  /**
+   * Sets the ortho camera's frustum span from VIEW_HEIGHT and the live FOV
+   * setting (see CameraSettings.js's zoomMultiplierForPercent) — called on
+   * resize() and every frame from _applyCameraFromCurrentState() so scroll-
+   * wheel/I/O zoom nudges (see ExploreState) take effect immediately without
+   * needing a window-resize event. Cheap (4 number writes + a 3x3 matrix
+   * recompute), same "every frame is fine" precedent as heightMult below.
+   */
+  _applyZoom() {
+    if (!this._aspect) return;
+    const settings = this.app?.gameState?.settings ?? {};
+    const zoomMult = zoomMultiplierForPercent(settings.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT);
+    const viewHeight = VIEW_HEIGHT * zoomMult;
+    const viewWidth = viewHeight * this._aspect;
     this.camera.left = -viewWidth / 2;
     this.camera.right = viewWidth / 2;
-    this.camera.top = VIEW_HEIGHT / 2;
-    this.camera.bottom = -VIEW_HEIGHT / 2;
+    this.camera.top = viewHeight / 2;
+    this.camera.bottom = -viewHeight / 2;
     this.camera.updateProjectionMatrix();
   }
 
@@ -713,6 +729,7 @@ export class DungeonRenderer3D {
    */
   _applyCameraFromCurrentState() {
     if (this._lookYaw === undefined) return;
+    this._applyZoom();
     const settings = this.app?.gameState?.settings ?? {};
     const heightMult = clamp(settings.cameraHeight ?? DEFAULT_CAMERA_HEIGHT_MULT, CAMERA_HEIGHT_MULT_MIN, CAMERA_HEIGHT_MULT_MAX);
     const angleRad = (this._lookPitchDeg * Math.PI) / 180;

@@ -55,6 +55,7 @@ export const TRANSLATIONS = {
     'settings.camera_height': 'Camera Height: {percent}%',
     'settings.camera_orientation': 'Camera Orientation: ({angle}/{height})',
     'settings.camera_sensitivity': 'Camera Sensitivity: {percent}%',
+    'settings.camera_fov': 'FOV: {percent}%',
     'settings.fine_tune': 'Fine Tune',
     'settings.reset_default': 'Reset to Default',
     'settings.on': 'On',
@@ -377,6 +378,7 @@ export const TRANSLATIONS = {
     'settings.language': 'Idioma',
     'settings.language.en': 'Inglés',
     'settings.language.es': 'Español',
+    'settings.camera_fov': 'CDV: {percent}%',
 
     // Shop
     'shop.title': 'TIENDA',

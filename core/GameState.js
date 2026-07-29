@@ -1,7 +1,9 @@
 import { GAME_STATES } from '../utils/Constants.js';
 import { deepClone } from '../utils/MathUtils.js';
 import { Tile } from '../exploration/Tile.js';
-import { DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT } from '../ui/CameraSettings.js';
+import {
+  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
+} from '../ui/CameraSettings.js';
 
 const DEFAULT_META = {
   currentArc: 0,
@@ -97,6 +99,11 @@ export class GameState {
       // Multiplier (0 - 2) on the free-look camera's base mouse
       // sensitivity — 1 (100%) is the default, dead center of the slider's range.
       cameraSensitivity: DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100,
+      // FOV: 0-100% exploration camera zoom slider — see CameraSettings.js's
+      // zoomMultiplierForPercent for how this maps onto the ortho camera's
+      // frustum span. Also live-adjustable via scroll wheel / I / O while
+      // exploring (ExploreState), not just this slider.
+      cameraZoom: DEFAULT_CAMERA_ZOOM_PERCENT,
     };
     this.log = [];
     this.paused = false;

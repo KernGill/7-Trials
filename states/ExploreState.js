@@ -14,8 +14,11 @@ import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 import { Minimap } from '../exploration/Minimap.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { CHEST_TRAP_DAMAGE, TEMPORAL_CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
-import { randomInt } from '../utils/MathUtils.js';
+import { randomInt, clamp } from '../utils/MathUtils.js';
 import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
+import {
+  CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT, CAMERA_ZOOM_STEP_PERCENT,
+} from '../ui/CameraSettings.js';
 
 const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
 const FACING_DELTAS = {
@@ -148,6 +151,16 @@ export class ExploreState {
     this.app.input.on('keydown', this._onKeydown);
     this._touchMoveIntervals = new Set();
     this.mountTouchControls();
+    this._onWheel = (e) => {
+      if (!this.canAct()) return;
+      e.preventDefault();
+      // Normalized to one fixed step per wheel event, not scaled by the
+      // raw deltaY magnitude — that varies wildly between a notched mouse
+      // wheel and a trackpad's continuous stream, so treating every event
+      // as "one tick" keeps zoom speed consistent across input devices.
+      this.adjustZoom(Math.sign(e.deltaY) * CAMERA_ZOOM_STEP_PERCENT);
+    };
+    this.els.grid.addEventListener('wheel', this._onWheel, { passive: false });
     this.renderHUD();
     // Re-entering explore after combat (see handleTileEffect's ENEMY case,
     // which captures this before app.startCombat() tears the old renderer
@@ -179,6 +192,7 @@ export class ExploreState {
 
   exit() {
     this.app.input.off('keydown', this._onKeydown);
+    this.els.grid?.removeEventListener('wheel', this._onWheel);
     this._touchMoveIntervals?.forEach((cancel) => cancel());
     this._touchMoveIntervals?.clear();
     this.renderer3d?.unmount();
@@ -360,7 +374,18 @@ export class ExploreState {
       // Same modal the corner minimap's own click already opens — the
       // resultOpen guard above already keeps this a no-op if it's open.
       this.openMinimapExpanded();
+    } else if (key === 'i') {
+      this.adjustZoom(-CAMERA_ZOOM_STEP_PERCENT); // zoom in (toward 0% / first-person)
+    } else if (key === 'o') {
+      this.adjustZoom(CAMERA_ZOOM_STEP_PERCENT); // zoom out (toward 100% / 3x view)
     }
+  }
+
+  /** Nudges the live FOV/zoom setting (see CameraSettings.js) by `deltaPercent`, clamped — shared by the scroll-wheel handler and the I/O keys. */
+  adjustZoom(deltaPercent) {
+    const settings = this.app.gameState.settings;
+    const current = settings.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT;
+    settings.cameraZoom = clamp(current + deltaPercent, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
   }
 
   getTileAt(x, y) {
@@ -423,6 +448,10 @@ export class ExploreState {
     const currentZone = this.renderer3d.getFacingZone() ?? run.facing;
     this.renderer3d.turnCameraSnap(steps);
     run.facing = rotateFacing(currentZone, steps);
+    // Refreshes the corner minimap's facing arrow immediately — movement
+    // already triggers this via markNearbyExplored, but a pure snap-turn
+    // (no movement) otherwise wouldn't touch the minimap canvas at all.
+    this.minimap?.redrawMap();
     this.app.saveSystem.save();
   }
 
@@ -1280,7 +1309,15 @@ export class ExploreState {
     }
   }
 
-  /** Full explored-so-far map, opened by clicking the corner minimap. Blocks movement like every other modal here. */
+  /**
+   * Full explored-so-far map, opened by clicking the corner minimap or
+   * pressing M. Blocks movement like every other modal here — which also
+   * means the player's look yaw can't change while this is open, so the
+   * heading-up rotation only needs to be computed once, at open time, not
+   * kept live-updated. Per user request, always oriented to whichever way
+   * the player is currently looking (heading-up), independent of the
+   * corner minimap's own separate "Fixed Minimap" north-up setting.
+   */
   openMinimapExpanded() {
     this.resultOpen = true;
     this.pauseMouseLookForEvent();
@@ -1289,11 +1326,19 @@ export class ExploreState {
     modal.innerHTML = `
       <div class="result-box minimap-expanded-box">
         <h2>${t('explore.minimap_title')}</h2>
-        <div class="minimap-scroll"><canvas class="minimap-expanded-canvas"></canvas></div>
+        <div class="minimap-scroll"><div class="minimap-expanded-viewport"><canvas class="minimap-expanded-canvas"></canvas></div></div>
         <button class="result-close">${t('explore.close')}</button>
       </div>`;
     this.root.appendChild(modal);
-    this.minimap.drawExpanded(modal.querySelector('.minimap-expanded-canvas'));
+    const yaw = this.renderer3d?.getLookYaw();
+    // Same sign convention as the corner minimap's own update() — its CSS
+    // rotation is the mirror image of the 3D camera's world-yaw.
+    const angleDeg = yaw === undefined ? 0 : -(yaw * 180) / Math.PI;
+    this.minimap.drawExpanded(
+      modal.querySelector('.minimap-expanded-canvas'),
+      modal.querySelector('.minimap-expanded-viewport'),
+      angleDeg,
+    );
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
       this.resultOpen = false;

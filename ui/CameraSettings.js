@@ -4,6 +4,10 @@
  * Orientation" combined slider and its Fine Tune sub-sliders stay in
  * exact agreement between the two screens.
  */
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export const CAMERA_ANGLE_MIN = 0;
 export const CAMERA_ANGLE_MAX = 90;
 export const CAMERA_HEIGHT_MIN_PERCENT = 33;
@@ -37,3 +41,41 @@ export const DEFAULT_CAMERA_HEIGHT = linkedHeightPercentForAngle(DEFAULT_CAMERA_
 export const CAMERA_SENSITIVITY_MIN_PERCENT = 0;
 export const CAMERA_SENSITIVITY_MAX_PERCENT = 200;
 export const DEFAULT_CAMERA_SENSITIVITY_PERCENT = 100;
+
+// FOV (exploration camera zoom): a 0-100% slider that also live-updates via
+// scroll wheel / I (zoom in) / O (zoom out) while exploring — see
+// ExploreState's wheel listener and handleKeydown. Since the dungeon camera
+// is orthographic, "zoom" here means shrinking/growing the visible world-unit
+// span of its frustum (see zoomMultiplierForPercent below and its use in
+// DungeonRenderer3D), not moving the camera closer/farther (which would do
+// nothing to an orthographic projection's apparent scale).
+export const CAMERA_ZOOM_MIN_PERCENT = 0;
+export const CAMERA_ZOOM_MAX_PERCENT = 100;
+// Per user request: today's default view sits at 40% up the slider, not at
+// either end, so there's room to zoom in tighter as well as further out.
+export const DEFAULT_CAMERA_ZOOM_PERCENT = 40;
+// The view-span multiplier at each anchor point of the slider (applied to
+// DungeonRenderer3D's base VIEW_HEIGHT): 40% is a 1x multiplier (exactly
+// today's view, unchanged), 100% is 3x (per user request: "3 times more
+// than I currently do"). 0% has no literal "first person" camera rig to
+// reuse — this ortho rig's zoom is purely a frustum-size change — so the
+// closest approximation is the tightest zoom the frustum math still
+// renders sensibly at, picked small enough to read as being right up in
+// whatever's in front of the player.
+const ZOOM_MULT_AT_DEFAULT = 1;
+const ZOOM_MULT_AT_MAX = 3;
+const ZOOM_MULT_AT_MIN = 0.12;
+
+/** Piecewise-linear: 0% -> ZOOM_MULT_AT_MIN, 40% (DEFAULT_CAMERA_ZOOM_PERCENT) -> 1, 100% -> 3. Two segments (not one straight line) since a single slope can't hit all three anchor points without going negative below 40%. */
+export function zoomMultiplierForPercent(percent) {
+  const p = clamp(percent, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
+  if (p <= DEFAULT_CAMERA_ZOOM_PERCENT) {
+    const t = p / DEFAULT_CAMERA_ZOOM_PERCENT;
+    return ZOOM_MULT_AT_MIN + t * (ZOOM_MULT_AT_DEFAULT - ZOOM_MULT_AT_MIN);
+  }
+  const t = (p - DEFAULT_CAMERA_ZOOM_PERCENT) / (CAMERA_ZOOM_MAX_PERCENT - DEFAULT_CAMERA_ZOOM_PERCENT);
+  return ZOOM_MULT_AT_DEFAULT + t * (ZOOM_MULT_AT_MAX - ZOOM_MULT_AT_DEFAULT);
+}
+
+// Fixed step nudged per scroll-wheel tick / I or O keypress (ExploreState).
+export const CAMERA_ZOOM_STEP_PERCENT = 4;
