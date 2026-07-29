@@ -652,15 +652,20 @@ export class ExploreState {
 
   /**
    * Elevator floor-picker — mirrors showResult()'s blocking-modal pattern.
-   * Lists every floor in run.visitedFloors except the current one; picking
-   * one hands off to useElevator() for the actual travel.
+   * Lists every floor from 1 up to meta.highestFloorReached — the
+   * permanent, cross-run depth record (see StateManager.generateFloor) —
+   * except the current one, so a floor reached in a past run that ended in
+   * death is still offered on a brand new run, not just floors generated
+   * this specific run. Picking one hands off to useElevator() for the
+   * actual travel.
    */
   showElevatorPicker() {
     this.resultOpen = true;
     this.pauseMouseLookForEvent();
     const { app } = this;
     const run = app.gameState.run;
-    const otherFloors = (run.visitedFloors ?? []).filter((f) => f !== run.floor).sort((a, b) => a - b);
+    const maxReached = app.gameState.meta.highestFloorReached ?? 1;
+    const otherFloors = Array.from({ length: maxReached }, (_, i) => i + 1).filter((f) => f !== run.floor);
 
     const modal = document.createElement('div');
     modal.className = 'result-overlay';

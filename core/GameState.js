@@ -13,6 +13,12 @@ const DEFAULT_META = {
   achievementFlags: {},
   unlockedCharacters: ['artius'],
   selectedCharacterId: 'artius',
+  // Deepest floor number ever reached, across every run (including ones
+  // that ended in death) — permanent, never reset by startRun(). Lets the
+  // elevator offer a fast-travel skip-ahead on a brand new run instead of
+  // being limited to only floors generated so far THIS run — see
+  // StateManager.travelToFloor.
+  highestFloorReached: 1,
 };
 
 const DEFAULT_RUN = {

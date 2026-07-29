@@ -449,6 +449,11 @@ export class StateManager {
     // either call site.
     run.visitedFloors = run.visitedFloors ?? [];
     if (!run.visitedFloors.includes(run.floor)) run.visitedFloors.push(run.floor);
+    // Permanent, cross-run record (survives death/"Begin Anew") — see
+    // travelToFloor for how this lets the elevator skip ahead on a fresh
+    // run to any depth ever reached before, not just floors generated
+    // this specific run.
+    this.gameState.meta.highestFloorReached = Math.max(this.gameState.meta.highestFloorReached ?? 1, run.floor);
   }
 
   /**
@@ -472,19 +477,32 @@ export class StateManager {
   }
 
   /**
-   * The elevator: warps to any floor already in run.visitedFloors, restored
+   * The elevator: warps to any floor up to meta.highestFloorReached (the
+   * permanent, cross-run depth record — e.g. dying on floor 10 then
+   * starting a brand new run still lets the elevator skip straight back to
+   * floor 10, generated fresh, rather than forcing a full replay of 1-9).
+   * A floor already generated THIS run (run.visitedFloors) instead restores
    * EXACTLY as it was left (tiles, fog, resolved chests/doors, remaining
-   * enemies) rather than regenerated — the whole point of archiveCurrentFloor
-   * above. Player always arrives standing on the target floor's own
-   * elevator tile, not wherever they happened to be standing when they left
-   * it. Returns false (no-op) for an unvisited or the current floor.
+   * enemies) via archiveCurrentFloor's snapshot. Player always arrives
+   * standing on the target floor's own elevator tile, not wherever they
+   * happened to be standing when they left it. Returns false (no-op) for
+   * an unreached-ever or the current floor.
    */
   travelToFloor(targetFloor) {
     const run = this.gameState.run;
-    if (targetFloor === run.floor || !run.visitedFloors?.includes(targetFloor)) return false;
+    const maxReached = this.gameState.meta.highestFloorReached ?? 1;
+    if (targetFloor === run.floor || targetFloor > maxReached || targetFloor < 1) return false;
 
     this.archiveCurrentFloor();
     run.floor = targetFloor;
+
+    // Never generated this run (a "Begin Anew" skip-ahead to a floor only
+    // reached in a past, now-gone run) — there's no per-run archive to
+    // restore, so generate it fresh, same as any other new floor.
+    if (!run.visitedFloors?.includes(targetFloor)) {
+      this.generateFloor();
+      return true;
+    }
 
     const archived = this.saveSystem.loadFloor(targetFloor);
     if (!archived) {
