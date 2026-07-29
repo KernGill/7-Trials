@@ -19,6 +19,7 @@ const LOCKED_DOOR_COUNT = 3;
 const TREASURE_COUNT = 2;
 const TEMPORAL_CHEST_COUNT = 1;
 const ELEVATOR_COUNT = 1;
+const VENDOR_COUNT = 1;
 
 // Floor 5 only: a secret, disconnected 40-tile hallway starting near the
 // stairs, ending in a 7x7 arena guarding a single hidden enemy — see
@@ -608,6 +609,15 @@ export class DungeonGenerator {
       const elevatorTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + TEMPORAL_CHEST_COUNT + i];
       if (elevatorTile) {
         elevatorTile.type = TILE_TYPES.ELEVATOR;
+      }
+    }
+
+    // One Vendor per floor — also never resolved/consumed, opens the
+    // card-fusion UI (see TILE_TYPES.VENDOR, ExploreState.showVendor).
+    for (let i = 0; i < VENDOR_COUNT; i += 1) {
+      const vendorTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + TEMPORAL_CHEST_COUNT + ELEVATOR_COUNT + i];
+      if (vendorTile) {
+        vendorTile.type = TILE_TYPES.VENDOR;
       }
     }
 

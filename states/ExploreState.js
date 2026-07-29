@@ -3,8 +3,11 @@ import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
-import { rollCardOffer } from '../data/cards.js';
-import { cardTileHTML } from '../ui/InfoFormatters.js';
+import {
+  rollCardOffer, canFuseCards, fuseCards, cardValueForRarity, cardsInCategory,
+  CARDS, RARITIES, RARITY_COLORS, CARD_PRICES,
+} from '../data/cards.js';
+import { cardTileHTML, cardTooltipHTML, shopCardTileHTML } from '../ui/InfoFormatters.js';
 import { arrowIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
@@ -572,6 +575,11 @@ export class ExploreState {
         this.showElevatorPicker();
         break;
       }
+      case TILE_TYPES.VENDOR: {
+        // Never resolved/consumed — always reopens the fusion UI, every visit.
+        this.showVendor();
+        break;
+      }
       default:
         break;
     }
@@ -627,29 +635,58 @@ export class ExploreState {
    * are deferred until a card is actually picked (see applyCardPick),
    * so the new floor's stat scaling and the player's cardBonusStats are
    * both in sync with the freshly-picked card from the moment it loads.
+   *
+   * The offer itself is NOT rolled here — it was already rolled once, the
+   * moment this floor was generated (StateManager.generateFloor), and
+   * saved immediately after. Rolling it fresh on every open used to let a
+   * player reroll for free just by refreshing the page and walking back to
+   * the stairs; reading the persisted run.cardOffer instead means a
+   * refresh always shows the exact same offer. The one legitimate reroll
+   * (see rerollCardOffer) is itself saved the instant it's used, so it
+   * can't be undone by refreshing either.
    */
   showCardPick() {
     this.resultOpen = true;
     this.pauseMouseLookForEvent();
-    const offer = rollCardOffer();
+    const run = this.app.gameState.run;
+    // Defensive fallback only — a save from before this feature existed
+    // would have no cardOffer at all.
+    if (!run.cardOffer) { run.cardOffer = rollCardOffer(); run.cardOfferRerolled = false; }
+
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
     modal.innerHTML = `
       <div class="result-box card-pick-box">
         <h2>${t('explore.choose_card')}</h2>
-        <div class="card-pick-grid">
-          ${offer.map((card, i) => cardTileHTML(card, i)).join('')}
-        </div>
+        <div class="card-pick-grid"></div>
+        <button class="card-reroll-btn">${t('explore.reroll_cards')}</button>
       </div>`;
     this.root.appendChild(modal);
-    modal.querySelectorAll('[data-card-index]').forEach((tile) => {
-      tile.addEventListener('click', () => {
-        const picked = offer[Number(tile.dataset.cardIndex)];
-        modal.remove();
-        this.resultOpen = false;
-        this.restoreMouseLookAfterEvent();
-        this.applyCardPick(picked);
+    const grid = modal.querySelector('.card-pick-grid');
+    const rerollBtn = modal.querySelector('.card-reroll-btn');
+
+    const renderOffer = () => {
+      grid.innerHTML = run.cardOffer.map((card, i) => cardTileHTML(card, i)).join('');
+      grid.querySelectorAll('[data-card-index]').forEach((tile) => {
+        this.tooltip.bind(tile, () => cardTooltipHTML(run.cardOffer[Number(tile.dataset.cardIndex)]));
+        tile.addEventListener('click', () => {
+          const picked = run.cardOffer[Number(tile.dataset.cardIndex)];
+          modal.remove();
+          this.resultOpen = false;
+          this.restoreMouseLookAfterEvent();
+          this.applyCardPick(picked);
+        });
       });
+      rerollBtn.disabled = run.cardOfferRerolled;
+    };
+    renderOffer();
+
+    rerollBtn.addEventListener('click', () => {
+      if (run.cardOfferRerolled) return;
+      run.cardOffer = rollCardOffer();
+      run.cardOfferRerolled = true;
+      this.app.saveSystem.save();
+      renderOffer();
     });
   }
 
@@ -713,6 +750,198 @@ export class ExploreState {
     this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
     this.app.saveSystem.save();
     this.renderHUD();
+  }
+
+  /**
+   * The Vendor — two tabs. FUSION (the original UI): left is every card
+   * currently owned (run.cards), click one to place it into the first
+   * empty fusion slot; right is 2 input slots + 1 result-preview slot
+   * showing exactly what fusing them would produce (or why it can't),
+   * plus a Fuse button that commits it. SHOP: the full catalogue of every
+   * card at every rarity, one row per rarity (common at top, god at
+   * bottom), each row split into its 3 categories — buy directly with
+   * run-scoped tokens (see TOKENS_PER_KILL) instead of fusing your way
+   * there. Cards already owned are tracked by object reference (not
+   * index) since fusion consumes and replaces run.cards entries — see
+   * data/cards.js's canFuseCards/fuseCards for the actual rules. Every
+   * card tile anywhere in either tab gets a hover tooltip (cardTooltipHTML)
+   * with its full effect spelled out.
+   */
+  showVendor() {
+    this.resultOpen = true;
+    this.pauseMouseLookForEvent();
+    const { app } = this;
+    const run = app.gameState.run;
+    let slotA = null;
+    let slotB = null;
+
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box vendor-box">
+        <h2>${t('explore.vendor_title')}</h2>
+        <div class="vendor-tabs">
+          <button class="vendor-tab-btn active" data-tab="fusion">${t('explore.vendor_tab_fusion')}</button>
+          <button class="vendor-tab-btn" data-tab="shop">${t('explore.vendor_tab_shop')}</button>
+        </div>
+        <div class="vendor-tab-panel" data-panel="fusion">
+          <div class="vendor-columns">
+            <div class="vendor-inventory">
+              <div class="vendor-column-title">${t('explore.vendor_inventory')}</div>
+              <div class="vendor-inventory-grid"></div>
+            </div>
+            <div class="vendor-fusion">
+              <div class="vendor-column-title">${t('explore.vendor_fusion')}</div>
+              <div class="vendor-slots">
+                <div class="vendor-slot" data-slot="a"></div>
+                <div class="vendor-slot" data-slot="b"></div>
+                <div class="vendor-slot vendor-slot-result" data-slot="result"></div>
+              </div>
+              <div class="vendor-fusion-note"></div>
+              <button class="vendor-fuse-btn" disabled>${t('explore.vendor_fuse')}</button>
+            </div>
+          </div>
+        </div>
+        <div class="vendor-tab-panel hidden" data-panel="shop">
+          <div class="vendor-tokens">${t('explore.vendor_tokens', { n: run.tokens ?? 0 })}</div>
+          <div class="shop-table"></div>
+        </div>
+        <button class="result-close">${t('explore.close')}</button>
+      </div>`;
+    this.root.appendChild(modal);
+
+    const inventoryGrid = modal.querySelector('.vendor-inventory-grid');
+    const slotAEl = modal.querySelector('[data-slot="a"]');
+    const slotBEl = modal.querySelector('[data-slot="b"]');
+    const resultEl = modal.querySelector('[data-slot="result"]');
+    const noteEl = modal.querySelector('.vendor-fusion-note');
+    const fuseBtn = modal.querySelector('.vendor-fuse-btn');
+    const tokensEl = modal.querySelector('.vendor-tokens');
+    const shopTable = modal.querySelector('.shop-table');
+
+    const bindCardTile = (el, card) => {
+      if (!el) return;
+      this.tooltip.bind(el, () => cardTooltipHTML(card));
+    };
+
+    const renderSlot = (el, card, { removable = false } = {}) => {
+      if (!card) {
+        el.innerHTML = `<div class="vendor-slot-empty">${t('explore.vendor_slot_empty')}</div>`;
+        return;
+      }
+      el.innerHTML = cardTileHTML(card);
+      const tile = el.querySelector('.card-tile');
+      bindCardTile(tile, card);
+      if (removable) {
+        tile.classList.add('vendor-slot-filled');
+        tile.addEventListener('click', () => {
+          if (slotA === card) slotA = null;
+          else if (slotB === card) slotB = null;
+          renderFusion();
+        });
+      }
+    };
+
+    const renderFusion = () => {
+      // Inventory excludes whatever's currently sitting in a fusion slot,
+      // by reference — same physical card object can't be placed twice.
+      inventoryGrid.innerHTML = run.cards.map((card, i) => (card === slotA || card === slotB ? '' : cardTileHTML(card, i))).join('');
+      inventoryGrid.querySelectorAll('[data-card-index]').forEach((tile) => {
+        const card = run.cards[Number(tile.dataset.cardIndex)];
+        bindCardTile(tile, card);
+        tile.addEventListener('click', () => {
+          if (!slotA) slotA = card;
+          else if (!slotB) slotB = card;
+          else return; // both slots full — remove one first
+          renderFusion();
+        });
+      });
+
+      renderSlot(slotAEl, slotA, { removable: true });
+      renderSlot(slotBEl, slotB, { removable: true });
+
+      const fusable = slotA && slotB ? canFuseCards(slotA, slotB) : false;
+      const fused = fusable ? fuseCards(slotA, slotB) : null;
+      if (fused) {
+        resultEl.innerHTML = cardTileHTML(fused);
+        bindCardTile(resultEl.querySelector('.card-tile'), fused);
+        noteEl.textContent = '';
+      } else {
+        resultEl.innerHTML = `<div class="vendor-slot-empty">${t('explore.vendor_slot_empty')}</div>`;
+        if (slotA && slotB) noteEl.textContent = t('explore.vendor_cannot_fuse');
+        else noteEl.textContent = '';
+      }
+      fuseBtn.disabled = !fused;
+    };
+    renderFusion();
+
+    fuseBtn.addEventListener('click', () => {
+      if (!slotA || !slotB || !canFuseCards(slotA, slotB)) return;
+      const fused = fuseCards(slotA, slotB);
+      if (!fused) return;
+      run.cards = run.cards.filter((c) => c !== slotA && c !== slotB);
+      run.cards.push(fused);
+      slotA = null;
+      slotB = null;
+      this.app.saveSystem.save();
+      renderFusion();
+    });
+
+    // --- Shop tab: full catalogue, one row per rarity, columns grouped by
+    // category (attack / sustain / util) — see shopCardTileHTML.
+    const CATEGORY_ORDER = ['attack', 'sustain', 'util'];
+    const renderShop = () => {
+      tokensEl.textContent = t('explore.vendor_tokens', { n: run.tokens ?? 0 });
+      shopTable.innerHTML = RARITIES.map((rarity, rarityIndex) => {
+        const rarityColor = RARITY_COLORS[rarity];
+        const price = CARD_PRICES[rarityIndex] ?? 0;
+        const affordable = (run.tokens ?? 0) >= price;
+        const groups = CATEGORY_ORDER.map((category) => `
+          <div class="shop-group">
+            <div class="shop-group-label">${t(`explore.vendor_category_${category}`)}</div>
+            <div class="shop-group-cards">
+              ${cardsInCategory(category).map((type) => shopCardTileHTML(type.id, rarityIndex, { affordable })).join('')}
+            </div>
+          </div>`).join('');
+        return `
+          <div class="shop-row">
+            <div class="shop-row-label" style="color:${rarityColor}">${t(`card.rarity.${rarity}`)}<span class="shop-row-price">${t('explore.vendor_price', { n: price })}</span></div>
+            <div class="shop-row-groups">${groups}</div>
+          </div>`;
+      }).join('');
+
+      shopTable.querySelectorAll('.shop-card-tile').forEach((tile) => {
+        const cardId = tile.dataset.cardId;
+        const rarityIndex = Number(tile.dataset.rarityIndex);
+        const value = cardValueForRarity(cardId, rarityIndex);
+        bindCardTile(tile, { cardId, rarityIndex, value });
+        if (tile.classList.contains('shop-card-unaffordable')) return;
+        tile.addEventListener('click', () => {
+          const price = CARD_PRICES[rarityIndex] ?? 0;
+          if ((run.tokens ?? 0) < price) return;
+          run.tokens -= price;
+          run.cards.push({ cardId, category: CARDS[cardId].category, rarityIndex, value: cardValueForRarity(cardId, rarityIndex) });
+          this.app.saveSystem.save();
+          this.renderHUD();
+          renderShop();
+        });
+      });
+    };
+
+    modal.querySelectorAll('.vendor-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        modal.querySelectorAll('.vendor-tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
+        modal.querySelectorAll('.vendor-tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== btn.dataset.tab));
+        if (btn.dataset.tab === 'shop') renderShop();
+        else renderFusion();
+      });
+    });
+
+    modal.querySelector('.result-close').addEventListener('click', () => {
+      modal.remove();
+      this.resultOpen = false;
+      this.restoreMouseLookAfterEvent();
+    });
   }
 
   /**

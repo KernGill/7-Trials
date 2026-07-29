@@ -19,6 +19,7 @@ const TILE_COLORS = {
   [TILE_TYPES.TREASURE]: '#c9962a',
   [TILE_TYPES.TEMPORAL_CHEST]: '#1f5fd9',
   [TILE_TYPES.ELEVATOR]: '#2ecc71',
+  [TILE_TYPES.VENDOR]: '#d4af37',
 };
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';

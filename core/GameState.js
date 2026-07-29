@@ -35,6 +35,18 @@ const DEFAULT_RUN = {
   materials: {},
   runInventory: [],
   cards: [],
+  // The current floor's stairs card offer — rolled once by generateFloor()
+  // and persisted from that moment on, specifically so it can't be
+  // rerolled for free by refreshing and walking back to the stairs (see
+  // ExploreState.showCardPick). cardOfferRerolled tracks whether the
+  // one-time in-modal reroll button has already been used this floor.
+  cardOffer: null,
+  cardOfferRerolled: false,
+  // The Vendor's shop currency — run-scoped only (deliberately NOT part of
+  // player.gold, which persists across runs). +TOKENS_PER_KILL per enemy
+  // killed (StateManager.onCombatVictory); reset to 0 the moment a fresh
+  // run starts, same as materials.
+  tokens: 0,
 };
 
 const DEFAULT_PLAYER = {

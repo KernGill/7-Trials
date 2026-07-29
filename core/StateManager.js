@@ -1,4 +1,4 @@
-import { GAME_STATES, STAT_KEYS, enemyStatMultiplierForFloor } from '../utils/Constants.js';
+import { GAME_STATES, STAT_KEYS, enemyStatMultiplierForFloor, TOKENS_PER_KILL } from '../utils/Constants.js';
 import { deepClone } from '../utils/MathUtils.js';
 import { GameState } from './GameState.js';
 import { EventBus } from './EventBus.js';
@@ -16,6 +16,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
 import { Tile, TILE_TYPES } from '../exploration/Tile.js';
 import { getArcForFloor } from '../data/arcs.js';
+import { rollCardOffer } from '../data/cards.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
 import { getEnemyConfig, getEnemiesForArc } from '../data/enemies.js';
@@ -375,6 +376,9 @@ export class StateManager {
       savedHealth: null,
       floorMessage: null,
       cards: [],
+      // The Vendor's Shop tab currency — run-scoped only, +TOKENS_PER_KILL
+      // per enemy killed (onCombatVictory below).
+      tokens: 0,
       // Floors this run has actually generated — the elevator (see
       // travelToFloor/archiveCurrentFloor) can only ever warp to one of
       // these, each archived to its own lazily-loaded SaveSystem key.
@@ -449,6 +453,14 @@ export class StateManager {
     // either call site.
     run.visitedFloors = run.visitedFloors ?? [];
     if (!run.visitedFloors.includes(run.floor)) run.visitedFloors.push(run.floor);
+    // This floor's stairs card offer, rolled exactly once right here and
+    // then persisted (whatever calls this always saves right after — see
+    // startRun()/applyCardPick()) — the whole point is that repeatedly
+    // opening the card-pick modal (even across a refresh) can never see a
+    // different offer than the one first rolled the moment this floor was
+    // generated. See ExploreState.showCardPick for the one-time reroll.
+    run.cardOffer = rollCardOffer();
+    run.cardOfferRerolled = false;
     // Permanent, cross-run record (survives death/"Begin Anew") — see
     // travelToFloor for how this lets the elevator skip ahead on a fresh
     // run to any depth ever reached before, not just floors generated
@@ -566,6 +578,11 @@ export class StateManager {
     const { rewards } = this.combatManager;
     const enemies = this.combatManager.enemies;
     this.gameState.player.gold += rewards?.gold ?? 0;
+    // The Vendor's shop currency — flat per enemy actually killed (not per
+    // fight), run-scoped only (see TOKENS_PER_KILL, DEFAULT_RUN.tokens).
+    if (this.gameState.run) {
+      this.gameState.run.tokens = (this.gameState.run.tokens ?? 0) + enemies.length * TOKENS_PER_KILL;
+    }
 
     Object.entries(rewards?.drops?.materials ?? {}).forEach(([id, amt]) => {
       this.inventory.addMaterial(id, amt, true);

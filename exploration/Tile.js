@@ -17,6 +17,9 @@ export const TILE_TYPES = {
   // floor-picker letting the player warp to any floor in run.visitedFloors —
   // see ExploreState.handleTileEffect and StateManager.travelToFloor.
   ELEVATOR: 'elevator',
+  // Also permanently interactive, same as ELEVATOR — opens the card-fusion
+  // UI (see ExploreState.showVendor) rather than being consumed on use.
+  VENDOR: 'vendor',
 };
 
 export class Tile {

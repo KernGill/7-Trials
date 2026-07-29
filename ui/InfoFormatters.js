@@ -6,7 +6,7 @@
  */
 import { getMoveTemplate } from '../data/moves.js';
 import { getItemConfig } from '../data/items.js';
-import { CARDS, RARITIES, RARITY_COLORS } from '../data/cards.js';
+import { CARDS, RARITIES, RARITY_COLORS, CARD_PRICES, cardValueForRarity } from '../data/cards.js';
 import { categoryIconSVG } from './CardIcons.js';
 import { t, tData } from './i18n.js';
 
@@ -158,4 +158,50 @@ export function cardTileHTML(picked, index = null) {
       <div class="card-icon">${categoryIconSVG(type.category)}</div>
       <div class="card-desc">${desc}</div>
     </div>`;
+}
+
+/**
+ * One catalogue entry in The Vendor's Shop tab: a plain card tile (same
+ * visual language as cardTileHTML) plus a token-price footer and an
+ * unaffordable state, for a `cardId` at a given `rarityIndex` that hasn't
+ * been picked up yet (no `picked` object exists for it — it's a preview of
+ * what buying it would grant, not something already owned).
+ */
+export function shopCardTileHTML(cardId, rarityIndex, { affordable = true } = {}) {
+  const type = CARDS[cardId];
+  if (!type) return '';
+  const rarity = RARITIES[rarityIndex];
+  const color = RARITY_COLORS[rarity];
+  const name = tData('card', type.id, type.name);
+  const value = cardValueForRarity(cardId, rarityIndex);
+  const price = CARD_PRICES[rarityIndex] ?? 0;
+  const desc = `+${value}${type.isPercent ? '%' : ''} ${name}`;
+  return `
+    <div class="card-tile shop-card-tile${affordable ? '' : ' shop-card-unaffordable'}" data-rarity="${rarity}" data-card-id="${cardId}" data-rarity-index="${rarityIndex}" style="border-color:${color}">
+      <div class="card-name" style="color:${color}">${name}</div>
+      <div class="card-icon">${categoryIconSVG(type.category)}</div>
+      <div class="card-desc">${desc}</div>
+      <div class="card-price">${t('explore.vendor_price', { n: price })}</div>
+    </div>`;
+}
+
+/**
+ * Detailed hover tooltip for a single picked card — name, rarity, current
+ * value, and a full plain-language description of what it actually does.
+ * Exists specifically so cards with easy-to-confuse names (Warding vs.
+ * Status Ward, both "reduce damage taken" but from entirely different
+ * sources) are unambiguous without leaving the screen they're shown on.
+ */
+export function cardTooltipHTML(picked) {
+  const type = CARDS[picked.cardId];
+  if (!type) return '';
+  const rarity = RARITIES[picked.rarityIndex];
+  const color = RARITY_COLORS[rarity];
+  const rarityLabel = t(`card.rarity.${rarity}`);
+  return `
+    <h4 style="color:${color}">${tData('card', type.id, type.name)}</h4>
+    <div class="tt-row"><span>${t('card.tooltip_rarity')}</span><span style="color:${color}">${rarityLabel}</span></div>
+    <div class="tt-row"><span>${t('card.tooltip_value')}</span><span>+${picked.value}${type.isPercent ? '%' : ''}</span></div>
+    <div class="tt-desc">${type.description ?? ''}</div>
+  `;
 }

@@ -268,6 +268,76 @@ select {
 .cards-list .card-tile { cursor: default; }
 .cards-list .card-tile:hover { transform: none; background: #16213e; }
 
+/* One-time reroll on the stairs card offer — greys out once used (per user request), rather than disappearing, so it's obvious it was already spent. */
+.card-reroll-btn { margin-top: 4px; padding: 10px; font-size: 13px; letter-spacing: 0.5px; }
+.card-reroll-btn:disabled { filter: grayscale(1); opacity: 0.45; cursor: not-allowed; }
+
+/* ---------------- The Vendor (card fusion) ---------------- */
+.vendor-box { width: 780px; max-width: 96vw; max-height: 86vh; }
+.vendor-columns { display: flex; gap: 20px; align-items: flex-start; margin-top: 8px; }
+.vendor-column-title { font-size: 12px; letter-spacing: 1px; color: #aaa; text-transform: uppercase; margin-bottom: 6px; }
+.vendor-inventory { flex: 1.3; min-width: 0; }
+.vendor-inventory-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px;
+  max-height: 420px; overflow-y: auto; padding-right: 4px;
+}
+.vendor-inventory-grid .card-tile { padding: 10px 6px; gap: 5px; }
+.vendor-inventory-grid .card-name { font-size: 11px; }
+.vendor-inventory-grid .card-desc { font-size: 10px; }
+.vendor-fusion { flex: 1; min-width: 220px; display: flex; flex-direction: column; align-items: center; }
+.vendor-slots { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: center; }
+.vendor-slot {
+  width: 110px; min-height: 120px; display: flex; align-items: stretch; justify-content: center;
+}
+.vendor-slot .card-tile { width: 100%; padding: 10px 6px; gap: 5px; }
+.vendor-slot .card-name { font-size: 11px; }
+.vendor-slot .card-desc { font-size: 10px; }
+.vendor-slot-filled { cursor: pointer; }
+.vendor-slot-filled:hover { background: #3a2020; }
+.vendor-slot-empty {
+  width: 100%; display: flex; align-items: center; justify-content: center; text-align: center;
+  border: 2px dashed #444; border-radius: 8px; color: #666; font-size: 11px; padding: 10px;
+}
+.vendor-slot-result .card-tile, .vendor-slot-result .vendor-slot-empty { border-color: #f1c40f; }
+.vendor-fusion-note { color: #e74c3c; font-size: 12px; text-align: center; min-height: 16px; margin-top: 8px; }
+.vendor-fuse-btn { margin-top: 10px; padding: 10px 20px; font-size: 13px; letter-spacing: 0.5px; width: 100%; }
+.vendor-fuse-btn:disabled { filter: grayscale(1); opacity: 0.45; cursor: not-allowed; }
+
+/* ---------------- The Vendor — tabs (Fusion / Shop) ---------------- */
+.vendor-tabs { display: flex; gap: 6px; margin-top: 4px; border-bottom: 1px solid #3a3a3a; }
+.vendor-tab-btn {
+  flex: 0 0 auto; padding: 8px 18px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+  background: transparent; border: none; border-bottom: 2px solid transparent; color: #888;
+  cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease;
+}
+.vendor-tab-btn:hover { color: #ccc; }
+.vendor-tab-btn.active { color: #f1c40f; border-bottom-color: #f1c40f; }
+.vendor-tab-panel { margin-top: 8px; }
+.vendor-tab-panel.hidden { display: none; }
+.vendor-tokens { text-align: right; font-size: 13px; color: #f1c40f; letter-spacing: 0.5px; margin: 8px 0 4px; }
+
+/* ---------------- The Vendor — Shop catalogue ---------------- */
+.shop-table {
+  display: flex; flex-direction: column; gap: 10px; max-height: 440px; overflow-y: auto; padding-right: 4px;
+}
+.shop-row { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid #2c2c2c; padding-top: 10px; }
+.shop-row:first-child { border-top: none; padding-top: 0; }
+.shop-row-label {
+  flex: 0 0 78px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  font-size: 12px; letter-spacing: 1px; text-transform: uppercase; padding-top: 6px;
+}
+.shop-row-price { font-size: 10px; letter-spacing: 0.5px; color: #888; text-transform: none; }
+.shop-row-groups { flex: 1; display: flex; gap: 14px; min-width: 0; }
+.shop-group { flex: 1; min-width: 0; }
+.shop-group-label { font-size: 10px; letter-spacing: 1px; color: #777; text-transform: uppercase; margin-bottom: 6px; }
+.shop-group-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.shop-card-tile { width: 96px; padding: 8px 5px; gap: 4px; cursor: pointer; }
+.shop-card-tile .card-name { font-size: 10px; }
+.shop-card-tile .card-desc { font-size: 9px; }
+.card-price { font-size: 10px; color: #f1c40f; margin-top: 2px; }
+.shop-card-unaffordable { filter: grayscale(0.8); opacity: 0.5; cursor: not-allowed; }
+.shop-card-unaffordable .card-price { color: #888; }
+
 /* ---------------- Quick-time events (locked door / chest) ---------------- */
 .qte-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.85);

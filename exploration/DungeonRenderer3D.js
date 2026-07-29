@@ -255,6 +255,7 @@ const MARKER_COLORS = {
   [TILE_TYPES.TEMPORAL_CHEST]: 0x1f5fd9,
   [TILE_TYPES.HIDDEN_ENEMY]: 0x000000,
   [TILE_TYPES.ELEVATOR]: 0x2ecc71,
+  [TILE_TYPES.VENDOR]: 0xd4af37, // gold — reads as a distinct "shop" landmark against the elevator's green
 };
 
 function tileKey(x, y) {
@@ -862,7 +863,7 @@ export class DungeonRenderer3D {
       // gone looking somewhere the game gives them no other reason to.
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
-    } else if (tile.type === TILE_TYPES.ELEVATOR) {
+    } else if (tile.type === TILE_TYPES.ELEVATOR || tile.type === TILE_TYPES.VENDOR) {
       // Genuine cube, same treatment as TEMPORAL_CHEST — a permanent
       // landmark, never one-shot/consumed like the flatter default marker.
       geo = this._geo.enemyCube;

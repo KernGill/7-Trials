@@ -84,6 +84,11 @@ export const DEX_CRIT_RATIO = 0.02;
 export const DEX_ENERGY_THRESHOLD = 100;
 export const DEF_DAMAGE_REDUCTION_PER_TWO = 0.01;
 export const GOLD_REWARD_RATIO = 0.25;
+// Flat Vendor-shop currency granted per enemy KILLED (not per fight — a
+// multi-enemy encounter grants this once per enemy in it), tracked on
+// run.tokens. Run-scoped only, like materials — never persists past the
+// current run (see DEFAULT_RUN, StateManager.onCombatVictory).
+export const TOKENS_PER_KILL = 10;
 // How much stronger (stats, and therefore combat gold reward) an enemy gets
 // per dungeon floor — additive, not compounding (e.g. floor 10 = 3.5x).
 // Shared by StateManager.startCombat() (applies it to a fresh Enemy's
