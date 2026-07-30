@@ -24,13 +24,14 @@ const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';
 
 // Absolute compass angle (radians, 0 = up/north, clockwise) for each
-// run.facing value — baked straight into the marker's canvas pixels at the
-// SAME angle regardless of which view is drawing it. Both the corner view's
-// CSS rotation (0 in Fixed Minimap mode, -yaw in heading-up mode) and the
-// expanded view's (always -yaw, see drawExpanded) get applied to the whole
-// canvas, arrow included — so a compass-angle arrow automatically ends up
-// pointing screen-up in heading-up mode (facing ≈ yaw, so compass angle +
-// (-yaw) ≈ 0) with zero extra fixed/heading-up special-casing needed here.
+// run.facing value — the SAME convention the live camera yaw itself
+// already uses (see DungeonRenderer3D.FACING_ANGLES, which resolves to
+// these exact 4 angles), so it doubles as a plain fallback for whichever
+// marker-drawing path doesn't have a real continuous yaw on hand yet (the
+// very first paint, before the camera's first frame). Everywhere else the
+// marker now uses the real continuous yaw directly instead of snapping to
+// one of these 4 zones — see _drawPlayerMarker (drawExpanded's one-shot
+// bake) and _applyArrowRotation (the corner view's per-frame CSS overlay).
 const FACING_TO_ANGLE = { north: 0, east: Math.PI / 2, south: Math.PI, west: (3 * Math.PI) / 2 };
 
 /** A resolved chest/door (already opened — see ExploreState.handleTileEffect's meta.resolved gate) reads as plain floor, since it no longer does anything when walked onto. */
@@ -73,12 +74,23 @@ export class Minimap {
     this.canvas = document.createElement('canvas');
     this.canvas.style.position = 'absolute';
     this.wrapper.appendChild(this.canvas);
+    // Player marker for the corner view lives OUTSIDE the tile canvas as
+    // its own always-centered overlay (see redrawMap()'s comment on why
+    // the canvas's own panning technique already keeps the player's pixel
+    // pinned to the wrapper's exact center at every rotation) — that's
+    // what lets update() spin it every single frame off the live camera
+    // yaw for cheap, exactly like the map's own CSS rotation, instead of
+    // only updating whenever a tile-pixel repaint happens to run.
+    this.arrowEl = document.createElement('div');
+    this.arrowEl.className = 'minimap-arrow';
+    this.wrapper.appendChild(this.arrowEl);
     container.appendChild(this.wrapper);
     this._onClick = () => onClick?.();
     this.wrapper.addEventListener('click', this._onClick);
     this._dungeon = null; // force a fresh full-size redraw on the next redrawMap()
     this.redrawMap();
     this.applyRotationDeg(0);
+    this._applyArrowRotation(undefined);
   }
 
   /** Thief's Future (Thief's Idol): checked straight off equipped item ids, not a live Player instance — Minimap only ever has `this.app`, not ExploreState's cached player. */
@@ -91,16 +103,18 @@ export class Minimap {
     this.wrapper?.remove();
     this.wrapper = null;
     this.canvas = null;
+    this.arrowEl = null;
     this._dungeon = null;
   }
 
   /**
-   * Repaints the full-map canvas's pixel content (every explored tile
-   * plus the player marker) and repositions it so the player's exact
-   * pixel sits at the viewport's center with rotation pivoting around
-   * that same point. Call whenever the dungeon reference changes, the
-   * player moves, or a tile's explored state changes — never per-frame
-   * (see update()/applyRotationDeg() for the cheap per-frame part).
+   * Repaints the full-map canvas's pixel content (every explored tile —
+   * the player marker itself is a separate always-centered overlay
+   * element, see mount()) and repositions it so the player's exact pixel
+   * sits at the viewport's center with rotation pivoting around that same
+   * point. Call whenever the dungeon reference changes, the player moves,
+   * or a tile's explored state changes — never per-frame (see update()/
+   * applyRotationDeg() for the cheap per-frame part).
    */
   redrawMap() {
     if (!this.canvas) return;
@@ -135,7 +149,6 @@ export class Minimap {
     const { x: px, y: py } = run.playerPosition;
     const pixelX = px * CELL_SIZE + CELL_SIZE / 2;
     const pixelY = py * CELL_SIZE + CELL_SIZE / 2;
-    this._drawPlayerMarker(ctx, pixelX, pixelY, CELL_SIZE);
 
     this.canvas.style.left = `${VIEWPORT_SIZE / 2 - pixelX}px`;
     this.canvas.style.top = `${VIEWPORT_SIZE / 2 - pixelY}px`;
@@ -158,6 +171,38 @@ export class Minimap {
     const fixed = this.app.gameState.settings.fixedMinimap ?? true;
     const angleDeg = (fixed || cameraYaw === undefined) ? 0 : -(cameraYaw * 180) / Math.PI;
     this.applyRotationDeg(angleDeg);
+    this._applyArrowRotation(cameraYaw);
+  }
+
+  /**
+   * Spins the player-marker overlay to the exact continuous camera yaw —
+   * not just the nearest of the 4 cardinal run.facing zones — every
+   * single frame, cheaply (a CSS rotate, same as applyRotationDeg()).
+   * cameraYaw already uses the identical "0 = north, clockwise" compass
+   * convention as the old FACING_TO_ANGLE table (see
+   * DungeonRenderer3D.FACING_ANGLES, which north/east/south/west resolve
+   * to the exact same 4 angles), so it can be used as that angle directly
+   * with no conversion beyond radians -> degrees. In Fixed Minimap (north-
+   * up) mode the map itself doesn't rotate, so the arrow needs that full
+   * compass angle. In heading-up mode the map already rotates by
+   * -cameraYaw (see update() above) so that the camera's own direction
+   * reads as screen-up — since the arrow overlay sits OUTSIDE that
+   * rotated canvas (see mount()), it only needs to counter-rotate by the
+   * same amount to land back at 0deg, i.e. it simply always points
+   * straight up, exactly mirroring what the old approximate
+   * "facing ≈ yaw so compass angle + (-yaw) ≈ 0" comment described, now
+   * exact instead of only true at the 4 cardinal zones.
+   */
+  _applyArrowRotation(cameraYaw) {
+    if (!this.arrowEl) return;
+    const fixed = this.app.gameState.settings.fixedMinimap ?? true;
+    let deg = 0;
+    if (fixed) {
+      deg = cameraYaw !== undefined
+        ? (cameraYaw * 180) / Math.PI
+        : (FACING_TO_ANGLE[this.app.gameState.run?.facing] ?? 0) * (180 / Math.PI);
+    }
+    this.arrowEl.style.transform = `translate(-50%, -50%) rotate(${deg}deg)`;
   }
 
   applyRotationDeg(angleDeg) {
@@ -178,9 +223,15 @@ export class Minimap {
    * axis, and anything rotated past the viewport's edges, gets cropped by
    * the viewport's own overflow:hidden — same crop trade-off the corner
    * view already makes while rotating, just on a bigger, still mostly-
-   * unclipped canvas instead of a tiny fixed 9x9 window).
+   * unclipped canvas instead of a tiny fixed 9x9 window). `yaw` is the
+   * exact continuous camera look-yaw at the moment the modal was opened
+   * (movement/look is blocked while it's up, so a single bake here is all
+   * that's ever needed — no per-frame overlay like the corner view's
+   * arrowEl) — passed straight to _drawPlayerMarker so the baked arrow
+   * matches the camera's actual direction instead of only the nearest of
+   * the 4 cardinal run.facing zones.
    */
-  drawExpanded(canvas, viewport, angleDeg = 0) {
+  drawExpanded(canvas, viewport, angleDeg = 0, yaw) {
     const run = this.app.gameState.run;
     const dungeon = run?.dungeon;
     if (!dungeon || !viewport) return;
@@ -202,7 +253,7 @@ export class Minimap {
     const { x: px, y: py } = run.playerPosition;
     const pixelX = px * CELL_SIZE + CELL_SIZE / 2;
     const pixelY = py * CELL_SIZE + CELL_SIZE / 2;
-    this._drawPlayerMarker(ctx, pixelX, pixelY, CELL_SIZE);
+    this._drawPlayerMarker(ctx, pixelX, pixelY, CELL_SIZE, yaw);
 
     const viewportPx = viewport.clientWidth;
     const scale = viewportPx / Math.max(canvas.width, canvas.height);
@@ -215,9 +266,19 @@ export class Minimap {
     canvas.style.transform = `rotate(${angleDeg}deg)`;
   }
 
-  /** White arrow (not a plain dot) so facing is readable at a glance — points in run.facing's compass direction, drawn pointing up (0 rotation) then rotated to FACING_TO_ANGLE. See that constant's comment for why baking the absolute compass angle in here (rather than something view-mode-specific) already comes out correct in both Fixed Minimap and heading-up rotation modes. */
-  _drawPlayerMarker(ctx, x, y, cellSize) {
-    const angle = FACING_TO_ANGLE[this.app.gameState.run?.facing] ?? 0;
+  /**
+   * White arrow (not a plain dot) so facing is readable at a glance —
+   * only used by drawExpanded() now (the corner view's own marker is a
+   * separate CSS-rotated overlay, see mount()/_applyArrowRotation()).
+   * Points in the exact continuous camera `yaw` (same "0 = north,
+   * clockwise" compass convention as FACING_TO_ANGLE — see
+   * _applyArrowRotation()'s comment for why that needs no conversion),
+   * falling back to the nearest cardinal run.facing zone via
+   * FACING_TO_ANGLE only if no yaw is available at all. Drawn pointing up
+   * (0 rotation) then rotated to that angle.
+   */
+  _drawPlayerMarker(ctx, x, y, cellSize, yaw) {
+    const angle = yaw !== undefined ? yaw : (FACING_TO_ANGLE[this.app.gameState.run?.facing] ?? 0);
     const r = Math.max(3, cellSize * 0.55);
     ctx.save();
     ctx.translate(x, y);

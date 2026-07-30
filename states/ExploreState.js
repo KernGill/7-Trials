@@ -473,10 +473,10 @@ export class ExploreState {
     const currentZone = this.renderer3d.getFacingZone() ?? run.facing;
     this.renderer3d.turnCameraSnap(steps);
     run.facing = rotateFacing(currentZone, steps);
-    // Refreshes the corner minimap's facing arrow immediately — movement
-    // already triggers this via markNearbyExplored, but a pure snap-turn
-    // (no movement) otherwise wouldn't touch the minimap canvas at all.
-    this.minimap?.redrawMap();
+    // No explicit minimap refresh needed here — the corner minimap's
+    // player marker is a per-frame CSS overlay driven straight off the
+    // live camera yaw (see Minimap.update()/_applyArrowRotation()), so it
+    // picks up a pure snap-turn on its own, same as free mouse-look.
     this.app.saveSystem.save();
   }
 
@@ -1463,6 +1463,7 @@ export class ExploreState {
       modal.querySelector('.minimap-expanded-canvas'),
       modal.querySelector('.minimap-expanded-viewport'),
       angleDeg,
+      yaw,
     );
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();

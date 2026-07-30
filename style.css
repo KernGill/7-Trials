@@ -218,6 +218,18 @@ select {
    its edges, same trade-off the corner minimap already accepts. */
 .minimap-expanded-viewport { position: relative; width: min(84vw, 76vh); height: min(84vw, 76vh); overflow: hidden; background: #000; border-radius: 4px; }
 .minimap-expanded-canvas { image-rendering: pixelated; }
+/* Corner minimap's player marker: a separate always-centered overlay
+   (see Minimap.js mount()/_applyArrowRotation()) so it can be spun every
+   frame via a cheap CSS transform update, matching the camera's exact
+   continuous yaw instead of only the nearest of 4 cardinal directions.
+   The clip-path traces the same tip/back-right/concave-notch/back-left
+   arrowhead shape the old canvas-drawn marker used. transform is set from
+   JS every frame (rotation only); this just fixes position/shape/color. */
+.minimap-arrow {
+  position: absolute; left: 50%; top: 50%; width: 16px; height: 16px;
+  background: #ffffff; pointer-events: none; z-index: 1;
+  clip-path: polygon(50% 0%, 81% 87.5%, 50% 70%, 19% 87.5%);
+}
 
 .descend-prompt {
   position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); z-index: 5;
