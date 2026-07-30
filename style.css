@@ -23,6 +23,7 @@ button {
 }
 button:hover:not(:disabled) { background: #e94560; color: #fff; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 select {
   font-family: inherit; cursor: pointer; font-size: 13px;
   background: #16213e; color: #eee; border: 1px solid #e94560;

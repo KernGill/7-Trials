@@ -12,6 +12,7 @@ import {
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
   CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
   CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
+  DEFAULT_AUTO_FOV, autoFovPercentForAngle,
 } from '../ui/CameraSettings.js';
 
 const LANGUAGE_OPTIONS = ['en', 'es'];
@@ -137,13 +138,22 @@ export class PauseOverlay {
       ` : ''}`;
   }
 
-  /** Keeps the combined slider's label and (if open) the fine-tune sub-sliders' thumbs/labels all in sync, without a full re-render. */
+  /** If Auto FOV is on, derives cameraZoom from the current cameraAngle — called anywhere cameraAngle changes (either camera slider, or Reset to Default) and when Auto FOV is toggled on, so the FOV slider always lands back in sync with orientation. */
+  applyAutoFov(s) {
+    if (!s.autoFOV) return;
+    s.cameraZoom = autoFovPercentForAngle(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
+  }
+
+  /** Keeps the combined slider's label and (if open) the fine-tune sub-sliders' thumbs/labels all in sync, without a full re-render. Also re-syncs the FOV slider whenever Auto FOV is on, since angle changes drive it too. */
   syncCameraDisplays(s) {
     const angle = Math.round(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
     const linkedHeight = Math.round(linkedHeightPercentForAngle(angle));
     const height = Math.round((s.cameraHeight ?? DEFAULT_CAMERA_HEIGHT) * 100);
     this.el.querySelector('.camera-combined-label').textContent = t('settings.camera_orientation', { angle, height: linkedHeight });
     this.el.querySelector('.camera-combined-slider').value = angle;
+    this.applyAutoFov(s);
+    this.el.querySelector('.camera-fov-label').textContent = t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) });
+    this.el.querySelector('.camera-fov-slider').value = Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT);
     if (!this.fineTuneOpen) return;
     this.el.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: angle });
     this.el.querySelector('.camera-angle-slider').value = angle;
@@ -185,6 +195,7 @@ export class PauseOverlay {
   renderSettings() {
     const { app } = this;
     const s = app.gameState.settings;
+    this.applyAutoFov(s);
     this.el.innerHTML = `
       <div class="pause-box settings-box">
         <h2>${t('settings.title')}</h2>
@@ -218,8 +229,9 @@ export class PauseOverlay {
         </div>
         <div class="pause-row">
           <span class="camera-fov-label">${t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) })}</span>
-          <input type="range" min="${CAMERA_ZOOM_MIN_PERCENT}" max="${CAMERA_ZOOM_MAX_PERCENT}" step="1" value="${Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT)}" class="camera-fov-slider">
+          <input type="range" min="${CAMERA_ZOOM_MIN_PERCENT}" max="${CAMERA_ZOOM_MAX_PERCENT}" step="1" value="${Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT)}" class="camera-fov-slider" ${s.autoFOV ? 'disabled' : ''}>
         </div>
+        <div class="pause-row">${t('settings.auto_fov')} <button data-a="auto-fov">${(s.autoFOV ?? DEFAULT_AUTO_FOV) ? t('settings.on') : t('settings.off')}</button></div>
         ${this.cameraSectionHTML(s)}
         <button data-a="back">${t('common.back')}</button>
       </div>`;
@@ -264,6 +276,12 @@ export class PauseOverlay {
     this.el.querySelector('.camera-fov-slider').addEventListener('input', (e) => {
       s.cameraZoom = clamp(Number(e.target.value), CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
       this.el.querySelector('.camera-fov-label').textContent = t('settings.camera_fov', { percent: Math.round(s.cameraZoom) });
+    });
+    this.el.querySelector('[data-a="auto-fov"]').addEventListener('click', () => {
+      s.autoFOV = !(s.autoFOV ?? DEFAULT_AUTO_FOV);
+      this.applyAutoFov(s); // snaps the FOV slider into alignment immediately when turning on
+      app.saveSystem.save();
+      this.render();
     });
     this.bindCameraEvents(s);
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });

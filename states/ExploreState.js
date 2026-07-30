@@ -381,9 +381,10 @@ export class ExploreState {
     }
   }
 
-  /** Nudges the live FOV/zoom setting (see CameraSettings.js) by `deltaPercent`, clamped — shared by the scroll-wheel handler and the I/O keys. */
+  /** Nudges the live FOV/zoom setting (see CameraSettings.js) by `deltaPercent`, clamped — shared by the scroll-wheel handler and the I/O keys. No-ops while Auto FOV is on, since cameraZoom is driven by camera angle then, not manual input. */
   adjustZoom(deltaPercent) {
     const settings = this.app.gameState.settings;
+    if (settings.autoFOV) return;
     const current = settings.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT;
     settings.cameraZoom = clamp(current + deltaPercent, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
   }

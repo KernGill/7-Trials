@@ -92,3 +92,20 @@ export function zoomMultiplierForPercent(percent) {
 
 // Fixed step nudged per scroll-wheel tick / I or O keypress (ExploreState).
 export const CAMERA_ZOOM_STEP_PERCENT = 4;
+
+// Auto FOV: off by default — when on, the FOV slider stops being manually
+// adjustable (see SettingsState/PauseOverlay disabling it, and
+// ExploreState.adjustZoom no-op'ing scroll-wheel/I/O input) and instead
+// tracks the Camera Orientation slider directly. Per user request: at
+// angle 0 (displayed as "0/80") FOV should sit at 32%, and the two
+// sliders should hit their maximums together — a straight linear map from
+// [CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX] onto [AUTO_FOV_MIN_PERCENT,
+// CAMERA_ZOOM_MAX_PERCENT] does exactly that.
+export const DEFAULT_AUTO_FOV = false;
+export const AUTO_FOV_MIN_PERCENT = 32;
+
+/** The auto-FOV percent for a given camera angle — see DEFAULT_AUTO_FOV's comment for the mapping. */
+export function autoFovPercentForAngle(angleDeg) {
+  return AUTO_FOV_MIN_PERCENT
+    + (angleDeg / CAMERA_ANGLE_MAX) * (CAMERA_ZOOM_MAX_PERCENT - AUTO_FOV_MIN_PERCENT);
+}

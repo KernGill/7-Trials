@@ -3,6 +3,7 @@ import { deepClone } from '../utils/MathUtils.js';
 import { Tile } from '../exploration/Tile.js';
 import {
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
+  DEFAULT_AUTO_FOV,
 } from '../ui/CameraSettings.js';
 
 const DEFAULT_META = {
@@ -104,6 +105,10 @@ export class GameState {
       // frustum span. Also live-adjustable via scroll wheel / I / O while
       // exploring (ExploreState), not just this slider.
       cameraZoom: DEFAULT_CAMERA_ZOOM_PERCENT,
+      // Auto FOV: off by default — when on, cameraZoom is derived live from
+      // cameraAngle instead of being independently adjustable. See
+      // CameraSettings.js's autoFovPercentForAngle for the mapping.
+      autoFOV: DEFAULT_AUTO_FOV,
     };
     this.log = [];
     this.paused = false;

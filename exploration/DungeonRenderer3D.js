@@ -5,7 +5,7 @@ import { t } from '../ui/i18n.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
-  linkedHeightPercentForAngle, zoomMultiplierForPercent,
+  linkedHeightPercentForAngle, zoomMultiplierForPercent, autoFovPercentForAngle,
 } from '../ui/CameraSettings.js';
 
 const BACKGROUND_COLOR = 0x0b0c10;
@@ -615,6 +615,12 @@ export class DungeonRenderer3D {
     if (this.app?.gameState) {
       this.app.gameState.settings.cameraAngle = this._lookPitchDeg;
       this.app.gameState.settings.cameraHeight = linkedHeightPercentForAngle(this._lookPitchDeg) / 100;
+      // Auto FOV: keep cameraZoom riding along with the angle mouse-look
+      // just moved to, exactly like the Settings/Pause sliders do — see
+      // CameraSettings.js's autoFovPercentForAngle.
+      if (this.app.gameState.settings.autoFOV) {
+        this.app.gameState.settings.cameraZoom = autoFovPercentForAngle(this._lookPitchDeg);
+      }
     }
   }
 
