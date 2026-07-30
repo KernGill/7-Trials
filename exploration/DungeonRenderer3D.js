@@ -12,7 +12,7 @@ const BACKGROUND_COLOR = 0x0b0c10;
 const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho frustum
 
 const TILE_SIZE = 2;
-const WALL_HEIGHT = TILE_SIZE * 8; // tall enough that the top edge is never visible in frame
+const WALL_HEIGHT = TILE_SIZE * 12; // tall enough that the top edge is never visible in frame
 const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
 // How far up from the floor the vertical shading gradient travels before
 // settling at its dimmest value. Spans the *entire* wall panel height —
@@ -46,13 +46,26 @@ const CARDINAL_DIRS = [
   { dx: -1, dy: 0, side: 'west' },
 ];
 
-// Tile visibility is a live radius around the player, recomputed on every
-// move — not a persistent "once seen, always shown" memory — using
-// Chebyshev (grid, not Euclidean) distance so it reads as clean square
-// rings. Every individual tile distance (0..VISIBLE_RADIUS) gets its own
-// point on a smooth continuous falloff curve rather than a handful of
-// discrete bands, so the fade reads as gradual rather than stepped;
-// anything past VISIBLE_RADIUS isn't rendered at all — true darkness.
+// Tile visibility is a live radius around the player, recomputed every
+// frame from the player's actual (continuous, tweened) world position —
+// not a persistent "once seen, always shown" memory, and not pinned to
+// whatever grid tile the player last stood on — using true Euclidean
+// (radial) distance so it reads as a genuine circle of light centered on
+// Artius herself, not square rings stepped out from a tile origin. This
+// also means the light already tracks smoothly through the movement
+// tween today, and will keep working unchanged once free (non-grid-
+// locked) movement lands. Each material is still precomputed per
+// INTEGER distance (0..VISIBLE_RADIUS, or 0..TORCH_VISIBLE_RADIUS — see
+// visibilityStrength/torchVisibilityStrength below) since a continuous
+// distance would need one material per tile per frame; the live radial
+// distance is rounded to the nearest of those precomputed steps to pick
+// a material, while the visible/not-visible cutoff itself still uses the
+// unrounded distance, so the outer edge of the circle stays smooth
+// rather than snapping to whichever ring rounds closest. Every
+// individual tile distance still gets its own point on a smooth
+// continuous falloff curve rather than a handful of discrete bands, so
+// the fade reads as gradual rather than stepped; anything past
+// VISIBLE_RADIUS isn't rendered at all — true darkness.
 //
 // Walls/floor stay fully OPAQUE at every distance — they fade by blending
 // their color toward the background color instead, so a distant wall
@@ -107,12 +120,14 @@ function visibilityStrength(dist) {
 // reads as actual firelight (warm yellow up close, through orange, to a
 // dying red at the edge of its reach) instead of the plain grey-to-black
 // blend everyone else gets. A second, larger set of precomputed
-// per-distance floor/marker materials (torchFloorByDist/torchMarkerByDist
-// — see the constructor) exists purely so this never needs to rebuild
-// anything at runtime; walls instead get a per-distance baked GEOMETRY
-// (torchWallGeoNSByDist/EW, see buildTorchWallGeometry) since their color
-// needs a height component too. updateVisibility() just picks which set
-// to index into based on current equipment, every move.
+// per-distance marker materials (torchMarkerByDist — see the constructor)
+// exists purely so this never needs to rebuild anything at runtime; walls
+// instead get a per-distance baked GEOMETRY (torchWallGeoNSByDist/EW, see
+// buildTorchWallGeometry) since their color needs a height component too;
+// floor computes its own color live every frame instead of picking from a
+// precomputed set at all (see updateVisibility()'s doc comment).
+// updateVisibility() picks which set to index into (or which hue/keep
+// function to call, for floor) based on current equipment, every frame.
 const TORCH_EXTRA_RADIUS = 3;
 const TORCH_VISIBLE_RADIUS = VISIBLE_RADIUS + TORCH_EXTRA_RADIUS;
 const TORCH_COLOR_NEAR = 0xffe066; // warm yellow, right at the flame
@@ -425,7 +440,7 @@ export class DungeonRenderer3D {
     // opaque — see MAX_FLOOR_KEEP / MAX_WALL_KEEP above); markers fade via
     // transparency instead. One material per integer distance
     // (0..VISIBLE_RADIUS) is precomputed here so updateVisibility() can
-    // just index into it every move, rather than allocating per-frame.
+    // just index into it every frame, rather than allocating per-frame.
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
       // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
@@ -464,14 +479,17 @@ export class DungeonRenderer3D {
     torchWallGeoBaseEW.dispose();
     // Opaque — no `transparent`/`opacity` at all, so a distant wall/floor
     // still fully blocks whatever's behind it; only the color shifts
-    // toward the background as distance increases. floorByDist[d] /
-    // wallByDist[d] / markerByDist[type][d] hold the distance-`d` material.
-    const floorByDist = [];
+    // toward the background as distance increases. wallByDist[d] /
+    // markerByDist[type][d] hold the distance-`d` material. Floor is the
+    // ODD one out — it does NOT use a shared per-integer-distance material
+    // like walls/markers do; see the floor color comment in
+    // updateVisibility() for why (radial-lighting banding — each floor
+    // tile instead gets its own persistent material, colored live every
+    // frame from its own exact, unrounded distance).
     const wallByDist = [];
     for (let d = 0; d <= VISIBLE_RADIUS; d += 1) {
       const v = visibilityStrength(d);
       const hue = moonHue(d);
-      floorByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, MAX_FLOOR_KEEP * v, BACKGROUND_COLOR) }));
       // vertexColors picks up the wallPanel geometries' vertical shading ramp (see applyWallHeightGradient) as a per-vertex multiplier on top of this flat distance color.
       wallByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, MAX_WALL_KEEP * v, BACKGROUND_COLOR), vertexColors: true }));
     }
@@ -490,21 +508,16 @@ export class DungeonRenderer3D {
       ]),
     );
     // Torch-equipped equivalents — see the TORCH_* constants' comment above.
-    // Same structure as floorByDist/markerByDist, just sized to
-    // TORCH_VISIBLE_RADIUS and colored via torchHue() instead of moonHue().
-    // Markers keep their own distinct colors
-    // (re-hueing an enemy cube red-to-yellow would blur what it means) —
-    // only their opacity falloff uses the torch's longer reach. Walls have
-    // no per-distance material of their own here — torchWallGeoNSByDist/EW
-    // already bakes the full distance+height color into vertex colors, so
-    // torchWallMaterial (below) is the single plain-white material every
-    // torch-lit wall mesh uses regardless of distance.
-    const torchFloorByDist = [];
-    for (let d = 0; d <= TORCH_VISIBLE_RADIUS; d += 1) {
-      const v = torchVisibilityStrength(d);
-      const hue = torchHue(d);
-      torchFloorByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, TORCH_FLOOR_KEEP * v, BACKGROUND_COLOR) }));
-    }
+    // Same structure as markerByDist, just sized to TORCH_VISIBLE_RADIUS
+    // and colored via torchHue() instead of moonHue(). Markers keep their
+    // own distinct colors (re-hueing an enemy cube red-to-yellow would
+    // blur what it means) — only their opacity falloff uses the torch's
+    // longer reach. Walls have no per-distance material of their own here
+    // — torchWallGeoNSByDist/EW already bakes the full distance+height
+    // color into vertex colors, so torchWallMaterial (below) is the single
+    // plain-white material every torch-lit wall mesh uses regardless of
+    // distance. Floor (as with the ambient case above) computes its own
+    // live per-tile color instead of using a precomputed array at all.
     const torchMarkerByDist = Object.fromEntries(
       Object.entries(MARKER_COLORS).map(([type, color]) => [
         type,
@@ -516,10 +529,8 @@ export class DungeonRenderer3D {
     this._geo.torchWallGeoNSByDist = torchWallGeoNSByDist;
     this._geo.torchWallGeoEWByDist = torchWallGeoEWByDist;
     this._mat = {
-      floorByDist,
       wallByDist,
       markerByDist,
-      torchFloorByDist,
       torchWallMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }),
       torchMarkerByDist,
       // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above. depthWrite:false for the same reason as the marker materials above.
@@ -779,10 +790,12 @@ export class DungeonRenderer3D {
    * Smoothly tweens player position toward its latest target, then
    * (re)applies the camera every frame — both for live setting changes
    * (Camera Height) and because mouse-look yaw/pitch change continuously,
-   * not just on movement. Also re-derives which wall (if any) sits between
-   * the camera and the player from the camera's CURRENT orbit position —
-   * unlike grid movement/turning, mouse-look isn't tile-discrete, so this
-   * can't just run once per move like updateVisibility() does.
+   * not just on movement. Also recomputes the radial light/visibility
+   * circle from that same tweened position (see updateVisibility) and
+   * re-derives which wall (if any) sits between the camera and the player
+   * from the camera's CURRENT orbit position — unlike grid movement/
+   * turning, mouse-look isn't tile-discrete, so that occlusion check
+   * can't just run once per move either.
    */
   update(dt) {
     const tweenT = 1 - Math.exp(-TWEEN_SPEED * dt);
@@ -799,6 +812,7 @@ export class DungeonRenderer3D {
     }
     this._applyCameraFromCurrentState();
     this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
+    this.updateVisibility();
     if (this._playerGridX !== undefined) {
       this._applyBehindWallOcclusion(this._playerGridX, this._playerGridY, nearestFacingFromYaw(this._lookYaw));
     }
@@ -808,6 +822,12 @@ export class DungeonRenderer3D {
   setDungeon(dungeon) {
     // Geometries/materials are shared (this._geo/this._mat) and disposed
     // once in unmount() — removing the group from the scene is enough.
+    // Floor materials are the one exception (see updateVisibility()'s
+    // floor-color comment) — each floor tile owns its own persistent
+    // material rather than sharing one from this._mat, so the outgoing
+    // floor's materials need disposing explicitly here before they're
+    // replaced, same as unmount() does for the renderer's own teardown.
+    this.tileMeshes.forEach((entry) => entry.floor?.material.dispose());
     if (this.dungeonGroup) this.scene.remove(this.dungeonGroup);
     this.dungeon = dungeon;
     this.tileMeshes.clear();
@@ -842,7 +862,12 @@ export class DungeonRenderer3D {
         return;
       }
 
-      const floor = new THREE.Mesh(this._geo.floor, this._mat.floorByDist[VISIBLE_RADIUS]);
+      // A dedicated material per floor tile (not a shared one from
+      // this._mat) — see updateVisibility()'s floor-color comment for why.
+      // Initial color doesn't matter; the very next updateVisibility()
+      // call (from setPlayerState, right after setDungeon() in every
+      // caller) overwrites it before a frame ever renders.
+      const floor = new THREE.Mesh(this._geo.floor, new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR }));
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(worldX, 0, worldZ);
       this.dungeonGroup.add(floor);
@@ -904,27 +929,58 @@ export class DungeonRenderer3D {
   }
 
   /**
-   * Recomputes every tile's visibility from the player's current grid
-   * position: each integer distance 0..VISIBLE_RADIUS (or 0..TORCH_VISIBLE_RADIUS
-   * with the Torch equipped — see _hasTorchEquipped) has its own precomputed
-   * material (see visibilityStrength/torchVisibilityStrength above), so the
-   * fade reads as continuous per-tile rather than a few discrete bands;
-   * anything beyond the active radius isn't rendered at all. Walls/floor
-   * fade by shifting color toward the background while staying fully
-   * opaque; markers fade via transparency instead. Runs on every move —
-   * this is live sight, not a permanent "once seen" reveal.
+   * Recomputes every tile's visibility from the player's current
+   * CONTINUOUS world position (`currentPlayerPos`, the same tweened point
+   * the camera/sprite already use — not a grid tile) using true radial
+   * (Euclidean) distance, so the lit area reads as a genuine circle
+   * centered on Artius rather than square rings stepped out from a tile
+   * origin. Walls/markers still pick from a small precomputed set of
+   * materials per INTEGER distance step (0..VISIBLE_RADIUS, or
+   * 0..TORCH_VISIBLE_RADIUS with the Torch equipped — see
+   * _hasTorchEquipped and visibilityStrength/torchVisibilityStrength
+   * above), rounding the live distance to the nearest step — cheap, and
+   * the banding it produces is minor on those surfaces.
+   *
+   * Floor gets different treatment: rounding it the same way produced two
+   * visible artifacts once movement stopped being tile-locked — standing
+   * BETWEEN tiles, every nearby tile's distance is >= ~0.5, so it rounds
+   * straight past the brightest ("distance 0") step and the true "you're
+   * standing right here" color never appears (a missing middle of the
+   * gradient); and standing near a tile's EDGE, that whole tile falls
+   * inside the wide "rounds to 0" bucket and flares to full brightness
+   * across its entire ~1-tile footprint, reading as the light recentering
+   * on that tile instead of staying on Artius. So instead of picking a
+   * bucketed material, floor computes its OWN material's color directly
+   * from ITS OWN exact, unrounded distance every frame (see setDungeon()/
+   * _applyMarker(), where every floor tile is given a private material
+   * instead of a shared one from this._mat) — a true continuous gradient,
+   * independent of the tile grid, that only ever depends on how far that
+   * exact point on the floor actually is from Artius right now.
+   *
+   * The visible/not-visible cutoff itself always uses the unrounded
+   * distance (for walls/markers too) so the circle's outer edge stays
+   * smooth. Walls/floor fade by shifting color toward the background
+   * while staying fully opaque; markers fade via transparency instead.
+   * Runs every frame (from update()) — this is live sight, not a
+   * permanent "once seen" reveal.
    */
-  updateVisibility(px, py) {
+  updateVisibility() {
     const torch = this._hasTorchEquipped();
     const maxRadius = torch ? TORCH_VISIBLE_RADIUS : VISIBLE_RADIUS;
-    const floorByDist = torch ? this._mat.torchFloorByDist : this._mat.floorByDist;
     const markerByDist = torch ? this._mat.torchMarkerByDist : this._mat.markerByDist;
+    const floorKeep = torch ? TORCH_FLOOR_KEEP : MAX_FLOOR_KEEP;
+    const floorHueFor = torch ? torchHue : moonHue;
+    const floorStrengthFor = torch ? torchVisibilityStrength : visibilityStrength;
+    const px = this.currentPlayerPos.x / TILE_SIZE;
+    const py = this.currentPlayerPos.z / TILE_SIZE;
 
     this.tileMeshes.forEach((entry, key) => {
       const [txStr, tyStr] = key.split(',');
-      const dist = Math.max(Math.abs(Number(txStr) - px), Math.abs(Number(tyStr) - py));
+      const dx = Number(txStr) - px;
+      const dy = Number(tyStr) - py;
+      const dist = Math.sqrt(dx * dx + dy * dy);
       const visible = dist <= maxRadius;
-      const distIdx = Math.min(dist, maxRadius);
+      const distIdx = Math.min(Math.round(dist), maxRadius);
 
       if (entry.walls) {
         // Ambient walls: one shared geometry (grayscale height fade) + a
@@ -936,16 +992,21 @@ export class DungeonRenderer3D {
         const mat = torch ? this._mat.torchWallMaterial : this._mat.wallByDist[distIdx];
         const geoNS = torch ? this._geo.torchWallGeoNSByDist[distIdx] : this._geo.wallPanelNS;
         const geoEW = torch ? this._geo.torchWallGeoEWByDist[distIdx] : this._geo.wallPanelEW;
-        entry.walls.forEach(({ mesh, dx }) => {
+        entry.walls.forEach(({ mesh, dx: wallDx }) => {
           mesh.visible = visible;
           mesh.material = mat;
           // dx===0 panels face north/south (wallPanelNS); the rest face east/west (wallPanelEW) — see CARDINAL_DIRS.
-          mesh.geometry = dx === 0 ? geoNS : geoEW;
+          mesh.geometry = wallDx === 0 ? geoNS : geoEW;
         });
         return;
       }
       entry.floor.visible = visible;
-      entry.floor.material = floorByDist[distIdx];
+      // See this method's doc comment — floor is deliberately NOT bucketed
+      // by rounded distance like walls/markers; only actually compute (and
+      // allocate the intermediate Color objects for) it while visible.
+      if (visible) {
+        entry.floor.material.color.copy(blendColor(floorHueFor(dist), floorKeep * floorStrengthFor(dist), BACKGROUND_COLOR));
+      }
       if (entry.marker) {
         entry.marker.visible = visible;
         entry.marker.material = markerByDist[entry.type]?.[distIdx];
@@ -961,25 +1022,19 @@ export class DungeonRenderer3D {
    * the two tiles flanking it one step to each side — so there's a clear
    * gap around the character instead of a single narrow slit.
    *
-   * Called every frame from update() (mouse-look isn't tile-discrete, so
-   * the occluded set can change between any two frames even with no
-   * movement at all) — first restores whatever was overridden last frame
-   * back to its normal distance-tiered material, then computes and applies
-   * the new set for `facing` (the cardinal direction nearest the camera's
-   * current yaw). A real grid move/turn still resets everything through
-   * updateVisibility() first, same as before; this restore step covers the
-   * in-between frames that updateVisibility() no longer does.
+   * Called every frame from update() — right after updateVisibility(),
+   * which already reset EVERY wall (including whatever this method
+   * occluded last frame) back to its normal distance-tiered material a
+   * moment earlier in the same frame, so there's nothing left here to
+   * manually restore. This just tracks + repopulates `_lastOccludedWalls`
+   * (still needed so a future refactor that reorders these two calls, or
+   * skips updateVisibility for some frame, doesn't silently leave stale
+   * occlusion around) and computes/applies the new occluded set for
+   * `facing` (the cardinal direction nearest the camera's current yaw) —
+   * mouse-look isn't tile-discrete, so this set can change between any
+   * two frames even with no grid movement at all.
    */
   _applyBehindWallOcclusion(px, py, facing) {
-    const torch = this._hasTorchEquipped();
-    const maxRadius = torch ? TORCH_VISIBLE_RADIUS : VISIBLE_RADIUS;
-    // Torch walls all share one material (their distance+height color lives
-    // in the geometry instead — see updateVisibility()); only ambient walls
-    // still pick a material by distance.
-    this._lastOccludedWalls.forEach(({ mesh, tileX, tileY }) => {
-      const dist = Math.max(Math.abs(tileX - px), Math.abs(tileY - py));
-      mesh.material = torch ? this._mat.torchWallMaterial : this._mat.wallByDist[Math.min(dist, maxRadius)];
-    });
     this._lastOccludedWalls = [];
 
     const facingVec = FACING_VECTORS[facing] ?? FACING_VECTORS.south;
@@ -1024,7 +1079,6 @@ export class DungeonRenderer3D {
    * the origin.
    */
   setPlayerState({ x, y, facing }) {
-    this.updateVisibility(x, y);
     this._playerGridX = x;
     this._playerGridY = y;
 
@@ -1037,6 +1091,32 @@ export class DungeonRenderer3D {
       this._applyCameraFromCurrentState();
       this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
     }
+    // Reads currentPlayerPos, so this must run after the first-call snap
+    // above — every subsequent frame's update() keeps this current as the
+    // position tweens toward desiredPlayerPos; this call just avoids a
+    // single-frame flash of the wrong (default-brightest) materials
+    // between a floor load and the next animation frame.
+    this.updateVisibility();
+  }
+
+  /**
+   * Directly sets the player's world position, bypassing the tween
+   * entirely — used for continuous, omnidirectional movement (see
+   * ExploreState's per-frame movement integration), where the position
+   * itself already updates smoothly every physics tick; an extra
+   * smoothing layer on top of that would just add input lag, chasing a
+   * constantly-moving target. setPlayerState (still tweened) remains for
+   * genuine teleports — floor entry, elevator travel, spawn — where a
+   * single instant jump benefits from being eased in.
+   * No-ops until setPlayerState has run at least once (mirrors
+   * applyLookDelta's guard) since it doesn't do its own first-call setup.
+   */
+  setPlayerPositionLive(x, y) {
+    if (this._lookYaw === undefined) return;
+    this._playerGridX = Math.round(x);
+    this._playerGridY = Math.round(y);
+    this.desiredPlayerPos.set(x * TILE_SIZE, 0, y * TILE_SIZE);
+    this.currentPlayerPos.copy(this.desiredPlayerPos);
   }
 
   unmount() {
@@ -1049,14 +1129,18 @@ export class DungeonRenderer3D {
     if (this._hintHideTimeout) clearTimeout(this._hintHideTimeout);
     this._hintEl?.remove();
     // Both _geo and _mat hold a mix of shapes: plain objects (behindWall),
-    // flat arrays indexed by distance (floorByDist/torchWallGeoNSByDist),
-    // and nested per-type arrays of arrays (markerByDist) — recurse until
-    // something disposable is found rather than assuming a fixed depth.
+    // flat arrays indexed by distance (torchWallGeoNSByDist), and nested
+    // per-type arrays of arrays (markerByDist) — recurse until something
+    // disposable is found rather than assuming a fixed depth. Floor
+    // materials are the one exception: they're private per-tile instances
+    // (see updateVisibility()'s doc comment), never stored in this._mat,
+    // so they're disposed directly off tileMeshes here instead.
     const disposeDeep = (value) => {
       if (!value) return;
       if (typeof value.dispose === 'function') value.dispose();
       else Object.values(value).forEach(disposeDeep);
     };
+    this.tileMeshes.forEach((entry) => entry.floor?.material.dispose());
     disposeDeep(this._geo);
     disposeDeep(this._mat);
     this.playerSprite?.material.map?.dispose();

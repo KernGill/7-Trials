@@ -21,18 +21,26 @@ import {
 } from '../ui/CameraSettings.js';
 
 const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
-const FACING_DELTAS = {
-  north: { dx: 0, dy: -1 },
-  east: { dx: 1, dy: 0 },
-  south: { dx: 0, dy: 1 },
-  west: { dx: -1, dy: 0 },
-};
 
-// Touch D-pad "hold to keep moving" repeat, mirroring how holding a
-// keyboard key auto-repeats keydown at the OS rate — an initial delay
-// before repeats start feels less twitchy than repeating immediately.
-const TOUCH_MOVE_REPEAT_DELAY_MS = 380;
-const TOUCH_MOVE_REPEAT_INTERVAL_MS = 220;
+// Omnidirectional free movement (per user request — no longer tile-locked):
+// held movement keys/touch buttons integrate a continuous position every
+// physics tick (see updateContinuousMovement), moving in the exact
+// direction the free-look camera is currently pointing (not snapped to
+// the nearest cardinal zone) rather than hopping one whole tile at a
+// time. PLAYER_MOVE_SPEED is tuned to roughly match how long the OLD
+// tile-to-tile tween used to take (~1 tile per third of a second).
+const PLAYER_MOVE_SPEED = 3; // tile-widths per second
+// Collision radius (tile-widths) swept against WALL tiles' footprints —
+// small enough to comfortably fit through a single-tile-wide corridor
+// (which has exactly 1.0 tile-width of open space) with real clearance on
+// both sides, per resolveMovement's axis-separated wall-slide.
+const PLAYER_COLLISION_RADIUS = 0.3;
+// Continuous movement no longer has a natural "one save per step" moment
+// the way discrete tile-hopping did — autosaving on every physics tick
+// would be excessive, so instead this throttles to at most once per this
+// many seconds of actual held-key movement (tile-trigger events like
+// stepping onto a chest still save immediately, same as before).
+const MOVE_AUTOSAVE_INTERVAL_SECONDS = 3;
 
 const QTE_DIRECTIONS = ['up', 'down', 'left', 'right'];
 const QTE_DIRECTION_KEYS = {
@@ -97,8 +105,19 @@ export class ExploreState {
   constructor(app) {
     this.app = app;
     this._onKeydown = this.handleKeydown.bind(this);
+    this._onKeyup = this.handleKeyup.bind(this);
+    this._onBlur = () => { this._heldKeys.clear(); this._heldTouchActions.clear(); };
     this.pause = new PauseOverlay(app);
     this.qte = null;
+    // Continuous-movement input state — see updateContinuousMovement.
+    // Two separate sets (rather than one shared "held actions" set)
+    // because keyboard naturally tracks raw KEYS (so e.g. releasing 'w'
+    // while 'arrowup' is still down doesn't wrongly cancel "forward"),
+    // while touch buttons are already action-named — resolved together
+    // each tick instead.
+    this._heldKeys = new Set();
+    this._heldTouchActions = new Set();
+    this._moveAutosaveTimer = 0;
   }
 
   enter(root) {
@@ -147,9 +166,15 @@ export class ExploreState {
     this.syncDungeon3D();
     this.syncPlayer3D();
     const { playerPosition } = this.app.gameState.run;
-    this.markNearbyExplored(playerPosition.x, playerPosition.y);
+    const spawnX = Math.round(playerPosition.x);
+    const spawnY = Math.round(playerPosition.y);
+    this.markNearbyExplored(spawnX, spawnY);
+    this._lastTriggerTileKey = `${spawnX},${spawnY}`;
     this.app.input.on('keydown', this._onKeydown);
-    this._touchMoveIntervals = new Set();
+    this.app.input.on('keyup', this._onKeyup);
+    window.addEventListener('blur', this._onBlur);
+    this._heldKeys.clear();
+    this._heldTouchActions.clear();
     this.mountTouchControls();
     this._onWheel = (e) => {
       if (!this.canAct()) return;
@@ -192,9 +217,11 @@ export class ExploreState {
 
   exit() {
     this.app.input.off('keydown', this._onKeydown);
+    this.app.input.off('keyup', this._onKeyup);
+    window.removeEventListener('blur', this._onBlur);
+    this._heldKeys.clear();
+    this._heldTouchActions.clear();
     this.els.grid?.removeEventListener('wheel', this._onWheel);
-    this._touchMoveIntervals?.forEach((cancel) => cancel());
-    this._touchMoveIntervals?.clear();
     this.renderer3d?.unmount();
     this.minimap?.unmount();
     this.tooltip?.destroy();
@@ -208,46 +235,27 @@ export class ExploreState {
 
   /**
    * Wires the on-screen touch controls (see the .mobile-controls markup in
-   * enter()) — a left-side 4-way D-pad for grid movement (hold-to-repeat,
-   * mirroring a held keyboard key's auto-repeat), 2 right-side quick-turn
-   * buttons (single-tap 90° snaps, mirroring the left/right arrow keys),
-   * and a right-side drag zone that feeds raw touch-move deltas straight
-   * into DungeonRenderer3D.applyLookDelta — the touch equivalent of
-   * mouse-look, since touch has no Pointer Lock relative-movement deltas
-   * to read. CSS (`@media (hover:none) and (pointer:coarse)`) hides all of
-   * this on mouse/trackpad devices, so listeners here are harmless no-ops
-   * on desktop rather than needing a JS feature-detect gate too.
+   * enter()) — a left-side 4-way D-pad for omnidirectional movement (held
+   * for as long as the finger stays down, exactly like a held keyboard key
+   * — see updateContinuousMovement, which resolves _heldTouchActions the
+   * same way it resolves _heldKeys), 2 right-side quick-turn buttons
+   * (single-tap 90° snaps, mirroring the left/right arrow keys), and a
+   * right-side drag zone that feeds raw touch-move deltas straight into
+   * DungeonRenderer3D.applyLookDelta — the touch equivalent of mouse-look,
+   * since touch has no Pointer Lock relative-movement deltas to read. CSS
+   * (`@media (hover:none) and (pointer:coarse)`) hides all of this on
+   * mouse/trackpad devices, so listeners here are harmless no-ops on
+   * desktop rather than needing a JS feature-detect gate too.
    */
   mountTouchControls() {
     const root = this.root;
     root.querySelectorAll('.touch-dpad-btn').forEach((btn) => {
       const action = btn.dataset.move;
-      const fire = () => { if (this.canAct()) this.moveRelative(action); };
-      // Fire once immediately, then after an initial delay (feels less
-      // twitchy than repeating right away) settle into a steady repeat
-      // rate until the finger lifts — mirrors a held keyboard key's
-      // native auto-repeat. `cancel` (rather than a raw timer id) is what
-      // gets tracked/cleared, since it spans a timeout-then-interval
-      // handoff, not a single timer.
-      let delayId = null;
-      let repeatId = null;
-      const cancel = () => {
-        if (delayId !== null) { clearTimeout(delayId); delayId = null; }
-        if (repeatId !== null) { clearInterval(repeatId); repeatId = null; }
-        this._touchMoveIntervals.delete(cancel);
-      };
-      const start = (e) => {
-        e.preventDefault();
-        fire();
-        delayId = setTimeout(() => {
-          delayId = null;
-          repeatId = setInterval(fire, TOUCH_MOVE_REPEAT_INTERVAL_MS);
-        }, TOUCH_MOVE_REPEAT_DELAY_MS);
-        this._touchMoveIntervals.add(cancel);
-      };
+      const start = (e) => { e.preventDefault(); this._heldTouchActions.add(action); };
+      const stop = () => this._heldTouchActions.delete(action);
       btn.addEventListener('touchstart', start, { passive: false });
-      btn.addEventListener('touchend', cancel);
-      btn.addEventListener('touchcancel', cancel);
+      btn.addEventListener('touchend', stop);
+      btn.addEventListener('touchcancel', stop);
     });
 
     root.querySelectorAll('.touch-turn-btn').forEach((btn) => {
@@ -327,6 +335,7 @@ export class ExploreState {
   }
 
   tick(dt) {
+    this.updateContinuousMovement(dt);
     this.minimap?.update(dt, this.renderer3d?.getLookYaw());
     const run = this.app.gameState.run;
     if (run.floorMessage?.timer > 0) {
@@ -354,19 +363,16 @@ export class ExploreState {
     }
     if (this.app.gameState.paused || this.resultOpen) return;
     const key = e.key;
-    // WASD moves relative to the current facing (forward/back/strafe) and
-    // never changes facing itself. Left/right arrows turn in place —
-    // rotate facing without moving — independent of movement.
-    const moveActions = {
-      w: 'forward', arrowup: 'forward',
-      s: 'backward', arrowdown: 'backward',
-      a: 'strafeLeft',
-      d: 'strafeRight',
-    };
+    // WASD/arrow-up/arrow-down are tracked as HELD (see updateContinuousMovement,
+    // which reads _heldKeys every physics tick) rather than moving once per
+    // keydown — movement is now continuous/omnidirectional, not one tile per
+    // press. Left/right arrows still turn in place immediately on keydown —
+    // that's a discrete camera snap, unrelated to positional movement.
+    const moveKeys = new Set(['w', 'arrowup', 's', 'arrowdown', 'a', 'd']);
     const turnSteps = { arrowleft: -1, arrowright: 1 };
-    if (moveActions[key]) {
+    if (moveKeys.has(key)) {
       e.originalEvent?.preventDefault?.();
-      this.moveRelative(moveActions[key]);
+      this._heldKeys.add(key);
     } else if (turnSteps[key] !== undefined) {
       e.originalEvent?.preventDefault?.();
       this.turnPlayer(turnSteps[key]);
@@ -381,6 +387,11 @@ export class ExploreState {
     }
   }
 
+  /** Releases a held movement key (see handleKeydown) — always tracked regardless of pause/QTE/modal state, so a key released while one of those was active doesn't read as still held once it ends. */
+  handleKeyup(e) {
+    this._heldKeys.delete(e.key);
+  }
+
   /** Nudges the live FOV/zoom setting (see CameraSettings.js) by `deltaPercent`, clamped — shared by the scroll-wheel handler and the I/O keys. No-ops while Auto FOV is on, since cameraZoom is driven by camera angle then, not manual input. */
   adjustZoom(deltaPercent) {
     const settings = this.app.gameState.settings;
@@ -389,8 +400,21 @@ export class ExploreState {
     settings.cameraZoom = clamp(current + deltaPercent, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
   }
 
+  /**
+   * Indexed by "x,y" and rebuilt whenever `run.dungeon` changes reference
+   * (new floor) — a plain linear `tiles.find()` was fine back when this
+   * only ran a few times per discrete step, but continuous movement's
+   * per-frame collision checks (see circleHitsWall) call this many times
+   * every physics tick, so an O(1) lookup actually matters now.
+   */
   getTileAt(x, y) {
-    return this.app.gameState.run.dungeon?.tiles.find((t) => t.x === x && t.y === y) ?? null;
+    const dungeon = this.app.gameState.run.dungeon;
+    if (!dungeon) return null;
+    if (this._tileIndexFor !== dungeon) {
+      this._tileIndex = new Map(dungeon.tiles.map((t) => [`${t.x},${t.y}`, t]));
+      this._tileIndexFor = dungeon;
+    }
+    return this._tileIndex.get(`${x},${y}`) ?? null;
   }
 
   /** Sums a numeric passive template field across the player's equipped moves (e.g. Thief's Skill's qteBonusSeconds). */
@@ -456,48 +480,140 @@ export class ExploreState {
     this.app.saveSystem.save();
   }
 
-  /**
-   * Resolves a forward/backward/strafeLeft/strafeRight action to a grid
-   * delta relative to the camera's CURRENT directional zone (see
-   * DungeonRenderer3D.getFacingZone) — not a separately-tracked facing —
-   * so pressing W always moves you forward relative to wherever the
-   * free-look camera happens to be pointing right now, mouse-driven
-   * turns included, not just explicit left/right-arrow snaps.
-   */
-  moveRelative(action) {
-    const run = this.app.gameState.run;
-    if (!run.dungeon) return;
-    const facing = this.renderer3d.getFacingZone() ?? run.facing;
-    let delta;
-    switch (action) {
-      case 'forward': delta = FACING_DELTAS[facing]; break;
-      case 'backward': { const f = FACING_DELTAS[facing]; delta = { dx: -f.dx, dy: -f.dy }; break; }
-      case 'strafeLeft': delta = FACING_DELTAS[rotateFacing(facing, -1)]; break;
-      case 'strafeRight': delta = FACING_DELTAS[rotateFacing(facing, 1)]; break;
-      default: return;
-    }
-    run.facing = facing; // keep the save/spawn-seed mirror current at the moment of an actual move
-    this.movePlayer(delta.dx, delta.dy);
+  /** True if solid-body movement should be blocked by tile (tx,ty) — anything but a walkable in-bounds tile, matching the old grid model's "can I step here" rule, just now checked continuously against a circle instead of once per whole-tile hop. */
+  isTileSolid(tx, ty) {
+    const tile = this.getTileAt(tx, ty);
+    return !tile || !tile.isWalkable();
   }
 
-  movePlayer(dx, dy) {
-    const run = this.app.gameState.run;
-    const dungeon = run.dungeon;
-    if (!dungeon) return;
-    const nx = run.playerPosition.x + dx;
-    const ny = run.playerPosition.y + dy;
-    if (nx < 0 || ny < 0 || nx >= dungeon.width || ny >= dungeon.height) return;
-    const tile = this.getTileAt(nx, ny);
-    if (!tile || !tile.isWalkable()) return;
+  /**
+   * True if a circle of PLAYER_COLLISION_RADIUS centered at (cx,cy)
+   * (tile-space) overlaps any solid tile's footprint. Tile (tx,ty) occupies
+   * the unit square [tx-0.5, tx+0.5] x [ty-0.5, ty+0.5] in tile-space —
+   * matching DungeonRenderer3D's own worldX = tile.x * TILE_SIZE convention
+   * (tile centers sit on integers) — so this is a standard circle-vs-AABB
+   * closest-point test against the 3x3 neighborhood of tiles around the
+   * circle's own (rounded) position, comfortably covering any radius < 1.
+   */
+  circleHitsWall(cx, cy) {
+    const tcx = Math.round(cx);
+    const tcy = Math.round(cy);
+    for (let ty = tcy - 1; ty <= tcy + 1; ty += 1) {
+      for (let tx = tcx - 1; tx <= tcx + 1; tx += 1) {
+        if (!this.isTileSolid(tx, ty)) continue;
+        const closestX = clamp(cx, tx - 0.5, tx + 0.5);
+        const closestY = clamp(cy, ty - 0.5, ty + 0.5);
+        const ddx = cx - closestX;
+        const ddy = cy - closestY;
+        if (ddx * ddx + ddy * ddy < PLAYER_COLLISION_RADIUS * PLAYER_COLLISION_RADIUS) return true;
+      }
+    }
+    return false;
+  }
 
-    run.playerPosition = { x: nx, y: ny };
-    // syncPlayer3D() (below) already recomputes every tile's visibility
-    // tier from the new position on every move — no separate reveal call
-    // needed; the "explored" flag here is purely the permanent HUD/save/
-    // minimap progress marker, unrelated to what's currently visible
-    // on-screen in the live 3D view.
-    this.syncPlayer3D();
-    this.markNearbyExplored(nx, ny);
+  /**
+   * Axis-separated collision resolution (the standard "slide along walls"
+   * technique): tries the X move and the Y move independently rather than
+   * testing the full diagonal step at once, so bumping into a wall at an
+   * angle only stops the into-wall component instead of halting movement
+   * entirely — walking diagonally alongside a wall keeps working smoothly.
+   */
+  resolveMovement(px, py, dx, dy) {
+    let x = px;
+    let y = py;
+    const nx = x + dx;
+    if (!this.circleHitsWall(nx, y)) x = nx;
+    const ny = y + dy;
+    if (!this.circleHitsWall(x, ny)) y = ny;
+    return { x, y };
+  }
+
+  /** Resolves the keyboard/touch-held movement keys into a normalized (forward, strafe) pair — see updateContinuousMovement. */
+  getHeldMoveInput() {
+    let fwd = 0;
+    let strafe = 0;
+    if (this._heldKeys.has('w') || this._heldKeys.has('arrowup') || this._heldTouchActions.has('forward')) fwd += 1;
+    if (this._heldKeys.has('s') || this._heldKeys.has('arrowdown') || this._heldTouchActions.has('backward')) fwd -= 1;
+    if (this._heldKeys.has('d') || this._heldTouchActions.has('strafeRight')) strafe += 1;
+    if (this._heldKeys.has('a') || this._heldTouchActions.has('strafeLeft')) strafe -= 1;
+    return { fwd, strafe };
+  }
+
+  /**
+   * The core of free movement — called every physics tick (see tick()).
+   * Resolves whichever movement keys/touch buttons are currently held into
+   * a direction relative to the free-look camera's CURRENT, unsnapped yaw
+   * (DungeonRenderer3D.getLookYaw — not getFacingZone's nearest-cardinal
+   * zone), so the character can walk in any direction the camera is
+   * actually pointing, not just the 4 old cardinal steps. Integrates that
+   * direction by PLAYER_MOVE_SPEED * dt, resolves it against nearby walls
+   * (resolveMovement), and pushes the result straight to the renderer via
+   * setPlayerPositionLive (no tween — see that method's own comment).
+   * run.facing is still refreshed from getFacingZone() on an actual move,
+   * purely for save-file continuity/next-floor spawn-seeding (unaffected
+   * by any of this, per setPlayerState's own doc comment) — nothing else
+   * reads it as driving movement anymore.
+   */
+  updateContinuousMovement(dt) {
+    if (!this.canAct()) return;
+    const run = this.app.gameState.run;
+    if (!run.dungeon || !this.renderer3d) return;
+    const { fwd, strafe } = this.getHeldMoveInput();
+    if (fwd === 0 && strafe === 0) return;
+    const yaw = this.renderer3d.getLookYaw();
+    if (yaw === undefined) return;
+    // Matches DungeonRenderer3D's own (sin(yaw), -cos(yaw)) forward
+    // convention exactly (world-x <-> tile-x, world-z <-> tile-y) — see
+    // that file's _facingVec — so "forward" here always agrees with
+    // whichever way the camera is actually looking. Right = forward
+    // rotated +90°.
+    const fx = Math.sin(yaw);
+    const fy = -Math.cos(yaw);
+    const rx = Math.cos(yaw);
+    const ry = Math.sin(yaw);
+    let mx = fx * fwd + rx * strafe;
+    let my = fy * fwd + ry * strafe;
+    const len = Math.hypot(mx, my);
+    if (len === 0) return;
+    mx /= len;
+    my /= len;
+
+    const step = PLAYER_MOVE_SPEED * dt;
+    const resolved = this.resolveMovement(run.playerPosition.x, run.playerPosition.y, mx * step, my * step);
+    if (resolved.x === run.playerPosition.x && resolved.y === run.playerPosition.y) return; // fully blocked
+
+    run.playerPosition = resolved;
+    run.facing = this.renderer3d.getFacingZone() ?? run.facing;
+    this.renderer3d.setPlayerPositionLive(resolved.x, resolved.y);
+
+    this._moveAutosaveTimer += dt;
+    if (this._moveAutosaveTimer >= MOVE_AUTOSAVE_INTERVAL_SECONDS) {
+      this._moveAutosaveTimer = 0;
+      this.app.saveSystem.save();
+    }
+    this.checkTileTrigger(resolved.x, resolved.y);
+  }
+
+  /**
+   * Fires the same one-shot-per-arrival tile effects the old discrete
+   * grid-step model did (chests, doors, enemies, stairs message, elevator,
+   * vendor), but now edge-triggered off which tile the continuous position
+   * is nearest to (Math.round), rather than off an actual whole-tile hop —
+   * so it still fires exactly once per arrival on a given tile, not every
+   * single frame spent standing on it.
+   */
+  checkTileTrigger(x, y) {
+    const tx = Math.round(x);
+    const ty = Math.round(y);
+    const key = `${tx},${ty}`;
+    if (this._lastTriggerTileKey === key) return;
+    this._lastTriggerTileKey = key;
+    const tile = this.getTileAt(tx, ty);
+    if (!tile) return;
+    // The permanent "explored" HUD/save/minimap marker — unrelated to
+    // what's currently visible on-screen (DungeonRenderer3D's own live
+    // radial light already tracks the continuous position every frame).
+    this.markNearbyExplored(tx, ty);
 
     // Enemy tiles hand off to FightState immediately — nothing left on
     // this screen to render or save. Autosaving here would also let a
@@ -513,8 +629,8 @@ export class ExploreState {
 
     this.handleTileEffect(tile);
     this.syncDungeon3D(); // no-op unless handleTileEffect just generated a new floor (STAIRS)
-    this.syncPlayer3D(); // re-sync in case a floor transition just reset playerPosition to the new spawn
     this.app.saveSystem.save();
+    this._moveAutosaveTimer = 0;
     this.renderHUD();
   }
 
@@ -778,6 +894,10 @@ export class ExploreState {
     this.syncDungeon3D();
     this.syncPlayer3D();
     this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
+    // Prevents checkTileTrigger from treating "arriving here" as a no-op
+    // just because some earlier floor happened to leave the same tile-key
+    // behind — a teleport always counts as a fresh arrival.
+    this._lastTriggerTileKey = `${run.playerPosition.x},${run.playerPosition.y}`;
     this.app.saveSystem.save();
     this.renderHUD();
   }
@@ -1006,6 +1126,10 @@ export class ExploreState {
     this.syncDungeon3D();
     this.syncPlayer3D();
     this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
+    // Prevents checkTileTrigger from treating "arriving here" as a no-op
+    // just because some earlier floor happened to leave the same tile-key
+    // behind — a teleport always counts as a fresh arrival.
+    this._lastTriggerTileKey = `${run.playerPosition.x},${run.playerPosition.y}`;
     this.app.saveSystem.save();
     this.renderHUD();
   }
@@ -1377,7 +1501,10 @@ export class ExploreState {
     this.checkHiddenGateUnlock();
     const dungeon = run.dungeon;
     const counts = this.getRemainingEventCounts();
-    const currentTile = this.getTileAt(run.playerPosition.x, run.playerPosition.y);
+    // Rounded — run.playerPosition is a continuous free-movement position
+    // now, not a grid index, so an exact getTileAt match would almost
+    // never hit; "which tile am I on" is always the nearest one.
+    const currentTile = this.getTileAt(Math.round(run.playerPosition.x), Math.round(run.playerPosition.y));
     const canDescend = currentTile?.type === TILE_TYPES.STAIRS && run.enemiesRemaining === 0;
 
     this.els.hud.innerHTML = `
