@@ -49,7 +49,9 @@ export const DEFAULT_CAMERA_SENSITIVITY_PERCENT = 100;
 // span of its frustum (see zoomMultiplierForPercent below and its use in
 // DungeonRenderer3D), not moving the camera closer/farther (which would do
 // nothing to an orthographic projection's apparent scale).
-export const CAMERA_ZOOM_MIN_PERCENT = 0;
+// Per user request: anything below 10% wasn't adding anything, so 10% (not
+// 0%) is the floor — the tightest zoom-in the slider offers at all.
+export const CAMERA_ZOOM_MIN_PERCENT = 10;
 export const CAMERA_ZOOM_MAX_PERCENT = 100;
 // Per user request: today's default view sits at 40% up the slider, not at
 // either end, so there's room to zoom in tighter as well as further out.
@@ -57,16 +59,27 @@ export const DEFAULT_CAMERA_ZOOM_PERCENT = 40;
 // The view-span multiplier at each anchor point of the slider (applied to
 // DungeonRenderer3D's base VIEW_HEIGHT): 40% is a 1x multiplier (exactly
 // today's view, unchanged), 100% is 3x (per user request: "3 times more
-// than I currently do"). 0% has no literal "first person" camera rig to
-// reuse — this ortho rig's zoom is purely a frustum-size change — so the
-// closest approximation is the tightest zoom the frustum math still
-// renders sensibly at, picked small enough to read as being right up in
-// whatever's in front of the player.
+// than I currently do"). CAMERA_ZOOM_MIN_PERCENT has no literal "first
+// person" camera rig to reuse — this ortho rig's zoom is purely a frustum-
+// size change — so the closest approximation is the tightest zoom the
+// frustum math still renders sensibly at, picked small enough to read as
+// being right up in whatever's in front of the player.
 const ZOOM_MULT_AT_DEFAULT = 1;
 const ZOOM_MULT_AT_MAX = 3;
-const ZOOM_MULT_AT_MIN = 0.12;
+// Slightly raised per user request (was 0.12) — the tightest zoom read as
+// too much.
+const ZOOM_MULT_AT_MIN = 0.2;
 
-/** Piecewise-linear: 0% -> ZOOM_MULT_AT_MIN, 40% (DEFAULT_CAMERA_ZOOM_PERCENT) -> 1, 100% -> 3. Two segments (not one straight line) since a single slope can't hit all three anchor points without going negative below 40%. */
+/**
+ * Piecewise-linear against the ORIGINAL 0-100 scale (0 -> ZOOM_MULT_AT_MIN,
+ * 40% (DEFAULT_CAMERA_ZOOM_PERCENT) -> 1, 100% -> 3), clamped to
+ * [CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT] — the low end used to
+ * be reachable all the way down to 0%, but per user request 10% is now the
+ * slider's floor. Per that same request, 10% itself must still render
+ * exactly as it always did (t = 10/40 on the ORIGINAL scale), not get
+ * remapped to the low-end anchor — so the interpolation below is
+ * deliberately still anchored at literal 0, not at CAMERA_ZOOM_MIN_PERCENT.
+ */
 export function zoomMultiplierForPercent(percent) {
   const p = clamp(percent, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
   if (p <= DEFAULT_CAMERA_ZOOM_PERCENT) {
