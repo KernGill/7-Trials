@@ -14,25 +14,25 @@ const VIEW_HEIGHT = 10; // world units of vertical span visible in the ortho fru
 const TILE_SIZE = 2;
 const WALL_HEIGHT = TILE_SIZE * 12; // tall enough that the top edge is never visible in frame
 const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
-// How far up from the floor the vertical shading gradient travels before
-// settling at its dimmest value. Spans the *entire* wall panel height —
-// a short span (tried first) settled into flat darkness before it ever
-// reached the portion of the wall the camera actually frames (the camera's
-// visible window sits well above floor height, not right at it), so the
-// fade needs the full WALL_HEIGHT to still be mid-transition wherever the
-// camera happens to be looking.
-const WALL_HEIGHT_GRADIENT_SPAN = WALL_HEIGHT;
-const WALL_HEIGHT_BRIGHTNESS_TOP = 0.08; // vertex-color multiplier at/above the gradient span — low enough to read as a clear dark cap even against a warm torch hue
-// A BoxGeometry side face is just 4 corner vertices — with no intermediate
-// vertices, the GPU can only ever draw a single straight-line blend between
-// whatever color sits at the bottom and whatever sits at the top, no matter
-// how the "target" color was computed. To make a wall's height gradient
-// actually follow the torch's real distance→color curve (not just fake a
-// blend between two endpoints), the wall geometry itself is subdivided into
-// this many vertical bands (see mount()'s torchWallGeoBaseNS/EW,
-// heightSegments = TORCH_WALL_SEGMENTS), each band getting its own real
-// point on that curve.
+// A BoxGeometry side face is just 4 corner vertices by default — with no
+// intermediate vertices, the GPU can only ever draw a single straight-line
+// blend between whatever color sits at the bottom and whatever sits at the
+// top, no matter what curve/span was actually computed. So both the
+// ambient wall panels (wallPanelNS/EW, ordinary ambient light) and the
+// torch-lit ones (torchWallBaseNS/EW, createTorchWallGeometry/
+// writeTorchWallGeometryColors — a finer subdivision since it also needs
+// to bake real per-band hue shifts, not just a grayscale multiplier) are
+// built with real intermediate rows of vertices so
+// applyWallHeightGradient's span/curve actually shows up.
+const WALL_HEIGHT_SEGMENTS = 8;
 const TORCH_WALL_SEGMENTS = 10;
+// How far up from the floor the vertical shading gradient travels before
+// settling at its dimmest value. Per user request, this is deliberately
+// shorter than the full WALL_HEIGHT (was the entire panel) so the fade to
+// dark completes a bit sooner instead of still being mid-transition
+// wherever the camera happens to be looking.
+const WALL_HEIGHT_GRADIENT_SPAN = WALL_HEIGHT * 0.65;
+const WALL_HEIGHT_BRIGHTNESS_TOP = 0.08; // vertex-color multiplier at/above the gradient span — low enough to read as a clear dark cap even against a warm torch hue
 
 // A wall tile only gets geometry on the sides that actually border a
 // non-wall tile — a wall surrounded entirely by other walls renders
@@ -81,7 +81,12 @@ const VISIBILITY_FALLOFF_POWER = 2.5;
 // read as "a little brighter" overall, on top of the moonlight hue shift
 // below (moonHue) doing most of the actual visual lift near the player.
 const MAX_FLOOR_KEEP = 0.62; // floor color-keep fraction at distance 0 (rest blended to background) — floor stays legible as "the path"
-const MAX_WALL_KEEP = 0.28; // wall color-keep fraction at distance 0 — deliberately low so even nearby walls sit close to the background color
+// Per user request: was 0.28, which read as noticeably darker/muddier than
+// the floor right next to it at the same distance — matched to
+// MAX_FLOOR_KEEP so a wall and the floor tile it borders land on the same
+// base color before the per-vertex height gradient (see
+// WALL_HEIGHT_GRADIENT_SPAN) darkens the wall going up.
+const MAX_WALL_KEEP = MAX_FLOOR_KEEP;
 const MAX_MARKER_OPACITY = 1; // marker opacity at distance 0
 
 // Ambient (no Torch) lighting reads as pale moonlight falling on whatever's
@@ -119,22 +124,42 @@ function visibilityStrength(dist) {
 // sees TORCH_EXTRA_RADIUS tiles further than normal, and the fade itself
 // reads as actual firelight (warm yellow up close, through orange, to a
 // dying red at the edge of its reach) instead of the plain grey-to-black
-// blend everyone else gets. A second, larger set of precomputed
-// per-distance marker materials (torchMarkerByDist — see the constructor)
-// exists purely so this never needs to rebuild anything at runtime; walls
-// instead get a per-distance baked GEOMETRY (torchWallGeoNSByDist/EW, see
-// buildTorchWallGeometry) since their color needs a height component too;
-// floor computes its own color live every frame instead of picking from a
-// precomputed set at all (see updateVisibility()'s doc comment).
+// blend everyone else gets. A larger set of precomputed per-distance
+// marker materials (torchMarkerByDist — see the constructor) exists
+// purely so markers never need to rebuild anything at runtime; floor and
+// walls both compute their own color live every frame instead of picking
+// from a precomputed set at all (see updateVisibility()'s doc comment) —
+// for walls that means writing a real per-band GEOMETRY color (see
+// writeTorchWallGeometryColors) since climbing one needs a height
+// component too, not just a flat hue.
 // updateVisibility() picks which set to index into (or which hue/keep
-// function to call, for floor) based on current equipment, every frame.
+// function/geometry-write to use, for floor/walls) based on current
+// equipment, every frame.
 const TORCH_EXTRA_RADIUS = 3;
 const TORCH_VISIBLE_RADIUS = VISIBLE_RADIUS + TORCH_EXTRA_RADIUS;
 const TORCH_COLOR_NEAR = 0xffe066; // warm yellow, right at the flame
 const TORCH_COLOR_MID = 0xff8c1a; // orange
-const TORCH_COLOR_FAR = 0xb33000; // deep ember red, right before the torch's own reach gives out
+const TORCH_COLOR_FAR = 0xe61400; // ember red, right before the torch's own reach gives out — per user request, pushed even further red/saturated than the prior 0xd4220a
 const TORCH_FLOOR_KEEP = 0.75; // brighter than MAX_FLOOR_KEEP — floor should read as genuinely lit, not just "less dark"
 const TORCH_WALL_KEEP = 0.85; // was 0.4 — that blended 60% of even the closest wall's hue toward near-black background, reading as muted brown instead of the saturated yellow/orange/red the torch is supposed to look like
+// Per user request: yellow should hold about 1 tile longer than before
+// (was fully orange by t=0.2, i.e. dist 2.4 — now dist ~3.4) before
+// starting its climb into orange.
+const TORCH_HUE_YELLOW_END_T = 0.28;
+// Per user request: orange should finish turning into red well before the
+// light "begins darkening too much" (i.e. while torchVisibilityStrength is
+// still reasonably high, not right at the torch's fading-out edge) — so
+// red is reached well before t=1 (the very edge, already near-black from
+// the brightness falloff) instead of only there. Combined with
+// TORCH_HUE_YELLOW_END_T, orange's own share of the curve (YELLOW_END_T -
+// ORANGE_END_T) is now much shorter than the original single-midpoint
+// version. Bumped +1 tile since (was 0.5/dist 6, now dist 7) per a
+// follow-up "make the orange 1 tile longer" request. Past this point the
+// hue itself no longer changes — from here to the edge it's pure
+// TORCH_COLOR_FAR, with the actual fade to black entirely down to
+// torchVisibilityStrength's falloff (see updateVisibility()/
+// writeTorchWallGeometryColors's blendColor calls).
+const TORCH_HUE_ORANGE_END_T = 0.58;
 
 /** Torch-equipped equivalent of visibilityStrength, using the torch's own (larger) radius as the falloff's basis. */
 function torchVisibilityStrength(dist) {
@@ -142,11 +167,17 @@ function torchVisibilityStrength(dist) {
   return (1 - t) ** VISIBILITY_FALLOFF_POWER;
 }
 
-/** Pure flame hue at a torch-relative distance — yellow near, through orange, to red far — with no background blending yet (see blendColor for that half). */
+/** Pure flame hue at a torch-relative distance — yellow near, through orange, to red by the reach's midpoint, then held at red the rest of the way out — with no background blending yet (see blendColor for that half). */
 function torchHue(dist) {
   const t = clamp(dist / TORCH_VISIBLE_RADIUS, 0, 1);
-  if (t < 0.5) return new THREE.Color(TORCH_COLOR_NEAR).lerp(new THREE.Color(TORCH_COLOR_MID), t / 0.5);
-  return new THREE.Color(TORCH_COLOR_MID).lerp(new THREE.Color(TORCH_COLOR_FAR), (t - 0.5) / 0.5);
+  if (t < TORCH_HUE_YELLOW_END_T) return new THREE.Color(TORCH_COLOR_NEAR).lerp(new THREE.Color(TORCH_COLOR_MID), t / TORCH_HUE_YELLOW_END_T);
+  if (t < TORCH_HUE_ORANGE_END_T) {
+    return new THREE.Color(TORCH_COLOR_MID).lerp(
+      new THREE.Color(TORCH_COLOR_FAR),
+      (t - TORCH_HUE_YELLOW_END_T) / (TORCH_HUE_ORANGE_END_T - TORCH_HUE_YELLOW_END_T),
+    );
+  }
+  return new THREE.Color(TORCH_COLOR_FAR);
 }
 
 // The camera sits behind the player relative to facing, so a wall directly
@@ -313,46 +344,61 @@ function applyWallHeightGradient(geometry, span, brightnessTop) {
 }
 
 /**
+ * Clones a torch-lit wall panel's base shape (must already have
+ * heightSegments = TORCH_WALL_SEGMENTS — see torchWallBaseNS/EW in
+ * mount() — giving TORCH_WALL_SEGMENTS+1 rows of vertices evenly spaced
+ * from floor to ceiling) and gives the clone its own private 'color'
+ * attribute for writeTorchWallGeometryColors to fill in every frame. One
+ * clone per wall panel (see setDungeon()) rather than a shared bucket —
+ * each panel's own live, unrounded distance needs to be able to shift its
+ * baked colors independently and continuously as the player moves, the
+ * same reasoning as the floor's per-tile material (see updateVisibility()'s
+ * floor-color comment). Initial values don't matter; the first
+ * updateVisibility() call overwrites them before a frame ever renders.
+ */
+function createTorchWallGeometry(baseGeometry) {
+  const geometry = baseGeometry.clone();
+  const colors = new Float32Array(geometry.attributes.position.count * 3);
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/**
  * Bakes a torch-lit wall panel's FULL final color (not a multiplier — the
  * material for these is plain white, see torchWallMaterial) directly into
- * vertex colors, one real point on the curve per band: `baseGeometry` must
- * already have heightSegments = TORCH_WALL_SEGMENTS (see
- * torchWallGeoBaseNS/EW in mount()), giving TORCH_WALL_SEGMENTS+1 rows of
- * vertices evenly spaced from floor to ceiling. Band 0 (the floor row) gets
- * exactly this tile's normal distance color — torchHue(dist) blended toward
- * the background, the same formula the flat floor/wall materials already
- * use — and each band above it adds one more tile of *virtual* distance to
- * that same formula. That's the trick: climbing the wall now fades along
- * the exact same yellow -> orange -> red -> background curve that walking
- * farther down the hall already does, so a near (yellow) wall's 2nd band up
- * reads as the "3 tiles away" hue, a mid (orange) wall's climbs into red,
- * and a far (red) wall fades to background-black almost immediately — and
- * because each band is a real vertex with a real computed color (not just
- * two endpoints with a straight blend between them), the curve's actual
- * shape shows up instead of a single flat linear ramp. One geometry per
- * distance tier (see torchWallGeoNSByDist/EWByDist in mount()) since the
- * baked colors have to differ per tile distance.
+ * `geometry`'s vertex colors, one real point on the curve per band. Band 0
+ * (the floor row) gets exactly this tile's normal distance color —
+ * torchHue(dist) blended toward the background, the same formula the flat
+ * floor/wall materials already use — and each band above it adds one more
+ * *virtual* tile of distance to that same formula. That's the trick:
+ * climbing the wall now fades along the exact same yellow -> orange -> red
+ * -> background curve that walking farther down the hall already does, so
+ * a near (yellow) wall's 2nd band up reads as the "3 tiles away" hue, a
+ * mid (orange) wall's climbs into red, and a far (red) wall fades to
+ * background-black almost immediately — and because each band is a real
+ * vertex with a real computed color (not just two endpoints with a
+ * straight blend between them), the curve's actual shape shows up instead
+ * of a single flat linear ramp. `dist` is the tile's own exact, unrounded
+ * radial distance (see updateVisibility()) — not rounded to an integer
+ * tier — so climbing a wall AND walking toward one both animate along the
+ * exact same continuous curve, with no banding either way.
  */
-function buildTorchWallGeometry(baseGeometry, dist) {
-  const geometry = baseGeometry.clone();
+function writeTorchWallGeometryColors(geometry, dist) {
   const position = geometry.attributes.position;
-  const colors = new Float32Array(position.count * 3);
+  const color = geometry.attributes.color;
   const segmentHeight = WALL_HEIGHT / TORCH_WALL_SEGMENTS;
   for (let i = 0; i < position.count; i += 1) {
     const heightFromFloor = position.getY(i) + WALL_HEIGHT / 2;
     const band = Math.round(heightFromFloor / segmentHeight);
     const effectiveDist = dist + band;
-    const color = blendColor(
+    const c = blendColor(
       torchHue(effectiveDist),
       TORCH_WALL_KEEP * torchVisibilityStrength(effectiveDist),
       BACKGROUND_COLOR,
     );
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
+    color.setXYZ(i, c.r, c.g, c.b);
   }
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  return geometry;
+  color.needsUpdate = true;
 }
 
 /**
@@ -446,8 +492,9 @@ export class DungeonRenderer3D {
       // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
       // wallPanelNS spans the tile's width, wallPanelEW spans its depth;
       // both are only WALL_THICKNESS deep in the direction they face.
-      wallPanelNS: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS),
-      wallPanelEW: new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE),
+      // heightSegments = WALL_HEIGHT_SEGMENTS — see that constant's comment.
+      wallPanelNS: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS, 1, WALL_HEIGHT_SEGMENTS, 1),
+      wallPanelEW: new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE, 1, WALL_HEIGHT_SEGMENTS, 1),
       marker: new THREE.BoxGeometry(TILE_SIZE * 0.5, TILE_SIZE * 0.25, TILE_SIZE * 0.5),
       stairsMarker: new THREE.BoxGeometry(TILE_SIZE * 0.6, TILE_SIZE * 0.075, TILE_SIZE * 0.6),
       // Enemy tiles get their own plain cube for now (placeholder, per design).
@@ -455,44 +502,22 @@ export class DungeonRenderer3D {
     };
     applyWallHeightGradient(this._geo.wallPanelNS, WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
     applyWallHeightGradient(this._geo.wallPanelEW, WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
-    // Torch-equipped wall geometry: one full-color-baked clone per distance
-    // tier (see buildTorchWallGeometry) rather than a single shared pair —
-    // the whole point is that each tile's own distance shifts what hue its
-    // height gradient climbs through, so the vertex colors can't be shared
-    // across distances the way the ambient (grayscale) ones are. These need
-    // their own base shape (heightSegments = TORCH_WALL_SEGMENTS) rather
-    // than reusing wallPanelNS/EW — a plain BoxGeometry only has vertices at
-    // its very top and bottom, so with no intermediate rows to hold real
-    // per-band colors, the GPU could only ever draw one straight blend
-    // between two endpoints, no matter how the "curve" was computed.
-    const torchWallGeoBaseNS = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS, 1, TORCH_WALL_SEGMENTS, 1);
-    const torchWallGeoBaseEW = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE, 1, TORCH_WALL_SEGMENTS, 1);
-    const torchWallGeoNSByDist = Array.from(
-      { length: TORCH_VISIBLE_RADIUS + 1 },
-      (_, d) => buildTorchWallGeometry(torchWallGeoBaseNS, d),
-    );
-    const torchWallGeoEWByDist = Array.from(
-      { length: TORCH_VISIBLE_RADIUS + 1 },
-      (_, d) => buildTorchWallGeometry(torchWallGeoBaseEW, d),
-    );
-    torchWallGeoBaseNS.dispose();
-    torchWallGeoBaseEW.dispose();
-    // Opaque — no `transparent`/`opacity` at all, so a distant wall/floor
-    // still fully blocks whatever's behind it; only the color shifts
-    // toward the background as distance increases. wallByDist[d] /
-    // markerByDist[type][d] hold the distance-`d` material. Floor is the
-    // ODD one out — it does NOT use a shared per-integer-distance material
-    // like walls/markers do; see the floor color comment in
-    // updateVisibility() for why (radial-lighting banding — each floor
-    // tile instead gets its own persistent material, colored live every
-    // frame from its own exact, unrounded distance).
-    const wallByDist = [];
-    for (let d = 0; d <= VISIBLE_RADIUS; d += 1) {
-      const v = visibilityStrength(d);
-      const hue = moonHue(d);
-      // vertexColors picks up the wallPanel geometries' vertical shading ramp (see applyWallHeightGradient) as a per-vertex multiplier on top of this flat distance color.
-      wallByDist.push(new THREE.MeshBasicMaterial({ color: blendColor(hue, MAX_WALL_KEEP * v, BACKGROUND_COLOR), vertexColors: true }));
-    }
+    // Torch-equipped wall geometry template — heightSegments =
+    // TORCH_WALL_SEGMENTS (finer than WALL_HEIGHT_SEGMENTS) since climbing
+    // a torch-lit wall needs to trace the same curve real distance does
+    // (see writeTorchWallGeometryColors), not just fade toward one flat
+    // dark cap the way the ambient height gradient does. Kept around (not
+    // disposed) purely as a clone source: setDungeon() clones one of these
+    // per wall panel via createTorchWallGeometry, since every panel needs
+    // its own live-mutable copy — see updateVisibility()'s wall-color
+    // comment for why a shared/precomputed set doesn't work here.
+    this._geo.torchWallBaseNS = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS, 1, TORCH_WALL_SEGMENTS, 1);
+    this._geo.torchWallBaseEW = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE, 1, TORCH_WALL_SEGMENTS, 1);
+    // Walls have no precomputed distance-bucketed material/geometry of
+    // their own here, ambient or torch — like floor, each wall panel gets
+    // its own persistent, live-colored material (ambient) and geometry
+    // (torch), built in setDungeon() and updated every frame in
+    // updateVisibility(); see that method's wall-color comment for why.
     const markerByDist = Object.fromEntries(
       Object.entries(MARKER_COLORS).map(([type, color]) => [
         type,
@@ -512,12 +537,11 @@ export class DungeonRenderer3D {
     // and colored via torchHue() instead of moonHue(). Markers keep their
     // own distinct colors (re-hueing an enemy cube red-to-yellow would
     // blur what it means) — only their opacity falloff uses the torch's
-    // longer reach. Walls have no per-distance material of their own here
-    // — torchWallGeoNSByDist/EW already bakes the full distance+height
-    // color into vertex colors, so torchWallMaterial (below) is the single
-    // plain-white material every torch-lit wall mesh uses regardless of
-    // distance. Floor (as with the ambient case above) computes its own
-    // live per-tile color instead of using a precomputed array at all.
+    // longer reach. torchWallMaterial (below) is the single plain-white
+    // material every torch-lit wall panel's mesh uses regardless of
+    // distance — the real color comes from each panel's own private,
+    // live-updated geometry (see createTorchWallGeometry/
+    // writeTorchWallGeometryColors), not from this material.
     const torchMarkerByDist = Object.fromEntries(
       Object.entries(MARKER_COLORS).map(([type, color]) => [
         type,
@@ -526,10 +550,7 @@ export class DungeonRenderer3D {
         })),
       ]),
     );
-    this._geo.torchWallGeoNSByDist = torchWallGeoNSByDist;
-    this._geo.torchWallGeoEWByDist = torchWallGeoEWByDist;
     this._mat = {
-      wallByDist,
       markerByDist,
       torchWallMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }),
       torchMarkerByDist,
@@ -822,12 +843,16 @@ export class DungeonRenderer3D {
   setDungeon(dungeon) {
     // Geometries/materials are shared (this._geo/this._mat) and disposed
     // once in unmount() — removing the group from the scene is enough.
-    // Floor materials are the one exception (see updateVisibility()'s
-    // floor-color comment) — each floor tile owns its own persistent
-    // material rather than sharing one from this._mat, so the outgoing
-    // floor's materials need disposing explicitly here before they're
-    // replaced, same as unmount() does for the renderer's own teardown.
-    this.tileMeshes.forEach((entry) => entry.floor?.material.dispose());
+    // Floor materials and wall panels' ambientMaterial/torchGeometry are
+    // the exception (see updateVisibility()'s floor-color and wall-color
+    // comments) — each tile/panel owns its own persistent, live-updated
+    // one rather than sharing from this._mat/this._geo, so the outgoing
+    // floor's need disposing explicitly here before they're replaced, same
+    // as unmount() does for the renderer's own teardown.
+    this.tileMeshes.forEach((entry) => {
+      entry.floor?.material.dispose();
+      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.torchGeometry.dispose(); });
+    });
     if (this.dungeonGroup) this.scene.remove(this.dungeonGroup);
     this.dungeon = dungeon;
     this.tileMeshes.clear();
@@ -849,14 +874,23 @@ export class DungeonRenderer3D {
           const neighbor = tilesByKey.get(tileKey(tile.x + dx, tile.y + dy));
           if (!neighbor || neighbor.type === TILE_TYPES.WALL) return; // no panel toward another wall or off-grid
           const isNS = side === 'north' || side === 'south';
-          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, this._mat.wallByDist[VISIBLE_RADIUS]);
+          // Own private ambient material + torch geometry per panel (not
+          // shared from this._mat/this._geo) — see updateVisibility()'s
+          // wall-color comment for why. Initial values don't matter; the
+          // very next updateVisibility() call overwrites them before a
+          // frame ever renders.
+          const ambientMaterial = new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR, vertexColors: true });
+          const torchGeometry = createTorchWallGeometry(isNS ? this._geo.torchWallBaseNS : this._geo.torchWallBaseEW);
+          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, ambientMaterial);
           panel.position.set(
             worldX + (dx * TILE_SIZE) / 2,
             WALL_HEIGHT / 2,
             worldZ + (dy * TILE_SIZE) / 2,
           );
           this.dungeonGroup.add(panel);
-          walls.push({ mesh: panel, dx, dy });
+          walls.push({
+            mesh: panel, dx, dy, isNS, ambientMaterial, torchGeometry,
+          });
         });
         this.tileMeshes.set(tileKey(tile.x, tile.y), { walls, type: TILE_TYPES.WALL });
         return;
@@ -934,35 +968,42 @@ export class DungeonRenderer3D {
    * the camera/sprite already use — not a grid tile) using true radial
    * (Euclidean) distance, so the lit area reads as a genuine circle
    * centered on Artius rather than square rings stepped out from a tile
-   * origin. Walls/markers still pick from a small precomputed set of
-   * materials per INTEGER distance step (0..VISIBLE_RADIUS, or
-   * 0..TORCH_VISIBLE_RADIUS with the Torch equipped — see
-   * _hasTorchEquipped and visibilityStrength/torchVisibilityStrength
+   * origin. Markers are the one thing that still pick from a small
+   * precomputed set of materials per INTEGER distance step
+   * (0..VISIBLE_RADIUS, or 0..TORCH_VISIBLE_RADIUS with the Torch equipped
+   * — see _hasTorchEquipped and visibilityStrength/torchVisibilityStrength
    * above), rounding the live distance to the nearest step — cheap, and
-   * the banding it produces is minor on those surfaces.
+   * the banding it produces is minor on a small, already-colorful marker.
    *
-   * Floor gets different treatment: rounding it the same way produced two
-   * visible artifacts once movement stopped being tile-locked — standing
-   * BETWEEN tiles, every nearby tile's distance is >= ~0.5, so it rounds
-   * straight past the brightest ("distance 0") step and the true "you're
-   * standing right here" color never appears (a missing middle of the
-   * gradient); and standing near a tile's EDGE, that whole tile falls
+   * Floor and walls get different treatment: rounding produced visible
+   * artifacts once movement stopped being tile-locked. For floor —
+   * standing BETWEEN tiles, every nearby tile's distance is >= ~0.5, so it
+   * rounds straight past the brightest ("distance 0") step and the true
+   * "you're standing right here" color never appears (a missing middle of
+   * the gradient); and standing near a tile's EDGE, that whole tile falls
    * inside the wide "rounds to 0" bucket and flares to full brightness
    * across its entire ~1-tile footprint, reading as the light recentering
-   * on that tile instead of staying on Artius. So instead of picking a
-   * bucketed material, floor computes its OWN material's color directly
-   * from ITS OWN exact, unrounded distance every frame (see setDungeon()/
-   * _applyMarker(), where every floor tile is given a private material
-   * instead of a shared one from this._mat) — a true continuous gradient,
-   * independent of the tile grid, that only ever depends on how far that
-   * exact point on the floor actually is from Artius right now.
+   * on that tile instead of staying on Artius. For walls — the same
+   * rounding meant a wall's shade would visibly jump/flicker between
+   * shades as the player's distance crossed each .5 boundary, rather than
+   * shifting smoothly, since a shared per-integer-distance material (or,
+   * for torch mode, a shared per-integer-distance geometry) was swapped in
+   * wholesale the instant the rounded distance ticked over. So instead of
+   * picking a bucketed material/geometry, both floor and walls compute
+   * their OWN color directly from THEIR OWN exact, unrounded distance
+   * every frame (see setDungeon(), where every floor tile and wall panel
+   * is given a private material — and, for wall panels, an additional
+   * private torch geometry — instead of a shared one from this._mat/
+   * this._geo) — a true continuous gradient, independent of the tile
+   * grid, that only ever depends on how far that exact point actually is
+   * from Artius right now.
    *
    * The visible/not-visible cutoff itself always uses the unrounded
-   * distance (for walls/markers too) so the circle's outer edge stays
-   * smooth. Walls/floor fade by shifting color toward the background
-   * while staying fully opaque; markers fade via transparency instead.
-   * Runs every frame (from update()) — this is live sight, not a
-   * permanent "once seen" reveal.
+   * distance (for markers too) so the circle's outer edge stays smooth.
+   * Walls/floor fade by shifting color toward the background while
+   * staying fully opaque; markers fade via transparency instead. Runs
+   * every frame (from update()) — this is live sight, not a permanent
+   * "once seen" reveal.
    */
   updateVisibility() {
     const torch = this._hasTorchEquipped();
@@ -983,20 +1024,18 @@ export class DungeonRenderer3D {
       const distIdx = Math.min(Math.round(dist), maxRadius);
 
       if (entry.walls) {
-        // Ambient walls: one shared geometry (grayscale height fade) + a
-        // material per distance. Torch walls: the OPPOSITE split — one
-        // shared white material, and the distance+height color instead
-        // baked per-distance into the geometry itself (see
-        // torchWallGeoNSByDist/EW / buildTorchWallGeometry), since each
-        // distance needs its own hue curve.
-        const mat = torch ? this._mat.torchWallMaterial : this._mat.wallByDist[distIdx];
-        const geoNS = torch ? this._geo.torchWallGeoNSByDist[distIdx] : this._geo.wallPanelNS;
-        const geoEW = torch ? this._geo.torchWallGeoEWByDist[distIdx] : this._geo.wallPanelEW;
-        entry.walls.forEach(({ mesh, dx: wallDx }) => {
-          mesh.visible = visible;
-          mesh.material = mat;
-          // dx===0 panels face north/south (wallPanelNS); the rest face east/west (wallPanelEW) — see CARDINAL_DIRS.
-          mesh.geometry = wallDx === 0 ? geoNS : geoEW;
+        entry.walls.forEach((w) => {
+          w.mesh.visible = visible;
+          if (!visible) return;
+          if (torch) {
+            writeTorchWallGeometryColors(w.torchGeometry, dist);
+            w.mesh.material = this._mat.torchWallMaterial;
+            w.mesh.geometry = w.torchGeometry;
+          } else {
+            w.ambientMaterial.color.copy(blendColor(moonHue(dist), MAX_WALL_KEEP * visibilityStrength(dist), BACKGROUND_COLOR));
+            w.mesh.material = w.ambientMaterial;
+            w.mesh.geometry = w.isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW;
+          }
         });
         return;
       }
@@ -1129,18 +1168,22 @@ export class DungeonRenderer3D {
     if (this._hintHideTimeout) clearTimeout(this._hintHideTimeout);
     this._hintEl?.remove();
     // Both _geo and _mat hold a mix of shapes: plain objects (behindWall),
-    // flat arrays indexed by distance (torchWallGeoNSByDist), and nested
-    // per-type arrays of arrays (markerByDist) — recurse until something
-    // disposable is found rather than assuming a fixed depth. Floor
-    // materials are the one exception: they're private per-tile instances
-    // (see updateVisibility()'s doc comment), never stored in this._mat,
-    // so they're disposed directly off tileMeshes here instead.
+    // flat arrays (markerByDist's per-type arrays) — recurse until
+    // something disposable is found rather than assuming a fixed depth.
+    // Floor materials and wall panels' ambientMaterial/torchGeometry are
+    // the exception: they're private per-tile/per-panel instances (see
+    // updateVisibility()'s floor-color and wall-color comments), never
+    // stored in this._mat/this._geo, so they're disposed directly off
+    // tileMeshes here instead.
     const disposeDeep = (value) => {
       if (!value) return;
       if (typeof value.dispose === 'function') value.dispose();
       else Object.values(value).forEach(disposeDeep);
     };
-    this.tileMeshes.forEach((entry) => entry.floor?.material.dispose());
+    this.tileMeshes.forEach((entry) => {
+      entry.floor?.material.dispose();
+      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.torchGeometry.dispose(); });
+    });
     disposeDeep(this._geo);
     disposeDeep(this._mat);
     this.playerSprite?.material.map?.dispose();
