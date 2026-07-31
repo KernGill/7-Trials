@@ -196,17 +196,38 @@ export class DamageCalculator {
       const split = defender.reflectSplitPercent / 100;
       const taken = Math.round(damage * split);
       const returned = damage - taken;
-      // Not consumed here — Arcane Split covers every hit for its whole
-      // reflectSplitTurnsRemaining window (see StatusEffectSystem.
-      // decayBuffDurations, which ticks it down once per fight turn and
-      // zeroes reflectSplitPercent only once that window actually runs out).
+      // reflectSplitPercent itself is not consumed here — Arcane Split
+      // covers every hit for its whole reflectSplitTurnsRemaining window
+      // (see StatusEffectSystem.decayBuffDurations, which ticks it down
+      // once per fight turn and zeroes reflectSplitPercent only once that
+      // window actually runs out).
       const takenAfterDefense = this.applyDefense(taken, defender, move, attacker);
       const returnedAfterDefense = this.applyDefense(returned, attacker, move, defender);
-      defender.takeDamage(takenAfterDefense);
+      // Guard/pendingDamageReduction only ever protects the DEFENDER's own
+      // share of a split hit — the portion reflected back at the attacker
+      // is unaffected, matching the status-tick path (Character.takeDamage/
+      // _applyOwnDamage's pendingDamageReduction handling likewise only
+      // ever reduces the recipient's own post-split share, never the other
+      // side's). Previously this branch never called
+      // applyDamageReductionState at all, so an active Guard/damage-
+      // reduction stance was silently skipped (not consumed, not applied)
+      // on any hit that also triggered Arcane Split.
+      const reduction = this.applyDamageReductionState(takenAfterDefense, defender);
+      const takenAfterReduction = reduction.remaining;
+      defender.takeDamage(takenAfterReduction);
       attacker.takeDamage(returnedAfterDefense);
-      this.applyReactiveHeal(defender, takenAfterDefense);
+      this.applyReactiveHeal(defender, takenAfterReduction);
       this.applyReactiveHeal(attacker, returnedAfterDefense);
-      return { hit: true, damage: taken, healed: 0, reflected: returned, isCrit: crit.isCrit, split: true };
+      return {
+        hit: true,
+        reducedAmount: reduction.reducedAmount,
+        reducedByMoveName: reduction.reducedByMoveName,
+        damage: takenAfterReduction,
+        healed: 0,
+        reflected: returnedAfterDefense,
+        isCrit: crit.isCrit,
+        split: true,
+      };
     }
 
     damage = this.applyDefense(damage, defender, move, attacker);

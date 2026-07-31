@@ -2,21 +2,28 @@ import { GAME_STATES } from '../utils/Constants.js';
 import { clamp } from '../utils/MathUtils.js';
 import { t } from '../ui/i18n.js';
 import {
-  CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
-  DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, linkedHeightPercentForAngle,
   CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
   CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
-  DEFAULT_AUTO_FOV, autoFovPercentForAngle,
+  DEFAULT_AUTO_FOV,
 } from '../ui/CameraSettings.js';
 import { WALK_SPEED_MIN_PERCENT, WALK_SPEED_MAX_PERCENT, DEFAULT_WALK_SPEED_PERCENT } from '../ui/WalkSpeedSettings.js';
+import {
+  BRIGHTNESS_MIN_PERCENT, BRIGHTNESS_MAX_PERCENT, DEFAULT_BRIGHTNESS_PERCENT,
+  GAME_SPEED_MIN, GAME_SPEED_MAX, DEFAULT_GAME_SPEED,
+  DAMAGE_NUMBER_DURATION_MIN, DAMAGE_NUMBER_DURATION_MAX, DAMAGE_NUMBER_DURATION_STEP, DEFAULT_DAMAGE_NUMBER_DURATION,
+  DAMAGE_NUMBER_SIZE_MIN, DAMAGE_NUMBER_SIZE_MAX, DAMAGE_NUMBER_SIZE_STEP, DEFAULT_DAMAGE_NUMBER_SIZE,
+} from '../ui/DisplaySettings.js';
+import { sliderRowHTML, bindSliderRow } from '../ui/SliderRow.js';
+import { CameraOrientationPanel, applyAutoFov } from '../ui/CameraOrientationPanel.js';
 
 const FPS_OPTIONS = [30, 60, 90, 120, 144];
 const LANGUAGE_OPTIONS = ['en', 'es'];
+const ROW_CLASS = 'settings-row';
 
 export class SettingsState {
   constructor(app) {
     this.app = app;
-    this.fineTuneOpen = false;
+    this.cameraPanel = new CameraOrientationPanel();
   }
 
   enter(root) {
@@ -34,104 +41,31 @@ export class SettingsState {
 
   exit() {}
 
-  cameraSectionHTML(s) {
-    const angle = Math.round(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
-    const linkedHeight = Math.round(linkedHeightPercentForAngle(angle));
-    const height = Math.round((s.cameraHeight ?? DEFAULT_CAMERA_HEIGHT) * 100);
-    return `
-      <div class="settings-row">
-        <span class="camera-combined-label">${t('settings.camera_orientation', { angle, height: linkedHeight })}</span>
-        <input type="range" min="${CAMERA_ANGLE_MIN}" max="${CAMERA_ANGLE_MAX}" step="1" value="${angle}" class="camera-combined-slider">
-        <button class="fine-tune-btn">${t('settings.fine_tune')}</button>
-      </div>
-      ${this.fineTuneOpen ? `
-        <div class="settings-row fine-tune-row">
-          <span class="camera-angle-label">${t('settings.camera_angle', { deg: angle })}</span>
-          <input type="range" min="${CAMERA_ANGLE_MIN}" max="${CAMERA_ANGLE_MAX}" step="1" value="${angle}" class="camera-angle-slider">
-        </div>
-        <div class="settings-row fine-tune-row">
-          <span class="camera-height-label">${t('settings.camera_height', { percent: height })}</span>
-          <input type="range" min="${CAMERA_HEIGHT_MIN_PERCENT}" max="${CAMERA_HEIGHT_MAX_PERCENT}" step="1" value="${height}" class="camera-height-slider">
-        </div>
-        <div class="settings-row fine-tune-row">
-          <button class="camera-reset-btn">${t('settings.reset_default')}</button>
-        </div>
-      ` : ''}`;
-  }
-
-  /** If Auto FOV is on, derives cameraZoom from the current cameraAngle — called anywhere cameraAngle changes (either camera slider, or Reset to Default) and when Auto FOV is toggled on, so the FOV slider always lands back in sync with orientation. */
-  applyAutoFov(s) {
-    if (!s.autoFOV) return;
-    s.cameraZoom = autoFovPercentForAngle(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
-  }
-
-  /** Keeps the combined slider's label and (if open) the fine-tune sub-sliders' thumbs/labels all in sync, without a full re-render — mirrors the lightweight label-only updates the other sliders here already use. Also re-syncs the FOV slider whenever Auto FOV is on, since angle changes drive it too. */
-  syncCameraDisplays(s) {
-    const angle = Math.round(s.cameraAngle ?? DEFAULT_CAMERA_ANGLE);
-    const linkedHeight = Math.round(linkedHeightPercentForAngle(angle));
-    const height = Math.round((s.cameraHeight ?? DEFAULT_CAMERA_HEIGHT) * 100);
-    this.body.querySelector('.camera-combined-label').textContent = t('settings.camera_orientation', { angle, height: linkedHeight });
-    this.body.querySelector('.camera-combined-slider').value = angle;
-    this.applyAutoFov(s);
-    this.body.querySelector('.camera-fov-label').textContent = t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) });
-    this.body.querySelector('.camera-fov-slider').value = Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT);
-    if (!this.fineTuneOpen) return;
-    this.body.querySelector('.camera-angle-label').textContent = t('settings.camera_angle', { deg: angle });
-    this.body.querySelector('.camera-angle-slider').value = angle;
-    this.body.querySelector('.camera-height-label').textContent = t('settings.camera_height', { percent: height });
-    this.body.querySelector('.camera-height-slider').value = height;
-  }
-
-  bindCameraEvents(s) {
-    this.body.querySelector('.camera-combined-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.camera-combined-slider').addEventListener('input', (e) => {
-      s.cameraAngle = clamp(Number(e.target.value), CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX);
-      s.cameraHeight = linkedHeightPercentForAngle(s.cameraAngle) / 100;
-      this.syncCameraDisplays(s);
-    });
-    this.body.querySelector('.fine-tune-btn').addEventListener('click', () => {
-      this.fineTuneOpen = !this.fineTuneOpen;
-      this.renderAll();
-    });
-    if (!this.fineTuneOpen) return;
-    this.body.querySelector('.camera-angle-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.camera-angle-slider').addEventListener('input', (e) => {
-      s.cameraAngle = clamp(Number(e.target.value), CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX);
-      this.syncCameraDisplays(s);
-    });
-    this.body.querySelector('.camera-height-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.camera-height-slider').addEventListener('input', (e) => {
-      s.cameraHeight = clamp(Number(e.target.value) / 100, CAMERA_HEIGHT_MIN_PERCENT / 100, CAMERA_HEIGHT_MAX_PERCENT / 100);
-      this.syncCameraDisplays(s);
-    });
-    this.body.querySelector('.camera-reset-btn').addEventListener('click', () => {
-      s.cameraAngle = DEFAULT_CAMERA_ANGLE;
-      s.cameraHeight = DEFAULT_CAMERA_HEIGHT;
-      this.app.saveSystem.save();
-      this.renderAll();
-    });
-  }
-
   renderAll() {
     const s = this.app.gameState.settings;
-    this.applyAutoFov(s);
+    const save = () => this.app.saveSystem.save();
+    applyAutoFov(s);
     this.body.innerHTML = `
-      <div class="settings-row">
-        <span class="brightness-label">${t('settings.brightness', { percent: Math.round(s.brightness * 100) })}</span>
-        <input type="range" min="30" max="150" value="${Math.round(s.brightness * 100)}" class="brightness-slider">
-      </div>
-      <div class="settings-row">
-        <span class="gamespeed-label">${t('settings.game_speed', { mult: s.gameSpeed ?? 2 })}</span>
-        <input type="range" min="1" max="5" step="1" value="${s.gameSpeed ?? 2}" class="gamespeed-slider">
-      </div>
-      <div class="settings-row">
-        <span class="damage-number-duration-label">${t('settings.damage_number_duration', { mult: (s.damageNumberDuration ?? 1).toFixed(1) })}</span>
-        <input type="range" min="1" max="10" step="0.5" value="${s.damageNumberDuration ?? 1}" class="damage-number-duration-slider">
-      </div>
-      <div class="settings-row">
-        <span class="damage-number-size-label">${t('settings.damage_number_size', { mult: (s.damageNumberSize ?? 1).toFixed(1) })}</span>
-        <input type="range" min="1" max="3" step="0.1" value="${s.damageNumberSize ?? 1}" class="damage-number-size-slider">
-      </div>
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'brightness-label', sliderClass: 'brightness-slider',
+        labelText: t('settings.brightness', { percent: Math.round(s.brightness * 100) }),
+        min: BRIGHTNESS_MIN_PERCENT, max: BRIGHTNESS_MAX_PERCENT, value: Math.round(s.brightness * 100),
+      })}
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'gamespeed-label', sliderClass: 'gamespeed-slider',
+        labelText: t('settings.game_speed', { mult: s.gameSpeed ?? DEFAULT_GAME_SPEED }),
+        min: GAME_SPEED_MIN, max: GAME_SPEED_MAX, step: 1, value: s.gameSpeed ?? DEFAULT_GAME_SPEED,
+      })}
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'damage-number-duration-label', sliderClass: 'damage-number-duration-slider',
+        labelText: t('settings.damage_number_duration', { mult: (s.damageNumberDuration ?? DEFAULT_DAMAGE_NUMBER_DURATION).toFixed(1) }),
+        min: DAMAGE_NUMBER_DURATION_MIN, max: DAMAGE_NUMBER_DURATION_MAX, step: DAMAGE_NUMBER_DURATION_STEP, value: s.damageNumberDuration ?? DEFAULT_DAMAGE_NUMBER_DURATION,
+      })}
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'damage-number-size-label', sliderClass: 'damage-number-size-slider',
+        labelText: t('settings.damage_number_size', { mult: (s.damageNumberSize ?? DEFAULT_DAMAGE_NUMBER_SIZE).toFixed(1) }),
+        min: DAMAGE_NUMBER_SIZE_MIN, max: DAMAGE_NUMBER_SIZE_MAX, step: DAMAGE_NUMBER_SIZE_STEP, value: s.damageNumberSize ?? DEFAULT_DAMAGE_NUMBER_SIZE,
+      })}
       <div class="settings-row">
         <span>${t('settings.fps')}</span>
         <select class="fps-select">
@@ -152,80 +86,101 @@ export class SettingsState {
         <span>${t('settings.fixed_minimap')}</span>
         <button class="fixed-minimap-btn">${s.fixedMinimap ? t('settings.on') : t('settings.off')}</button>
       </div>
-      <div class="settings-row">
-        <span class="camera-sensitivity-label">${t('settings.camera_sensitivity', { percent: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100) })}</span>
-        <input type="range" min="${CAMERA_SENSITIVITY_MIN_PERCENT}" max="${CAMERA_SENSITIVITY_MAX_PERCENT}" step="1" value="${Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100)}" class="camera-sensitivity-slider">
-      </div>
-      <div class="settings-row">
-        <span class="walk-speed-label">${t('settings.walk_speed', { percent: Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100) })}</span>
-        <input type="range" min="${WALK_SPEED_MIN_PERCENT}" max="${WALK_SPEED_MAX_PERCENT}" step="1" value="${Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100)}" class="walk-speed-slider">
-      </div>
-      <div class="settings-row">
-        <span class="camera-fov-label">${t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) })}</span>
-        <input type="range" min="${CAMERA_ZOOM_MIN_PERCENT}" max="${CAMERA_ZOOM_MAX_PERCENT}" step="1" value="${Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT)}" class="camera-fov-slider" ${s.autoFOV ? 'disabled' : ''}>
-      </div>
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'camera-sensitivity-label', sliderClass: 'camera-sensitivity-slider',
+        labelText: t('settings.camera_sensitivity', { percent: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100) }),
+        min: CAMERA_SENSITIVITY_MIN_PERCENT, max: CAMERA_SENSITIVITY_MAX_PERCENT, step: 1,
+        value: Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100),
+      })}
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'walk-speed-label', sliderClass: 'walk-speed-slider',
+        labelText: t('settings.walk_speed', { percent: Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100) }),
+        min: WALK_SPEED_MIN_PERCENT, max: WALK_SPEED_MAX_PERCENT, step: 1,
+        value: Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100),
+      })}
+      ${sliderRowHTML({
+        rowClass: ROW_CLASS, labelClass: 'camera-fov-label', sliderClass: 'camera-fov-slider',
+        labelText: t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) }),
+        min: CAMERA_ZOOM_MIN_PERCENT, max: CAMERA_ZOOM_MAX_PERCENT, step: 1,
+        value: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT), disabled: !!s.autoFOV,
+      })}
       <div class="settings-row">
         <span>${t('settings.auto_fov')}</span>
         <button class="auto-fov-btn">${(s.autoFOV ?? DEFAULT_AUTO_FOV) ? t('settings.on') : t('settings.off')}</button>
       </div>
-      ${this.cameraSectionHTML(s)}`;
-    this.body.querySelector('.brightness-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.brightness-slider').addEventListener('input', (e) => {
-      s.brightness = clamp(Number(e.target.value) / 100, 0.3, 1.5);
-      this.app.applyBrightness();
-      this.body.querySelector('.brightness-label').textContent = t('settings.brightness', { percent: Math.round(s.brightness * 100) });
+      ${this.cameraPanel.html(s, ROW_CLASS)}`;
+
+    bindSliderRow(this.body, {
+      sliderClass: 'brightness-slider', labelClass: 'brightness-label', onSave: save,
+      onInput: (v) => {
+        s.brightness = clamp(v / 100, BRIGHTNESS_MIN_PERCENT / 100, BRIGHTNESS_MAX_PERCENT / 100);
+        this.app.applyBrightness();
+        return t('settings.brightness', { percent: Math.round(s.brightness * 100) });
+      },
     });
-    this.body.querySelector('.gamespeed-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.gamespeed-slider').addEventListener('input', (e) => {
-      s.gameSpeed = clamp(Number(e.target.value), 1, 5);
-      this.body.querySelector('.gamespeed-label').textContent = t('settings.game_speed', { mult: s.gameSpeed });
+    bindSliderRow(this.body, {
+      sliderClass: 'gamespeed-slider', labelClass: 'gamespeed-label', onSave: save,
+      onInput: (v) => {
+        s.gameSpeed = clamp(v, GAME_SPEED_MIN, GAME_SPEED_MAX);
+        return t('settings.game_speed', { mult: s.gameSpeed });
+      },
     });
-    this.body.querySelector('.damage-number-duration-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.damage-number-duration-slider').addEventListener('input', (e) => {
-      s.damageNumberDuration = clamp(Number(e.target.value), 1, 10);
-      this.body.querySelector('.damage-number-duration-label').textContent = t('settings.damage_number_duration', { mult: s.damageNumberDuration.toFixed(1) });
+    bindSliderRow(this.body, {
+      sliderClass: 'damage-number-duration-slider', labelClass: 'damage-number-duration-label', onSave: save,
+      onInput: (v) => {
+        s.damageNumberDuration = clamp(v, DAMAGE_NUMBER_DURATION_MIN, DAMAGE_NUMBER_DURATION_MAX);
+        return t('settings.damage_number_duration', { mult: s.damageNumberDuration.toFixed(1) });
+      },
     });
-    this.body.querySelector('.damage-number-size-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.damage-number-size-slider').addEventListener('input', (e) => {
-      s.damageNumberSize = clamp(Number(e.target.value), 1, 3);
-      this.body.querySelector('.damage-number-size-label').textContent = t('settings.damage_number_size', { mult: s.damageNumberSize.toFixed(1) });
+    bindSliderRow(this.body, {
+      sliderClass: 'damage-number-size-slider', labelClass: 'damage-number-size-label', onSave: save,
+      onInput: (v) => {
+        s.damageNumberSize = clamp(v, DAMAGE_NUMBER_SIZE_MIN, DAMAGE_NUMBER_SIZE_MAX);
+        return t('settings.damage_number_size', { mult: s.damageNumberSize.toFixed(1) });
+      },
     });
     this.body.querySelector('.fps-select').addEventListener('change', (e) => {
       this.app.setFPS(Number(e.target.value));
-      this.app.saveSystem.save();
+      save();
     });
     this.body.querySelector('.language-select').addEventListener('change', (e) => {
       this.app.setLanguage(e.target.value);
-      this.app.saveSystem.save();
+      save();
       this.enter(this.root); // full re-render — every label on this screen needs the new language
     });
-    this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; this.app.saveSystem.save(); this.renderAll(); });
+    this.body.querySelector('.sound-btn').addEventListener('click', () => { s.sound = !s.sound; save(); this.renderAll(); });
     this.body.querySelector('.fixed-minimap-btn').addEventListener('click', () => {
       s.fixedMinimap = !s.fixedMinimap;
-      this.app.saveSystem.save();
+      save();
       this.renderAll();
     });
-    this.body.querySelector('.camera-sensitivity-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.camera-sensitivity-slider').addEventListener('input', (e) => {
-      s.cameraSensitivity = clamp(Number(e.target.value) / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
-      this.body.querySelector('.camera-sensitivity-label').textContent = t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
+    bindSliderRow(this.body, {
+      sliderClass: 'camera-sensitivity-slider', labelClass: 'camera-sensitivity-label', onSave: save,
+      onInput: (v) => {
+        s.cameraSensitivity = clamp(v / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
+        return t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
+      },
     });
-    this.body.querySelector('.walk-speed-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.walk-speed-slider').addEventListener('input', (e) => {
-      s.walkSpeed = clamp(Number(e.target.value) / 100, WALK_SPEED_MIN_PERCENT / 100, WALK_SPEED_MAX_PERCENT / 100);
-      this.body.querySelector('.walk-speed-label').textContent = t('settings.walk_speed', { percent: Math.round(s.walkSpeed * 100) });
+    bindSliderRow(this.body, {
+      sliderClass: 'walk-speed-slider', labelClass: 'walk-speed-label', onSave: save,
+      onInput: (v) => {
+        s.walkSpeed = clamp(v / 100, WALK_SPEED_MIN_PERCENT / 100, WALK_SPEED_MAX_PERCENT / 100);
+        return t('settings.walk_speed', { percent: Math.round(s.walkSpeed * 100) });
+      },
     });
-    this.body.querySelector('.camera-fov-slider').addEventListener('change', () => this.app.saveSystem.save());
-    this.body.querySelector('.camera-fov-slider').addEventListener('input', (e) => {
-      s.cameraZoom = clamp(Number(e.target.value), CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
-      this.body.querySelector('.camera-fov-label').textContent = t('settings.camera_fov', { percent: Math.round(s.cameraZoom) });
+    bindSliderRow(this.body, {
+      sliderClass: 'camera-fov-slider', labelClass: 'camera-fov-label', onSave: save,
+      onInput: (v) => {
+        s.cameraZoom = clamp(v, CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT);
+        return t('settings.camera_fov', { percent: Math.round(s.cameraZoom) });
+      },
     });
     this.body.querySelector('.auto-fov-btn').addEventListener('click', () => {
       s.autoFOV = !(s.autoFOV ?? DEFAULT_AUTO_FOV);
-      this.applyAutoFov(s); // snaps the FOV slider into alignment immediately when turning on
-      this.app.saveSystem.save();
+      applyAutoFov(s); // snaps the FOV slider into alignment immediately when turning on
+      save();
       this.renderAll();
     });
-    this.bindCameraEvents(s);
+    this.cameraPanel.bind(this.body, s, { save, rerender: () => this.renderAll() });
   }
 }

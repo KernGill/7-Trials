@@ -35,7 +35,6 @@ export class Character {
     this.baseStats = { ...config.baseStats };
     this.equipmentStats = config.equipmentStats ?? {};
     this.cardBonusStats = config.cardBonusStats ?? {};
-    this.battleBuffs = {};
     this.statusEffects = [];
     this.statBuffs = [];
     this.temporaryStatModifiers = {};
@@ -107,7 +106,15 @@ export class Character {
     this.combatLogTag = config.combatLogTag ?? this.name;
 
     this.dotEffects = [];
-    this.passiveTriggers = [];
+    // "beat_both_in_one_hit_each" achievement's per-hit counter (CombatManager)
+    // and Thief's Guilt's enemy-death-order tracking (CombatManager) — both
+    // previously set via `?? 0`/`?? -1` fallback at their write sites,
+    // never declared here or cleared in resetBattleState(). Harmless today
+    // only because Enemy instances are freshly constructed per encounter,
+    // never reused across fights — declared explicitly so that stays true
+    // by construction rather than by accident.
+    this.playerHitCount = 0;
+    this.deathOrder = -1;
     // Set only on Player instances by Player.create() from live equipment —
     // read by CombatManager.executeMove for the Torch item's fire-move
     // energy discount. Always false on enemies.
@@ -144,10 +151,9 @@ export class Character {
 
     const base = this.baseStats[stat] ?? 0;
     const equip = this.equipmentStats[stat] ?? 0;
-    const battle = this.battleBuffs[stat] ?? 0;
     const temp = this.temporaryStatModifiers[stat] ?? 0;
     const card = this.cardBonusStats[stat] ?? 0;
-    let value = base + equip + battle + temp + card;
+    let value = base + equip + temp + card;
 
     if (stat === 'critChance') {
       const dexBonus = Math.floor(this.getStat('dex') * DEX_CRIT_RATIO);
@@ -388,11 +394,12 @@ export class Character {
     this.statusDamageThisFightTurn = 0;
     this.lastMoveId = null;
     this.consecutiveMoveCount = 0;
+    this.playerHitCount = 0;
+    this.deathOrder = -1;
     this.statusEffects = [];
     this.dotEffects = [];
     this.statBuffs = [];
     this.temporaryStatModifiers = {};
-    this.battleBuffs = {};
     this.moves.forEach((move) => {
       move.currentCooldown = 0;
       move.passiveCounter = 0;

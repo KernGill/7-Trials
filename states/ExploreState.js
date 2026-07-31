@@ -147,6 +147,16 @@ export class ExploreState {
     };
     this.pause = new PauseOverlay(app);
     this.qte = null;
+    // 'normal' | 'modal' | 'qte' | 'result' — replaces what used to be two
+    // separate flags (a `resultOpen` boolean plus `this.qte` doubling as its
+    // own boolean gate). They were never actually independent: startQTE()
+    // set resultOpen=true BEFORE constructing this.qte, and it stayed true
+    // continuously through the QTE AND its trailing result modal — qte was
+    // really a sub-state of "something is blocking normal play", not a
+    // sibling of it. this.qte itself is unchanged (still the QTE's own live
+    // data object, still what handleKeydown checks to route into
+    // handleQTEKeydown) — it just no longer needs to double as a mode flag.
+    this.mode = 'normal';
     // Continuous-movement input state — see updateContinuousMovement.
     // Two separate sets (rather than one shared "held actions" set)
     // because keyboard naturally tracks raw KEYS (so e.g. releasing 'w'
@@ -271,7 +281,7 @@ export class ExploreState {
 
   /** True while grid movement / camera-turn / look input should actually take effect — mirrors handleKeydown's own guard. */
   canAct() {
-    return !this.app.gameState.paused && !this.resultOpen && !this.qte;
+    return !this.app.gameState.paused && this.mode === 'normal';
   }
 
   /**
@@ -417,7 +427,7 @@ export class ExploreState {
       this.handleQTEKeydown(e);
       return;
     }
-    if (this.app.gameState.paused || this.resultOpen) return;
+    if (this.app.gameState.paused || this.mode !== 'normal') return;
     const key = e.key;
     // WASD/arrow-up/arrow-down are tracked as HELD (see updateContinuousMovement,
     // which reads _heldKeys every physics tick) rather than moving once per
@@ -434,7 +444,7 @@ export class ExploreState {
       this.turnPlayer(turnSteps[key]);
     } else if (key === 'm') {
       // Same modal the corner minimap's own click already opens — the
-      // resultOpen guard above already keeps this a no-op if it's open.
+      // mode!=='normal' guard above already keeps this a no-op if it's open.
       this.openMinimapExpanded();
     } else if (key === 'i') {
       this.adjustZoom(-CAMERA_ZOOM_STEP_PERCENT); // zoom in (toward 0% / first-person)
@@ -849,7 +859,10 @@ export class ExploreState {
    * is blocked while it's open.
    */
   showResult(title, lines) {
-    this.resultOpen = true;
+    // No pauseMouseLookForEvent()/mode='modal' here — showResult() is only
+    // ever reached from finishQTE()'s onResolve() chain, which has already
+    // set mode='result' (and mouse-look was already suspended back when the
+    // QTE itself started) — see finishQTE's terminal path.
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
     modal.innerHTML = `
@@ -861,7 +874,7 @@ export class ExploreState {
     this.root.appendChild(modal);
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
-      this.resultOpen = false;
+      this.mode = 'normal';
       this.restoreMouseLookAfterEvent();
     });
   }
@@ -883,7 +896,7 @@ export class ExploreState {
    * can't be undone by refreshing either.
    */
   showCardPick() {
-    this.resultOpen = true;
+    this.mode = 'modal';
     this.pauseMouseLookForEvent();
     const run = this.app.gameState.run;
     // Defensive fallback only — a save from before this feature existed
@@ -909,7 +922,7 @@ export class ExploreState {
         tile.addEventListener('click', () => {
           const picked = run.cardOffer[Number(tile.dataset.cardIndex)];
           modal.remove();
-          this.resultOpen = false;
+          this.mode = 'normal';
           this.restoreMouseLookAfterEvent();
           this.applyCardPick(picked);
         });
@@ -937,7 +950,7 @@ export class ExploreState {
    * actual travel.
    */
   showElevatorPicker() {
-    this.resultOpen = true;
+    this.mode = 'modal';
     this.pauseMouseLookForEvent();
     const { app } = this;
     const run = app.gameState.run;
@@ -962,14 +975,14 @@ export class ExploreState {
       btn.addEventListener('click', () => {
         const target = Number(btn.dataset.floor);
         modal.remove();
-        this.resultOpen = false;
+        this.mode = 'normal';
         this.restoreMouseLookAfterEvent();
         this.useElevator(target);
       });
     });
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
-      this.resultOpen = false;
+      this.mode = 'normal';
       this.restoreMouseLookAfterEvent();
     });
   }
@@ -1010,7 +1023,7 @@ export class ExploreState {
    * with its full effect spelled out.
    */
   showVendor() {
-    this.resultOpen = true;
+    this.mode = 'modal';
     this.pauseMouseLookForEvent();
     const { app } = this;
     const run = app.gameState.run;
@@ -1181,7 +1194,7 @@ export class ExploreState {
 
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
-      this.resultOpen = false;
+      this.mode = 'normal';
       this.restoreMouseLookAfterEvent();
     });
   }
@@ -1247,7 +1260,7 @@ export class ExploreState {
     const dex = this.player.getStat('dex');
     const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
 
-    this.resultOpen = true;
+    this.mode = 'qte';
     this.pauseMouseLookForEvent();
     // Thief's Prophecy (Thief's Goggles): every OTHER arrow gets auto-cleared
     // for free (see advanceQTE), always starting from index 0 — so which
@@ -1353,7 +1366,8 @@ export class ExploreState {
     if (!success && this.hasPassiveFlag('qteSecondChance') && !isRetry) {
       modal.remove();
       this.qte = null;
-      this.resultOpen = false;
+      // No mode write here — startQTE() below immediately re-sets
+      // mode='qte' anyway, so there's no observable moment in between.
       this.app.gameState.addLog(t('log.thiefs_curiosity_retry'));
       this.startQTE(onResolve, { arrowMultiplier, isRetry: true });
       return;
@@ -1367,7 +1381,13 @@ export class ExploreState {
     }
     modal.remove();
     this.qte = null;
-    this.resultOpen = false;
+    // 'result' (not 'normal') — onResolve() below synchronously calls one
+    // of resolveLockedDoor/resolveTreasure/resolveTemporalChest, which
+    // always ends by calling showResult(), so the QTE session isn't over
+    // yet; it's transitioning straight into its trailing result modal
+    // without passing back through 'normal' in between. Mouse-look stays
+    // suspended the whole time (see showResult's own comment).
+    this.mode = 'result';
     onResolve(success);
   }
 
@@ -1537,7 +1557,7 @@ export class ExploreState {
    * corner minimap's own separate "Fixed Minimap" north-up setting.
    */
   openMinimapExpanded() {
-    this.resultOpen = true;
+    this.mode = 'modal';
     this.pauseMouseLookForEvent();
     const modal = document.createElement('div');
     modal.className = 'result-overlay';
@@ -1560,7 +1580,7 @@ export class ExploreState {
     );
     modal.querySelector('.result-close').addEventListener('click', () => {
       modal.remove();
-      this.resultOpen = false;
+      this.mode = 'normal';
       this.restoreMouseLookAfterEvent();
     });
   }

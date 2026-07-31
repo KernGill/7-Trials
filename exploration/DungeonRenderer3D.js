@@ -100,13 +100,28 @@ const MOON_COLOR_STEP3 = 0x84acb8; // slightly desaturated darkish blue
 const MOON_COLOR_STEP4 = 0x2f5561; // really dark blue
 const MOON_COLOR_FAR = 0x000000; // black — full darkness, right at the edge of sight
 
-/** Ambient equivalent of torchHue(): pale moonlight near, fading through five color stops (moonlight -> light navy -> darkish blue -> really dark blue -> black) across four equal quarter-segments of the visible radius — no background blending yet (see blendColor for that half, applied on top via MAX_FLOOR_KEEP/MAX_WALL_KEEP same as before). */
+// Reused across every moonHue/torchHue/blendColor call instead of a fresh
+// `new THREE.Color(...)` per call (these run per visible floor tile, per
+// visible ambient wall panel, AND per vertex of every visible torch wall
+// panel, every single frame — real GC pressure at scale). Safe to share
+// module-wide: every call's result is fully consumed (an immediate
+// `.copy()` into a persistent material color, or `.setXYZ()` into a vertex
+// buffer) before the next call reuses these same objects — JS is single-
+// threaded and nothing here is async, so nothing ever holds a reference
+// across calls. This changes ONLY the allocation strategy — the underlying
+// distance math stays exactly continuous/unrounded, per updateVisibility()'s
+// doc comment on why bucketing floor/wall colors was deliberately rejected.
+const _hueOut = new THREE.Color();
+const _hueLerpTarget = new THREE.Color();
+const _blendTarget = new THREE.Color();
+
+/** Ambient equivalent of torchHue(): pale moonlight near, fading through five color stops (moonlight -> light navy -> darkish blue -> really dark blue -> black) across four equal quarter-segments of the visible radius — no background blending yet (see blendColor for that half, applied on top via MAX_FLOOR_KEEP/MAX_WALL_KEEP same as before). Mutates and returns the shared `_hueOut` scratch (see comment above) instead of allocating. */
 function moonHue(dist) {
   const t = clamp(dist / VISIBLE_RADIUS, 0, 1);
-  if (t < 0.25) return new THREE.Color(MOON_COLOR_NEAR).lerp(new THREE.Color(MOON_COLOR_STEP2), t / 0.25);
-  if (t < 0.5) return new THREE.Color(MOON_COLOR_STEP2).lerp(new THREE.Color(MOON_COLOR_STEP3), (t - 0.25) / 0.25);
-  if (t < 0.75) return new THREE.Color(MOON_COLOR_STEP3).lerp(new THREE.Color(MOON_COLOR_STEP4), (t - 0.5) / 0.25);
-  return new THREE.Color(MOON_COLOR_STEP4).lerp(new THREE.Color(MOON_COLOR_FAR), (t - 0.75) / 0.25);
+  if (t < 0.25) return _hueOut.setHex(MOON_COLOR_NEAR).lerp(_hueLerpTarget.setHex(MOON_COLOR_STEP2), t / 0.25);
+  if (t < 0.5) return _hueOut.setHex(MOON_COLOR_STEP2).lerp(_hueLerpTarget.setHex(MOON_COLOR_STEP3), (t - 0.25) / 0.25);
+  if (t < 0.75) return _hueOut.setHex(MOON_COLOR_STEP3).lerp(_hueLerpTarget.setHex(MOON_COLOR_STEP4), (t - 0.5) / 0.25);
+  return _hueOut.setHex(MOON_COLOR_STEP4).lerp(_hueLerpTarget.setHex(MOON_COLOR_FAR), (t - 0.75) / 0.25);
 }
 
 /**
@@ -167,17 +182,17 @@ function torchVisibilityStrength(dist) {
   return (1 - t) ** VISIBILITY_FALLOFF_POWER;
 }
 
-/** Pure flame hue at a torch-relative distance — yellow near, through orange, to red by the reach's midpoint, then held at red the rest of the way out — with no background blending yet (see blendColor for that half). */
+/** Pure flame hue at a torch-relative distance — yellow near, through orange, to red by the reach's midpoint, then held at red the rest of the way out — with no background blending yet (see blendColor for that half). Mutates and returns the shared `_hueOut` scratch (see comment above moonHue) instead of allocating. */
 function torchHue(dist) {
   const t = clamp(dist / TORCH_VISIBLE_RADIUS, 0, 1);
-  if (t < TORCH_HUE_YELLOW_END_T) return new THREE.Color(TORCH_COLOR_NEAR).lerp(new THREE.Color(TORCH_COLOR_MID), t / TORCH_HUE_YELLOW_END_T);
+  if (t < TORCH_HUE_YELLOW_END_T) return _hueOut.setHex(TORCH_COLOR_NEAR).lerp(_hueLerpTarget.setHex(TORCH_COLOR_MID), t / TORCH_HUE_YELLOW_END_T);
   if (t < TORCH_HUE_ORANGE_END_T) {
-    return new THREE.Color(TORCH_COLOR_MID).lerp(
-      new THREE.Color(TORCH_COLOR_FAR),
+    return _hueOut.setHex(TORCH_COLOR_MID).lerp(
+      _hueLerpTarget.setHex(TORCH_COLOR_FAR),
       (t - TORCH_HUE_YELLOW_END_T) / (TORCH_HUE_ORANGE_END_T - TORCH_HUE_YELLOW_END_T),
     );
   }
-  return new THREE.Color(TORCH_COLOR_FAR);
+  return _hueOut.setHex(TORCH_COLOR_FAR);
 }
 
 // The camera sits behind the player relative to facing, so a wall directly
@@ -308,9 +323,15 @@ function tileKey(x, y) {
   return `${x},${y}`;
 }
 
-/** Blends a color toward `towardHex`, keeping `keepFraction` of the original. */
-function blendColor(hex, keepFraction, towardHex) {
-  return new THREE.Color(hex).lerp(new THREE.Color(towardHex), 1 - keepFraction);
+/**
+ * Blends `color` toward `towardHex`, keeping `keepFraction` of the original.
+ * Mutates `color` IN PLACE (via `.lerp`) and returns it — every real call
+ * site passes the just-computed moonHue()/torchHue() result (itself the
+ * shared `_hueOut` scratch, never an independent object — see the comment
+ * above moonHue), so there's nothing left to allocate here either.
+ */
+function blendColor(color, keepFraction, towardHex) {
+  return color.lerp(_blendTarget.setHex(towardHex), 1 - keepFraction);
 }
 
 /**
@@ -892,7 +913,9 @@ export class DungeonRenderer3D {
             mesh: panel, dx, dy, isNS, ambientMaterial, torchGeometry,
           });
         });
-        this.tileMeshes.set(tileKey(tile.x, tile.y), { walls, type: TILE_TYPES.WALL });
+        this.tileMeshes.set(tileKey(tile.x, tile.y), {
+          walls, type: TILE_TYPES.WALL, x: tile.x, y: tile.y,
+        });
         return;
       }
 
@@ -906,7 +929,9 @@ export class DungeonRenderer3D {
       floor.position.set(worldX, 0, worldZ);
       this.dungeonGroup.add(floor);
 
-      const entry = { floor, marker: null, type: tile.type };
+      const entry = {
+        floor, marker: null, type: tile.type, x: tile.x, y: tile.y,
+      };
       this.tileMeshes.set(tileKey(tile.x, tile.y), entry);
       // Markers are always built (not gated on `explored`) — visibility
       // within the view radius is what controls whether a tile's type
@@ -1015,10 +1040,9 @@ export class DungeonRenderer3D {
     const px = this.currentPlayerPos.x / TILE_SIZE;
     const py = this.currentPlayerPos.z / TILE_SIZE;
 
-    this.tileMeshes.forEach((entry, key) => {
-      const [txStr, tyStr] = key.split(',');
-      const dx = Number(txStr) - px;
-      const dy = Number(tyStr) - py;
+    this.tileMeshes.forEach((entry) => {
+      const dx = entry.x - px;
+      const dy = entry.y - py;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const visible = dist <= maxRadius;
       const distIdx = Math.min(Math.round(dist), maxRadius);

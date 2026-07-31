@@ -226,6 +226,41 @@ export class StatusEffectSystem {
     return applied;
   }
 
+  /**
+   * Called once per fight-turn (CombatManager.advanceTurn, between
+   * tickFightTurnEnd and the next tickFightTurnStart) on every combatant —
+   * the one place that sweeps every TURN-COUNTED transient field this file
+   * owns: statBuffs/temporaryStatModifiers (below), reflectSplitPercent/
+   * reflectSplitTurnsRemaining (Arcane Split), guaranteedDodgeTurnsRemaining
+   * (Ethereal Form), pendingReactiveHeal/pendingReactiveHealTurnsRemaining
+   * (Flashback), and stunTrapTurnsRemaining (Vine Trap/Dread Grasp).
+   *
+   * `Character` carries several OTHER transient combat-state fields with
+   * genuinely different lifecycles that this method deliberately does NOT
+   * touch — documented here, in one place, rather than scattered across
+   * each field's own declaration, since "when does this field change"
+   * is exactly the question decayBuffDurations answers for everything it
+   * DOES own:
+   * - One-shot, consumed elsewhere on actual use, not decayed by a timer:
+   *   `guardState`/`pendingDamageReduction` (DamageCalculator.
+   *   applyDamageReductionState and Character._applyOwnDamage's
+   *   `includesStatus` branch — see DamageCalculator.resolveAttack's
+   *   split-hit branch for how the two interact with Arcane Split).
+   * - Permanent for the rest of the fight, cleared only by
+   *   Character.resetBattleState() at the next fight's start:
+   *   `physicalDamageReductionPercent`, `statusDamageMultipliers`,
+   *   `lastMoveId`/`consecutiveMoveCount`, `hasRevived`,
+   *   `diedFromStatusId`/`diedFromMoveId`, `hasActedInCombat`,
+   *   `combatOpponent`, `playerHitCount`, `deathOrder`.
+   * - Self-resetting scratch, not a real duration at all: `lastReflectSplit`
+   *   (Character.takeDamage clears it at the top of every call, regardless
+   *   of caller, before possibly setting it again that same call).
+   * - Decayed elsewhere, on a DIFFERENT per-fight-turn hook than this one:
+   *   `statusEffects[]` duration (StatusEffectSystem.tickFightTurnEnd),
+   *   `dotEffects[]` (CombatManager.processDotEffects),
+   *   `statusDamageThisFightTurn` (reset in tickFightTurnStart, before that
+   *   turn's own ticks run).
+   */
   decayBuffDurations(character) {
     character.statBuffs = character.statBuffs.filter((buff) => {
       if (buff.durationFightTurns > 0) buff.durationFightTurns -= 1;

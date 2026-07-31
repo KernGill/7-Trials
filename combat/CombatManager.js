@@ -5,6 +5,8 @@ import { EnergySystem, CooldownSystem } from './EnergySystem.js';
 import { TurnOrderSystem } from './TurnOrderSystem.js';
 import { StatusEffectSystem } from './StatusEffectSystem.js';
 import { EnemyAI } from './EnemyAI.js';
+import { CombatTimeline } from './CombatTimeline.js';
+import { PassiveTriggerSystem } from './PassiveTriggerSystem.js';
 import { rollDrop, pickRandom } from '../utils/RandomUtils.js';
 import { rollChance } from '../utils/MathUtils.js';
 import { getItemConfig } from '../data/items.js';
@@ -22,25 +24,6 @@ export const COMBAT_PHASE = {
   DEFEAT: 'defeat',
 };
 
-/**
- * Scales an array of buff/debuff entries by `count` — used when N equipped
- * copies of the same passive move fire together as ONE combined application
- * instead of N separate small ones (see CombatManager.triggerPassives).
- * Multiplies whichever numeric field the entry actually uses (`stacks` for
- * status effects, `amount` for a flat stat buff); an entry with neither
- * (e.g. `type: 'conFromInt'`, whose value is computed live off a stat, not
- * a static number here) has nothing to scale, so it's just repeated as its
- * own separate entry `count` times instead.
- */
-function scaleEntries(entries, count) {
-  if (count <= 1) return entries;
-  return entries.flatMap((entry) => {
-    if (entry.stacks !== undefined) return [{ ...entry, stacks: entry.stacks * count }];
-    if (entry.amount !== undefined) return [{ ...entry, amount: entry.amount * count }];
-    return Array(count).fill(entry);
-  });
-}
-
 export class CombatManager {
   constructor(eventBus) {
     this.eventBus = eventBus;
@@ -49,6 +32,8 @@ export class CombatManager {
     this.cooldownSystem = new CooldownSystem();
     this.statusSystem = new StatusEffectSystem();
     this.enemyAI = new EnemyAI();
+    this.timeline = new CombatTimeline(eventBus);
+    this.passiveSystem = new PassiveTriggerSystem();
     this.reset();
   }
 
@@ -61,7 +46,7 @@ export class CombatManager {
     this.rewards = null;
     this.selectedMove = null;
     this.pendingExplorationBuffs = [];
-    this.sequence = [];
+    this.timeline.reset();
     this.turnOrder.reset();
     this.enemyAI.reset();
     // Thief's Guilt (Thief's Skin) needs to know which enemy died LAST in
@@ -82,53 +67,27 @@ export class CombatManager {
    */
   stampEnemyDeaths() {
     this.enemies.forEach((e) => {
-      if (!e.isAlive() && e.deathOrder === undefined) {
+      if (!e.isAlive() && e.deathOrder === -1) {
         this.deathCounter += 1;
         e.deathOrder = this.deathCounter;
       }
     });
   }
 
-  /**
-   * Every meaningful sub-event of a synchronous cascade (fight-turn
-   * start, a character's turn beginning, a status tick, a move landing)
-   * gets pushed here instead of only surfacing as a text log line. The
-   * whole batch is flushed as one `combat:sequence` array right before
-   * control visibly returns to someone (player's turn, victory, defeat)
-   * — FightState replays it at a human pace even though every mutation
-   * inside it already happened instantly, under the hood, in order.
-   */
+  // The timeline sequence recorder — see CombatTimeline's own doc comment.
+  // Kept as thin delegates (rather than switching every call site to
+  // `this.timeline.record(...)`) so this extraction touched zero of the
+  // ~19 existing call sites.
   record(step) {
-    this.sequence.push(step);
+    this.timeline.record(step);
   }
 
-  recordTick({ character, effectId, amount, reflected }, phase) {
-    this.record({
-      kind: 'statusTick',
-      character,
-      effectId,
-      amount,
-      phase,
-      health: character.currentHealth,
-      energy: character.energy,
-      // Arcane-Split-style reflect on a status tick (see Character.
-      // takeDamage/lastReflectSplit) — the other combatant's own share of
-      // this same tick, so FightState.playStatusTickStep can show both
-      // sides taking damage instead of only the primary target.
-      reflected: reflected ? {
-        character: reflected.recipient,
-        amount: reflected.amount,
-        health: reflected.recipient.currentHealth,
-        energy: reflected.recipient.energy,
-      } : null,
-    });
+  recordTick(tick, phase) {
+    this.timeline.recordTick(tick, phase);
   }
 
   flushSequence() {
-    if (!this.sequence.length) return;
-    const steps = this.sequence;
-    this.sequence = [];
-    this.eventBus.emit('combat:sequence', steps);
+    this.timeline.flushSequence();
   }
 
   startCombat({ player, enemies, explorationBuffs = [] }) {
@@ -837,135 +796,23 @@ export class CombatManager {
     return { ok: true };
   }
 
-  /**
-   * Returns a flat array of every status/stat change this call actually
-   * applied — `{ recipient, kind: 'status', effectId, stacks } |
-   * { recipient, kind: 'stat', stat, amount }` — same shape executeMove
-   * uses for its own moveEffects.events, so both feed FightState's floating
-   * call-out rendering identically. `{ announce: true }` additionally
-   * records a standalone 'passiveEffect' beat (grouped per affected
-   * character) for triggers with no move animation of their own to piggy-
-   * back on (fight_turn_start, character_turn_start) — reactive triggers
-   * fired from inside executeMove (melee_hit_taken, player_guarded) leave
-   * announce off and let the caller merge this return value into the
-   * move's own beat instead, so e.g. Retaliatory Soul's bleed flashes at
-   * the same peak moment as the hit that provoked it.
-   */
+  // See PassiveTriggerSystem's own doc comment for the returned event
+  // shape and `announce` semantics — kept as a thin delegate here (rather
+  // than switching every call site to `this.passiveSystem.trigger(...)`),
+  // assembling the context object PassiveTriggerSystem needs from `this`.
   triggerPassives(trigger, actor = null, { announce = false } = {}) {
-    const actors = actor ? [actor] : this.combatants;
-    const appliedEvents = [];
-    actors.forEach((character) => {
-      // Group by template id first — duplicate equipped copies of the same
-      // passive (e.g. 4x Ember Curse) fire together as ONE combined
-      // application instead of N separate small ones. This matters most
-      // for self-inflicted debuffs: StatusEffectSystem.applyDebuffs' Status
-      // Reflection self-redirect rounds PER application — at 1 stack per
-      // instance, a single reflect roll could swallow the WHOLE
-      // application every time, making self-burn effectively vanish.
-      // Totaling first means the redirect only ever shaves off its actual
-      // percentage of the real combined total, same as a single big hit.
-      const groups = new Map();
-      character.moves.forEach((move) => {
-        if (move.template.trigger !== trigger) return;
-        if (!groups.has(move.template.id)) groups.set(move.template.id, []);
-        groups.get(move.template.id).push(move);
-      });
-      groups.forEach((instances) => {
-        const move = instances[0]; // representative instance for once-per-fire state (hasFiredOnce/passiveCounter)
-        const count = instances.length;
-        // triggerOnFightTurn fires exactly once per fight, on the specific
-        // numbered fight turn given (Flesh Eater's Palm: fight turn 5) —
-        // mutually exclusive with triggerInterval below.
-        if (move.template.triggerOnFightTurn) {
-          if (move.hasFiredOnce || this.turnOrder.fightTurn !== move.template.triggerOnFightTurn) return;
-          move.hasFiredOnce = true;
-        }
-        // triggerInterval lets a passive fire only every Nth time its
-        // trigger event happens (e.g. Challenger's Mettle: every 2nd of
-        // its owner's own character_turn_start) instead of every single
-        // occurrence.
-        if (move.template.triggerInterval) {
-          move.passiveCounter += 1;
-          if (move.passiveCounter % move.template.triggerInterval !== 0) return;
-        }
-        if (move.template.buffs) {
-          const applied = this.applySelfBuffs(character, scaleEntries(move.template.buffs, count));
-          applied.forEach((buff) => {
-            if (buff.type === 'stat') appliedEvents.push({ recipient: character, kind: 'stat', stat: buff.stat, amount: buff.amount });
-            else if (buff.type === 'effect') appliedEvents.push({ recipient: character, kind: 'status', effectId: buff.effectId, stacks: buff.stacks });
-          });
-        }
-        if (move.template.debuffs) {
-          const chanceOk = !move.template.debuffChance || rollChance(move.template.debuffChance);
-          if (chanceOk) {
-            const scaledDebuffs = scaleEntries(move.template.debuffs, count);
-            // aoeDebuffs (Ember Curse): hits every alive enemy at once
-            // instead of just whichever one is currently targeted.
-            if (character.isPlayer && move.template.aoeDebuffs) {
-              this.aliveEnemies.forEach((e) => {
-                const applied = this.statusSystem.applyDebuffs(e, scaledDebuffs, character);
-                this.logDebuffResults(applied);
-                applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
-              });
-            } else {
-              const target = character.isPlayer ? (character.combatOpponent ?? this.aliveEnemies[0]) : this.player;
-              if (target) {
-                const applied = this.statusSystem.applyDebuffs(target, scaledDebuffs, character);
-                this.logDebuffResults(applied);
-                applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
-              }
-            }
-          }
-        }
-        // Unlike `debuffs` (always routed to the opponent above),
-        // `selfDebuffs` targets the passive's own owner — Ash Eater.
-        if (move.template.selfDebuffs) {
-          const opposingSide = character.isPlayer ? this.enemies : [this.player];
-          const applied = this.statusSystem.applyDebuffs(character, scaleEntries(move.template.selfDebuffs, count), character, opposingSide);
-          this.logDebuffResults(applied);
-          applied.forEach((d) => appliedEvents.push({ recipient: d.recipient, kind: 'status', effectId: d.effectId, stacks: d.stacks }));
-        }
-        if (move.template.grantConsumables) {
-          character.combatConsumables = { ...move.template.grantConsumables };
-        }
-        if (move.template.grantGoldFlat) {
-          character.pendingGoldBonus = (character.pendingGoldBonus ?? 0) + move.template.grantGoldFlat * count;
-        }
-        if (move.template.physicalDamageReductionPercent) {
-          character.physicalDamageReductionPercent =
-            (character.physicalDamageReductionPercent ?? 0) + move.template.physicalDamageReductionPercent * count;
-        }
-        if (move.template.statusDamageMultipliers) {
-          // Multiplied (not overwritten) so two copies of the same passive
-          // (e.g. Formless from two equipped sources) genuinely compound.
-          const current = character.statusDamageMultipliers ?? {};
-          const next = { ...current };
-          Object.entries(move.template.statusDamageMultipliers).forEach(([key, mult]) => {
-            next[key] = (current[key] ?? 1) * mult ** count;
-          });
-          character.statusDamageMultipliers = next;
-        }
-      });
+    return this.passiveSystem.trigger(trigger, actor, {
+      combatants: this.combatants,
+      aliveEnemies: this.aliveEnemies,
+      player: this.player,
+      enemies: this.enemies,
+      turnOrder: this.turnOrder,
+      statusSystem: this.statusSystem,
+      applySelfBuffs: (character, buffs) => this.applySelfBuffs(character, buffs),
+      logDebuffResults: (applied) => this.logDebuffResults(applied),
+      record: (step) => this.record(step),
+      announce,
     });
-
-    if (announce && appliedEvents.length) {
-      const byRecipient = new Map();
-      appliedEvents.forEach((event) => {
-        if (!byRecipient.has(event.recipient)) byRecipient.set(event.recipient, []);
-        byRecipient.get(event.recipient).push(event);
-      });
-      byRecipient.forEach((events, character) => {
-        this.record({
-          kind: 'passiveEffect',
-          character,
-          events,
-          health: character.currentHealth,
-          energy: character.energy,
-        });
-      });
-    }
-
-    return appliedEvents;
   }
 
   /**
