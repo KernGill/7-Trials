@@ -5,12 +5,19 @@ import { rollChance } from '../utils/MathUtils.js';
 
 export class StatusEffectSystem {
   /**
-   * `onTick`, when passed, receives `{ character, effectId, amount }` for
-   * every landed tick — structured data CombatManager uses to record a
-   * timeline step (for paced damage-number playback in FightState),
-   * separate from `log`'s plain text message. `amount` is the actual
-   * post-multiplier damage (Character.takeDamage's return value), not
-   * the raw formula output, so it always matches what really landed.
+   * `onTick`, when passed, receives `{ character, effectId, amount,
+   * reflected }` for every landed tick — structured data CombatManager
+   * uses to record a timeline step (for paced damage-number playback in
+   * FightState), separate from `log`'s plain text message. `amount` is
+   * the actual post-multiplier damage (Character.takeDamage's return
+   * value), not the raw formula output, so it always matches what really
+   * landed. `reflected` (Character.lastReflectSplit, read right after the
+   * takeDamage() call below) carries the OTHER combatant's share whenever
+   * `character` has an active Arcane-Split-style reflect — takeDamage()
+   * itself only ever hands back the caller's own post-split amount, so
+   * without this the opponent's share of a split status tick would apply
+   * to their health with no timeline step, log line, or damage number to
+   * show for it.
    */
   tickCharacterTurnStart(character, log, onTick) {
     character.statusEffects.forEach((effect) => {
@@ -38,7 +45,7 @@ export class StatusEffectSystem {
         if (damage > 0) {
           const actual = character.takeDamage(damage, { source: effect.id });
           log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
-          onTick?.({ character, effectId: effect.id, amount: actual });
+          onTick?.({ character, effectId: effect.id, amount: actual, reflected: character.lastReflectSplit });
         }
       });
     });
@@ -60,7 +67,7 @@ export class StatusEffectSystem {
         if (damage > 0) {
           const actual = character.takeDamage(damage, { source: effect.id });
           log?.(t('log.status_damage', { name: character.name, n: actual, status: tData('status', effect.id, template.name) }));
-          onTick?.({ character, effectId: effect.id, amount: actual });
+          onTick?.({ character, effectId: effect.id, amount: actual, reflected: character.lastReflectSplit });
         }
       };
       character.statusEffects.forEach((effect) => {
@@ -185,7 +192,7 @@ export class StatusEffectSystem {
     return applied;
   }
 
-  /** Returns one entry per buff actually granted — { type: 'stat', stat, amount } | { type: 'effect', effectId, stacks } | { type: 'conFromInt', amount } | { type: 'energyGainBonus', amount } — so callers can log exactly what happened. */
+  /** Returns one entry per buff actually granted — { type: 'stat', stat, amount } | { type: 'effect', effectId, stacks } | { type: 'conFromInt', amount } — so callers can log exactly what happened. */
   applyBuffs(target, buffs, attacker) {
     const applied = [];
     buffs?.forEach((buff) => {
@@ -215,11 +222,6 @@ export class StatusEffectSystem {
         target.currentHealth = Math.min(target.getMaxHealth(), target.currentHealth + bonus);
         applied.push({ type: 'conFromInt', amount: bonus });
       }
-      if (buff.type === 'energyGainBonus') {
-        target.energyGainBonus = (target.energyGainBonus ?? 0) + buff.amount;
-        target.energyGainBonusTurns = buff.durationFightTurns ?? 2;
-        applied.push({ type: 'energyGainBonus', amount: buff.amount });
-      }
     });
     return applied;
   }
@@ -235,11 +237,6 @@ export class StatusEffectSystem {
       }
       return active;
     });
-
-    if (character.energyGainBonusTurns > 0) {
-      character.energyGainBonusTurns -= 1;
-      if (character.energyGainBonusTurns <= 0) character.energyGainBonus = 0;
-    }
 
     if (character.reflectSplitTurnsRemaining > 0) {
       character.reflectSplitTurnsRemaining -= 1;

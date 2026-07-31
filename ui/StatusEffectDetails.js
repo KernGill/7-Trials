@@ -109,6 +109,10 @@ const DETAILS = {
     `No periodic tick, and never expires — a flat -10 Speed per stack, additive.`,
     `At ${stacks} stack${stacks === 1 ? '' : 's'}: -${stacks * 10} Speed. Speed can never drop below 5, no matter how many stacks.`,
   ],
+  motivation: (stacks) => [
+    `No periodic tick — instead, at the start of each of this character's own turns (while any stacks remain), 1 stack is spent and 1 flat energy is gained.`,
+    `At ${stacks} stack${stacks === 1 ? '' : 's'}: ${stacks} more of this character's own turns will each grant 1 energy before Motivation runs out.`,
+  ],
   abyssalFire: (stacks, character) => {
     const runningTotal = character.statusDamageThisFightTurn ?? 0;
     const wouldDeal = Math.round(0.5 * runningTotal * stacks);
@@ -119,15 +123,20 @@ const DETAILS = {
   },
 };
 
-/** { name, stacks, timingLine, detailLines[] } for the given status effect id on the given character, or null if unrecognized. */
+/** { name, stacks, flavorLine, timingLine, detailLines[] } for the given status effect id on the given character, or null if unrecognized. */
 export function getStatusEffectDetail(effectId, character) {
   const cfg = STATUS_EFFECTS[effectId];
   if (!cfg) return null;
   const effect = character.statusEffects.find((e) => e.id === effectId);
   const stacks = effect?.stacks ?? 0;
   const name = tData('status', effectId, cfg.name);
+  // A short evocative line, separate from (and shown above) the
+  // technical detailLines below — most status effects don't have one
+  // yet (cfg.flavour is only set on a handful, e.g. motivation), so this
+  // is simply absent for those rather than falling back to anything.
+  const flavorLine = cfg.flavour ? tData('statusFlavour', effectId, cfg.flavour) : null;
   const timingLine = cfg.tickOn ? TICK_LABEL[cfg.tickOn] ?? null : null;
   const detailFn = DETAILS[effectId];
   const detailLines = detailFn ? detailFn(stacks, character) : [];
-  return { name, stacks, timingLine, detailLines };
+  return { name, stacks, flavorLine, timingLine, detailLines };
 }

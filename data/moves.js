@@ -4,7 +4,7 @@ export const MOVE_TEMPLATES = {
   challengers_mettle: {
     id: 'challengers_mettle',
     name: "Challenger's Mettle",
-    description: 'Every other turn, gains +3 Strength for that turn.',
+    description: 'Every other turn, permanently gains +3 Strength.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -12,7 +12,15 @@ export const MOVE_TEMPLATES = {
     energyCost: 0,
     cooldown: 2,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
-    buffs: [{ type: 'stat', stat: 'str', amount: 3, duration: 1 }],
+    // Per user request: each proc's +3 str stack is permanent (duration:
+    // -1, same as Golden Calling's own stat buff), not a 1-turn/1-round
+    // temporary stack. The old duration:1 expired at the very next
+    // round boundary (StatusEffectSystem.decayBuffDurations only runs once
+    // every full fight-turn, not per character-turn — see
+    // CombatManager.js), which in practice meant a Mettle stack almost
+    // always died before the player's next action anyway, making it look
+    // like an unrelated later cast (e.g. Golden Calling) had wiped it.
+    buffs: [{ type: 'stat', stat: 'str', amount: 3, duration: -1 }],
     // Fires on every 2nd of its own owner's character turns (not every
     // single one) — was previously wired to a trigger string CombatManager
     // never actually called, so this never fired at all.
@@ -79,7 +87,7 @@ export const MOVE_TEMPLATES = {
   ignite: {
     id: 'ignite',
     name: 'Ignite',
-    description: 'Deals damage, applies 5 stacks of Burn, and grants bonus energy for 4 turns.',
+    description: 'Deals damage, applies 5 stacks of Burn, and grants 2 stacks of Motivation.',
     properties: [MOVE_PROPERTIES.MAGIC, MOVE_PROPERTIES.RANGED, MOVE_PROPERTIES.DEBUFF],
     damage: 20,
     scaling: SCALING_TYPES.INT,
@@ -88,7 +96,12 @@ export const MOVE_TEMPLATES = {
     cooldown: 4,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     debuffs: [{ effect: 'fire', stacks: 5 }],
-    buffs: [{ type: 'energyGainBonus', amount: 1, durationFightTurns: 4 }],
+    // Motivation: a visible, stack-based alternative to the old flat
+    // "+1 energy gain for N turns" buff — see CombatManager's
+    // character-turn-start flow for the actual "consume 1 stack, grant 1
+    // energy" mechanic, and data/statusEffectConfig.js's motivation entry
+    // for the icon/flavor text.
+    buffs: [{ effect: 'motivation', stacks: 2 }],
   },
   guard: {
     id: 'guard',

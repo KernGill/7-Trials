@@ -296,6 +296,15 @@ export class FightState {
     this.setDisplayed(step.character, step.health, step.energy);
     this.renderCombatant(step.character);
     this.spawnDamageNumber(step.character, `-${step.amount}`, cfg?.color ?? REGULAR_DAMAGE_COLOR);
+    // Arcane-Split-style reflect on a status tick — see CombatManager.
+    // recordTick — splits this same tick onto the opponent too, mirroring
+    // spawnMoveDamageNumbers' own attacker/defender dual-spawn for the
+    // direct-hit version of this same mechanic.
+    if (step.reflected) {
+      this.setDisplayed(step.reflected.character, step.reflected.health, step.reflected.energy);
+      this.renderCombatant(step.reflected.character);
+      this.spawnDamageNumber(step.reflected.character, `-${step.reflected.amount}`, cfg?.color ?? REGULAR_DAMAGE_COLOR);
+    }
     this.timers.push(setTimeout(() => this.finishStep(), this.scaled(STATUS_TICK_MS)));
   }
 
@@ -760,7 +769,7 @@ export class FightState {
     });
   }
 
-  /** Detailed click-to-inspect panel for one status effect: name, current stacks, proc timing, exact numbers — closable via the × in the corner. */
+  /** Detailed click-to-inspect panel for one status effect: flavor text (if any), proc timing, exact numbers, current stacks — closable via the × in the corner. */
   openStatusDetail(effectId, character) {
     const detail = getStatusEffectDetail(effectId, character);
     if (!detail) return;
@@ -773,6 +782,7 @@ export class FightState {
       <div class="result-box status-detail-box">
         <button class="detail-close" data-a="close">&times;</button>
         <h2>${detail.name} x${detail.stacks}</h2>
+        ${detail.flavorLine ? `<div class="tt-flavor">${detail.flavorLine}</div>` : ''}
         ${lines.map((line) => `<div class="tt-desc">${line}</div>`).join('')}
       </div>`;
     this.root.appendChild(modal);

@@ -102,7 +102,7 @@ export class CombatManager {
     this.sequence.push(step);
   }
 
-  recordTick({ character, effectId, amount }, phase) {
+  recordTick({ character, effectId, amount, reflected }, phase) {
     this.record({
       kind: 'statusTick',
       character,
@@ -111,6 +111,16 @@ export class CombatManager {
       phase,
       health: character.currentHealth,
       energy: character.energy,
+      // Arcane-Split-style reflect on a status tick (see Character.
+      // takeDamage/lastReflectSplit) — the other combatant's own share of
+      // this same tick, so FightState.playStatusTickStep can show both
+      // sides taking damage instead of only the primary target.
+      reflected: reflected ? {
+        character: reflected.recipient,
+        amount: reflected.amount,
+        health: reflected.recipient.currentHealth,
+        energy: reflected.recipient.energy,
+      } : null,
     });
   }
 
@@ -206,8 +216,6 @@ export class CombatManager {
           n: buff.stacks,
           status: tData('status', buff.effectId, STATUS_EFFECTS[buff.effectId]?.name ?? buff.effectId),
         }));
-      } else if (buff.type === 'energyGainBonus') {
-        this.logMessage(t('log.energy_buff', { name: target.name }));
       } else if (buff.type === 'conFromInt') {
         this.logMessage(t('log.health_buff', { name: target.name, n: buff.amount }));
       }
@@ -360,6 +368,21 @@ export class CombatManager {
       // the pre-gain value until some unrelated later step happens to
       // resnapshot this character. Record it so FightState refreshes the
       // display immediately once this reaches the player.
+      this.record({ kind: 'energyGain', character: actor, health: actor.currentHealth, energy: actor.energy });
+    }
+
+    // Motivation (Ignite): a separate, explicit mechanic from the normal
+    // energy roll above — consumes exactly 1 stack and grants exactly 1
+    // flat energy, every one of the owner's own character-turns for as
+    // long as any stacks remain, so the remaining stack count visibly
+    // ticks down on their status icon instead of hiding behind an
+    // internal timer. See data/statusEffectConfig.js's motivation entry.
+    if (actor.getStatusStacks('motivation') > 0) {
+      const motivation = actor.statusEffects.find((e) => e.id === 'motivation');
+      motivation.stacks -= 1;
+      if (motivation.stacks <= 0) actor.removeStatusEffect('motivation');
+      actor.energy = Math.min(actor.getMaxEnergy(), actor.energy + 1);
+      this.logMessage(t('log.motivation_energy', { name: actor.name }));
       this.record({ kind: 'energyGain', character: actor, health: actor.currentHealth, energy: actor.energy });
     }
 

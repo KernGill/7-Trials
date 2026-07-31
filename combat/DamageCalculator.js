@@ -236,7 +236,7 @@ export class EnergyCalculator {
       if (rollChance(25)) return 0;
     }
 
-    let gain = 1 + (character.energyGainBonus ?? 0);
+    let gain = 1;
     const dex = character.getStat('dex');
     if (rollChance(dex / 2)) gain += 1;
     if (dex > DEX_ENERGY_THRESHOLD && rollChance((dex - DEX_ENERGY_THRESHOLD) / 2)) gain += 1;

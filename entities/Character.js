@@ -108,8 +108,6 @@ export class Character {
 
     this.dotEffects = [];
     this.passiveTriggers = [];
-    this.energyGainBonus = 0;
-    this.energyGainBonusTurns = 0;
     // Set only on Player instances by Player.create() from live equipment —
     // read by CombatManager.executeMove for the Torch item's fire-move
     // energy discount. Always false on enemies.
@@ -280,11 +278,20 @@ export class Character {
     // pre-computed number just being cut in two. Lasts for every hit within
     // reflectSplitTurnsRemaining's window, not just the first — see
     // StatusEffectSystem.decayBuffDurations for the actual expiry.
+    // Cleared/set on every call (not just the split branch) so a stale
+    // reflect from an earlier tick can never leak into an unrelated later
+    // takeDamage() call that doesn't itself split anything.
+    this.lastReflectSplit = null;
     if (source && this.reflectSplitPercent > 0 && this.combatOpponent) {
       const split = this.reflectSplitPercent / 100;
       const taken = Math.round(rawAmount * split);
       const returned = rawAmount - taken;
-      this.combatOpponent.takeDamage(returned, { source });
+      const recipient = this.combatOpponent;
+      const reflectedActual = recipient.takeDamage(returned, { source });
+      // Surfaced so status-tick callers (StatusEffectSystem doesn't see
+      // this second character at all otherwise) can record a timeline step
+      // for it — see CombatManager.recordTick/FightState.playStatusTickStep.
+      this.lastReflectSplit = reflectedActual > 0 ? { recipient, amount: reflectedActual } : null;
       return this._applyOwnDamage(taken, source);
     }
     return this._applyOwnDamage(rawAmount, source);
@@ -386,8 +393,6 @@ export class Character {
     this.statBuffs = [];
     this.temporaryStatModifiers = {};
     this.battleBuffs = {};
-    this.energyGainBonus = 0;
-    this.energyGainBonusTurns = 0;
     this.moves.forEach((move) => {
       move.currentCooldown = 0;
       move.passiveCounter = 0;

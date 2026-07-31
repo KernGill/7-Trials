@@ -85,6 +85,23 @@ export const STATUS_EFFECTS = {
     reflectPerStack: 0.03,
     stacksDecrease: false,
   },
+  // Ignite's Motivation buff — 2 stacks granted per cast. Pure
+  // stack-tracker + icon/flavor metadata, same convention as
+  // strength/thorns/lifesteal below: the real mechanic (consume exactly
+  // 1 stack, grant 1 flat energy, on the owner's own next character-turn)
+  // is hardcoded in CombatManager's character-turn-start flow, right
+  // after the normal per-turn energy roll — not tickOn/formula-based
+  // like the damage-over-time effects above, since it grants energy
+  // rather than dealing damage.
+  motivation: {
+    id: 'motivation',
+    name: 'Motivation',
+    type: 'buff',
+    icon: 'Mv',
+    color: '#f39c12',
+    flavour: 'Ignite the enemy and your heart.',
+    stacksDecrease: false,
+  },
   strength: {
     id: 'strength',
     name: 'Strength',
