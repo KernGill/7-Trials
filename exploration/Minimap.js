@@ -176,7 +176,16 @@ export class Minimap {
       const img = new Image();
       img.onload = () => {
         if (token !== this._fogLoadToken || !this._fogCanvas) return;
-        this._fogCanvas.getContext('2d').drawImage(img, 0, 0);
+        const ctx = this._fogCanvas.getContext('2d');
+        // Plain drawImage would use 'source-over' compositing, which only
+        // ever ADDS opacity on top of the current (opaque placeholder)
+        // canvas — it can't restore transparency, since a fully-transparent
+        // source pixel contributes nothing and leaves the opaque
+        // destination as-is. clearRect first so the restored PNG's own
+        // alpha (including its previously-revealed, transparent areas)
+        // fully replaces the placeholder instead of blending over it.
+        ctx.clearRect(0, 0, this._fogCanvas.width, this._fogCanvas.height);
+        ctx.drawImage(img, 0, 0);
         this._applyEventRevealOverrides(dungeon);
         this._composite();
       };

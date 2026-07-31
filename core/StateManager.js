@@ -266,6 +266,11 @@ export class StateManager {
    * run was played with.
    */
   abandonRun() {
+    // Pull the fog canvas's latest pixels onto run.dungeon.fogData before
+    // snapshotting — ExploreState only syncs this throttled/on-save, so
+    // without this the "Continue: Floor N" offer could resume with fog
+    // that's up to FOG_SYNC_INTERVAL_SECONDS stale.
+    this.currentStateHandler?.syncFogToDungeon?.();
     this.gameState.abandonedRun = {
       run: deepClone(this.gameState.run),
       equipped: deepClone(this.gameState.player.equipped),

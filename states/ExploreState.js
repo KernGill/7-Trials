@@ -134,6 +134,17 @@ export class ExploreState {
     this._onKeydown = this.handleKeydown.bind(this);
     this._onKeyup = this.handleKeyup.bind(this);
     this._onBlur = () => { this._heldKeys.clear(); this._heldTouchActions.clear(); };
+    // Safety net for a plain tab close/refresh while exploring: fog reveals
+    // and position update on every frame in memory, but only reach
+    // localStorage via throttled/movement-triggered saves (see tick(),
+    // updateContinuousMovement) — someone who stops moving to admire the
+    // map then closes the tab would otherwise lose whatever was revealed
+    // since the last save. pagehide (not beforeunload) since it also fires
+    // on mobile Safari's app-switch/backgrounding, not just an actual close.
+    this._onPageHide = () => {
+      this.syncFogToDungeon();
+      this.app.saveSystem.save();
+    };
     this.pause = new PauseOverlay(app);
     this.qte = null;
     // Continuous-movement input state — see updateContinuousMovement.
@@ -201,6 +212,7 @@ export class ExploreState {
     this.app.input.on('keydown', this._onKeydown);
     this.app.input.on('keyup', this._onKeyup);
     window.addEventListener('blur', this._onBlur);
+    window.addEventListener('pagehide', this._onPageHide);
     this._heldKeys.clear();
     this._heldTouchActions.clear();
     this.mountTouchControls();
@@ -247,6 +259,7 @@ export class ExploreState {
     this.app.input.off('keydown', this._onKeydown);
     this.app.input.off('keyup', this._onKeyup);
     window.removeEventListener('blur', this._onBlur);
+    window.removeEventListener('pagehide', this._onPageHide);
     this._heldKeys.clear();
     this._heldTouchActions.clear();
     this.els.grid?.removeEventListener('wheel', this._onWheel);
@@ -324,6 +337,13 @@ export class ExploreState {
 
   onPauseToggled() {
     if (this.app.gameState.paused) {
+      // Opening the pause menu is the natural "I'm done exploring for now"
+      // moment — flush the fog canvas + a save right here rather than
+      // relying on the next throttled tick()/movement-triggered save,
+      // since the player may well close the tab from the pause menu
+      // without moving again first.
+      this.syncFogToDungeon();
+      this.app.saveSystem.save();
       this.pause.mount(this.root, {
         canAbandon: true,
         allowConsumables: true,
@@ -652,6 +672,11 @@ export class ExploreState {
     this._moveAutosaveTimer += dt;
     if (this._moveAutosaveTimer >= MOVE_AUTOSAVE_INTERVAL_SECONDS) {
       this._moveAutosaveTimer = 0;
+      // Sync the fog canvas right before this save rather than waiting for
+      // tick()'s own throttled FOG_SYNC_INTERVAL_SECONDS check (which runs
+      // after this call, same frame) — otherwise every autosave persists
+      // fog as of up to FOG_SYNC_INTERVAL_SECONDS ago instead of now.
+      this.syncFogToDungeon();
       this.app.saveSystem.save();
     }
     this.checkTileTrigger(resolved.x, resolved.y);
@@ -694,6 +719,7 @@ export class ExploreState {
 
     this.handleTileEffect(tile);
     this.syncDungeon3D(); // no-op unless handleTileEffect just generated a new floor (STAIRS)
+    this.syncFogToDungeon(); // see updateContinuousMovement's own call for why this precedes the save
     this.app.saveSystem.save();
     this._moveAutosaveTimer = 0;
     this.renderHUD();
