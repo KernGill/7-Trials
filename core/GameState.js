@@ -85,7 +85,7 @@ export class GameState {
     // below only overwrites this if an already-saved settings object
     // explicitly has its own gameSpeed value).
     this.settings = {
-      brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: true,
+      brightness: 1, sound: true, fps: 60, language: 'en', gameSpeed: 2, fixedMinimap: false,
       // damageNumberDuration: 1-10x multiplier on how long floating combat
       // text (damage numbers, status/stat call-outs) stays on screen — 1x
       // is exactly today's baseline duration, 10x is ten times as long.
