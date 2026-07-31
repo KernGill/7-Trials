@@ -56,6 +56,7 @@ export const TRANSLATIONS = {
     'settings.camera_orientation': 'Camera Orientation: ({angle}/{height})',
     'settings.camera_sensitivity': 'Camera Sensitivity: {percent}%',
     'settings.camera_fov': 'FOV: {percent}%',
+    'settings.walk_speed': 'Walk Speed: {percent}%',
     'settings.auto_fov': 'Auto FOV',
     'settings.fine_tune': 'Fine Tune',
     'settings.reset_default': 'Reset to Default',
@@ -166,7 +167,7 @@ export const TRANSLATIONS = {
 
     // Explore
     'explore.floor': 'Floor {n}',
-    'explore.explored': 'Explored: {explored}/{total}',
+    'explore.explored': 'Explored: {percent}%',
     'explore.enemies_remaining': 'Enemies remaining: {n}',
     'explore.events_remaining': 'Events remaining: {n}',
     'explore.locked_rooms_remaining': 'Locked Rooms:',
@@ -381,6 +382,7 @@ export const TRANSLATIONS = {
     'settings.language.es': 'Español',
     'settings.camera_fov': 'CDV: {percent}%',
     'settings.auto_fov': 'CDV Automático',
+    'settings.walk_speed': 'Velocidad de Caminata: {percent}%',
 
     // Shop
     'shop.title': 'TIENDA',
@@ -463,7 +465,7 @@ export const TRANSLATIONS = {
 
     // Explore
     'explore.floor': 'Piso {n}',
-    'explore.explored': 'Explorado: {explored}/{total}',
+    'explore.explored': 'Explorado: {percent}%',
     'explore.enemies_remaining': 'Enemigos restantes: {n}',
     'explore.hp': 'PV: {current}/{max}',
     'explore.enemies_wander': 'Aún merodean enemigos',

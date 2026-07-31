@@ -5,6 +5,7 @@ import {
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
   DEFAULT_AUTO_FOV,
 } from '../ui/CameraSettings.js';
+import { DEFAULT_WALK_SPEED_PERCENT } from '../ui/WalkSpeedSettings.js';
 
 const DEFAULT_META = {
   currentArc: 0,
@@ -109,6 +110,11 @@ export class GameState {
       // cameraAngle instead of being independently adjustable. See
       // CameraSettings.js's autoFovPercentForAngle for the mapping.
       autoFOV: DEFAULT_AUTO_FOV,
+      // Multiplier (0.15 - 3) on the player's base continuous-movement
+      // speed (PLAYER_MOVE_SPEED in ExploreState.js) — 1 (100%) is
+      // today's speed, dead center of neither end of the slider's 15%-300%
+      // range. See ui/WalkSpeedSettings.js for the shared min/max/default.
+      walkSpeed: DEFAULT_WALK_SPEED_PERCENT / 100,
     };
     this.log = [];
     this.paused = false;

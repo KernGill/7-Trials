@@ -8,6 +8,7 @@ import {
   CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
   DEFAULT_AUTO_FOV, autoFovPercentForAngle,
 } from '../ui/CameraSettings.js';
+import { WALK_SPEED_MIN_PERCENT, WALK_SPEED_MAX_PERCENT, DEFAULT_WALK_SPEED_PERCENT } from '../ui/WalkSpeedSettings.js';
 
 const FPS_OPTIONS = [30, 60, 90, 120, 144];
 const LANGUAGE_OPTIONS = ['en', 'es'];
@@ -156,6 +157,10 @@ export class SettingsState {
         <input type="range" min="${CAMERA_SENSITIVITY_MIN_PERCENT}" max="${CAMERA_SENSITIVITY_MAX_PERCENT}" step="1" value="${Math.round((s.cameraSensitivity ?? DEFAULT_CAMERA_SENSITIVITY_PERCENT / 100) * 100)}" class="camera-sensitivity-slider">
       </div>
       <div class="settings-row">
+        <span class="walk-speed-label">${t('settings.walk_speed', { percent: Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100) })}</span>
+        <input type="range" min="${WALK_SPEED_MIN_PERCENT}" max="${WALK_SPEED_MAX_PERCENT}" step="1" value="${Math.round((s.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100) * 100)}" class="walk-speed-slider">
+      </div>
+      <div class="settings-row">
         <span class="camera-fov-label">${t('settings.camera_fov', { percent: Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT) })}</span>
         <input type="range" min="${CAMERA_ZOOM_MIN_PERCENT}" max="${CAMERA_ZOOM_MAX_PERCENT}" step="1" value="${Math.round(s.cameraZoom ?? DEFAULT_CAMERA_ZOOM_PERCENT)}" class="camera-fov-slider" ${s.autoFOV ? 'disabled' : ''}>
       </div>
@@ -204,6 +209,11 @@ export class SettingsState {
     this.body.querySelector('.camera-sensitivity-slider').addEventListener('input', (e) => {
       s.cameraSensitivity = clamp(Number(e.target.value) / 100, CAMERA_SENSITIVITY_MIN_PERCENT / 100, CAMERA_SENSITIVITY_MAX_PERCENT / 100);
       this.body.querySelector('.camera-sensitivity-label').textContent = t('settings.camera_sensitivity', { percent: Math.round(s.cameraSensitivity * 100) });
+    });
+    this.body.querySelector('.walk-speed-slider').addEventListener('change', () => this.app.saveSystem.save());
+    this.body.querySelector('.walk-speed-slider').addEventListener('input', (e) => {
+      s.walkSpeed = clamp(Number(e.target.value) / 100, WALK_SPEED_MIN_PERCENT / 100, WALK_SPEED_MAX_PERCENT / 100);
+      this.body.querySelector('.walk-speed-label').textContent = t('settings.walk_speed', { percent: Math.round(s.walkSpeed * 100) });
     });
     this.body.querySelector('.camera-fov-slider').addEventListener('change', () => this.app.saveSystem.save());
     this.body.querySelector('.camera-fov-slider').addEventListener('input', (e) => {

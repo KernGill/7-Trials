@@ -19,6 +19,7 @@ import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
 import {
   CAMERA_ZOOM_MIN_PERCENT, CAMERA_ZOOM_MAX_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT, CAMERA_ZOOM_STEP_PERCENT,
 } from '../ui/CameraSettings.js';
+import { DEFAULT_WALK_SPEED_PERCENT } from '../ui/WalkSpeedSettings.js';
 
 const FACING_ORDER = ['north', 'east', 'south', 'west']; // clockwise
 
@@ -35,12 +36,38 @@ const PLAYER_MOVE_SPEED = 3; // tile-widths per second
 // (which has exactly 1.0 tile-width of open space) with real clearance on
 // both sides, per resolveMovement's axis-separated wall-slide.
 const PLAYER_COLLISION_RADIUS = 0.3;
+// True Euclidean reveal radius (tile-widths) — per user request, checked
+// every frame against the player's own continuous position (see
+// revealNearbyTiles/tick), driving BOTH the cheap tile-level "visited"
+// bookkeeping below (still what the HUD's Explored % is computed from)
+// and, more importantly, Minimap.revealCircle's actual pixel-resolution
+// fog-of-war reveal (a soft-edged circle stamped at this exact radius,
+// not snapped to any tile grid at all — see Minimap.js's class doc
+// comment). Per a later user request ("the torch is already increasing
+// the exploration radius, so bump that increase to 50% and raise the
+// base up to match what the torch used to give"): the base radius was
+// bumped up to the OLD torch value (was 1.4, torch was 2.4), and the
+// torch radius is now exactly 1.5x the (new) base — was already a torch
+// buff over base, this just resets both anchors and the multiplier.
+const REVEAL_RADIUS = 2.4;
+const TORCH_REVEAL_RADIUS = REVEAL_RADIUS * 1.5;
 // Continuous movement no longer has a natural "one save per step" moment
 // the way discrete tile-hopping did — autosaving on every physics tick
 // would be excessive, so instead this throttles to at most once per this
 // many seconds of actual held-key movement (tile-trigger events like
 // stepping onto a chest still save immediately, same as before).
 const MOVE_AUTOSAVE_INTERVAL_SECONDS = 3;
+// Per user request, the fog-of-war's actual revealed pixels persist
+// exactly across save/reload (see syncFogToDungeon/dungeon.fogData) —
+// PNG-encoding the fog canvas isn't free, so this throttles how often the
+// live canvas gets re-encoded onto run.dungeon.fogData to once per this
+// many seconds while exploring, rather than every single reveal frame.
+// syncFogToDungeon() is also called an extra, immediate time right before
+// the two floor-LEAVING moments (stairs descent, elevator travel) that
+// actually archive `run.dungeon` to disk, since those are the moments
+// where a stale fogData would actually be visible on return — mid-
+// exploration staleness of a couple seconds is never itself observable.
+const FOG_SYNC_INTERVAL_SECONDS = 2;
 
 const QTE_DIRECTIONS = ['up', 'down', 'left', 'right'];
 const QTE_DIRECTION_KEYS = {
@@ -118,6 +145,7 @@ export class ExploreState {
     this._heldKeys = new Set();
     this._heldTouchActions = new Set();
     this._moveAutosaveTimer = 0;
+    this._fogSyncTimer = 0;
   }
 
   enter(root) {
@@ -168,7 +196,7 @@ export class ExploreState {
     const { playerPosition } = this.app.gameState.run;
     const spawnX = Math.round(playerPosition.x);
     const spawnY = Math.round(playerPosition.y);
-    this.markNearbyExplored(spawnX, spawnY);
+    this.revealNearbyTiles(playerPosition.x, playerPosition.y);
     this._lastTriggerTileKey = `${spawnX},${spawnY}`;
     this.app.input.on('keydown', this._onKeydown);
     this.app.input.on('keyup', this._onKeyup);
@@ -336,8 +364,16 @@ export class ExploreState {
 
   tick(dt) {
     this.updateContinuousMovement(dt);
-    this.minimap?.update(dt, this.renderer3d?.getLookYaw());
     const run = this.app.gameState.run;
+    if (run.dungeon) {
+      this.revealNearbyTiles(run.playerPosition.x, run.playerPosition.y);
+      this._fogSyncTimer += dt;
+      if (this._fogSyncTimer >= FOG_SYNC_INTERVAL_SECONDS) {
+        this._fogSyncTimer = 0;
+        this.syncFogToDungeon();
+      }
+    }
+    this.minimap?.update(dt, this.renderer3d?.getLookYaw());
     if (run.floorMessage?.timer > 0) {
       run.floorMessage.timer -= dt;
       if (run.floorMessage.timer <= 0) {
@@ -428,33 +464,55 @@ export class ExploreState {
   }
 
   /**
-   * Marks every tile in the (3x3, or 5x5 with Torch equipped) area around
-   * (cx,cy) as explored — not just the one actually stood on — so it
-   * fills in permanently instead of reverting once the player walks away,
-   * making it much faster to fill in. Walls are marked too (so the
-   * minimap remembers corridor edges/shape) but only walkable tiles count
-   * toward the "Explored: X/Y" HUD total, since dungeon.tilesTotal itself
-   * only counts walkable tiles. This is also the ONLY place the corner
-   * minimap's pixel content needs repainting from — its "close" ring is
-   * always already covered by this radius (>= the minimap's own former
-   * close-range bonus), so Minimap just draws whatever's `explored`.
+   * Marks every tile within a true Euclidean REVEAL_RADIUS (or
+   * TORCH_REVEAL_RADIUS with Torch equipped) of the CONTINUOUS point
+   * (px,py) as explored — not just the tile actually stood on — so it
+   * fills in permanently instead of reverting once the player walks away.
+   * Called every single frame from tick() with the player's live,
+   * unrounded position (see REVEAL_RADIUS's comment). Does two genuinely
+   * separate things now: (1) the tile-level "visited" bookkeeping below —
+   * kept purely because it's cheap and it's still what run.tilesExplored
+   * (the HUD's Explored %) is computed from, since dungeon.tilesTotal
+   * itself only counts walkable tiles — and (2) delegating the actual
+   * ON-SCREEN minimap reveal to Minimap.revealCircle(), which paints a
+   * true pixel-resolution, tile-grid-independent soft circle instead of
+   * lighting up whole tile squares. The two are deliberately decoupled:
+   * the visual fog can (and does) look smoother/rounder than the coarse
+   * per-tile percentage it's paired with.
    */
-  markNearbyExplored(cx, cy) {
+  revealNearbyTiles(px, py) {
     const run = this.app.gameState.run;
+    const dungeon = run.dungeon;
+    if (!dungeon) return;
     const hasTorch = this.app.inventory.getEquippedItems().offHand === 'torch';
-    const radius = hasTorch ? 2 : 1;
-    for (let dy = -radius; dy <= radius; dy += 1) {
-      for (let dx = -radius; dx <= radius; dx += 1) {
-        const tile = this.getTileAt(cx + dx, cy + dy);
-        if (!tile || tile.explored) continue;
-        tile.explored = true;
-        // meta.hidden tiles (the floor-5 secret hallway/arena) were never
-        // counted into dungeon.tilesTotal in the first place — counting
-        // them here too would push "Explored" past "Total".
-        if (tile.type !== TILE_TYPES.WALL && !tile.meta.hidden) run.tilesExplored += 1;
-      }
-    }
-    this.minimap?.redrawMap();
+    const radius = hasTorch ? TORCH_REVEAL_RADIUS : REVEAL_RADIUS;
+    const radiusSq = radius * radius;
+    dungeon.tiles.forEach((tile) => {
+      if (tile.explored) return;
+      const dx = tile.x - px;
+      const dy = tile.y - py;
+      if (dx * dx + dy * dy > radiusSq) return;
+      tile.explored = true;
+      // meta.hidden tiles (the floor-5 secret hallway/arena) were never
+      // counted into dungeon.tilesTotal in the first place — counting
+      // them here too would push "Explored" past 100%.
+      if (tile.type !== TILE_TYPES.WALL && !tile.meta.hidden) run.tilesExplored += 1;
+    });
+    this.minimap?.revealCircle(px, py, radius);
+  }
+
+  /**
+   * PNG-encodes the corner minimap's current fog-of-war pixels onto
+   * `run.dungeon.fogData` so the exact revealed shape (not an
+   * approximation reconstructed from visited tiles) survives a save,
+   * archive, or reload — see FOG_SYNC_INTERVAL_SECONDS's comment for the
+   * throttling rationale. A no-op if there's no dungeon/minimap yet.
+   */
+  syncFogToDungeon() {
+    const run = this.app.gameState.run;
+    if (!run.dungeon || !this.minimap) return;
+    const fogData = this.minimap.getFogDataUrl();
+    if (fogData) run.dungeon.fogData = fogData;
   }
 
   /**
@@ -546,8 +604,9 @@ export class ExploreState {
    * (DungeonRenderer3D.getLookYaw — not getFacingZone's nearest-cardinal
    * zone), so the character can walk in any direction the camera is
    * actually pointing, not just the 4 old cardinal steps. Integrates that
-   * direction by PLAYER_MOVE_SPEED * dt, resolves it against nearby walls
-   * (resolveMovement), and pushes the result straight to the renderer via
+   * direction by PLAYER_MOVE_SPEED * the live Walk Speed setting * dt,
+   * resolves it against nearby walls (resolveMovement), and pushes the
+   * result straight to the renderer via
    * setPlayerPositionLive (no tween — see that method's own comment).
    * run.facing is still refreshed from getFacingZone() on an actual move,
    * purely for save-file continuity/next-floor spawn-seeding (unaffected
@@ -578,7 +637,11 @@ export class ExploreState {
     mx /= len;
     my /= len;
 
-    const step = PLAYER_MOVE_SPEED * dt;
+    // Read fresh every call (not cached) so dragging the Walk Speed slider
+    // mid-run takes effect on the very next physics tick, same as
+    // DungeonRenderer3D.applyLookDelta does for Camera Sensitivity.
+    const walkSpeed = this.app.gameState.settings.walkSpeed ?? DEFAULT_WALK_SPEED_PERCENT / 100;
+    const step = PLAYER_MOVE_SPEED * walkSpeed * dt;
     const resolved = this.resolveMovement(run.playerPosition.x, run.playerPosition.y, mx * step, my * step);
     if (resolved.x === run.playerPosition.x && resolved.y === run.playerPosition.y) return; // fully blocked
 
@@ -610,10 +673,12 @@ export class ExploreState {
     this._lastTriggerTileKey = key;
     const tile = this.getTileAt(tx, ty);
     if (!tile) return;
-    // The permanent "explored" HUD/save/minimap marker — unrelated to
+    // The permanent "explored" HUD/save/minimap marker is no longer tied
+    // to tile-arrival at all — see tick(), which calls revealNearbyTiles()
+    // every frame off the player's live continuous position, unrelated to
     // what's currently visible on-screen (DungeonRenderer3D's own live
-    // radial light already tracks the continuous position every frame).
-    this.markNearbyExplored(tx, ty);
+    // radial light also tracks the continuous position every frame,
+    // separately).
 
     // Enemy tiles hand off to FightState immediately — nothing left on
     // this screen to render or save. Autosaving here would also let a
@@ -888,12 +953,13 @@ export class ExploreState {
     const { app } = this;
     const run = app.gameState.run;
     run.savedHealth = this.player.currentHealth;
+    this.syncFogToDungeon(); // this floor's fog must be current before travelToFloor() archives it
     if (!app.travelToFloor(targetFloor)) return;
     app.gameState.addLog(t('log.elevator_traveled', { n: run.floor }));
     this.player = app.createPlayer();
     this.syncDungeon3D();
     this.syncPlayer3D();
-    this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
+    this.revealNearbyTiles(run.playerPosition.x, run.playerPosition.y);
     // Prevents checkTileTrigger from treating "arriving here" as a no-op
     // just because some earlier floor happened to leave the same tile-key
     // behind — a teleport always counts as a fresh arrival.
@@ -1115,6 +1181,7 @@ export class ExploreState {
     const { app } = this;
     const run = app.gameState.run;
     run.cards.push(picked);
+    this.syncFogToDungeon(); // this floor's fog must be current before archiveCurrentFloor() snapshots it
     app.archiveCurrentFloor(); // commit the floor being left before it's overwritten
     run.floor += 1;
     run.savedHealth = this.player.currentHealth;
@@ -1125,7 +1192,7 @@ export class ExploreState {
     this.player = app.createPlayer();
     this.syncDungeon3D();
     this.syncPlayer3D();
-    this.markNearbyExplored(run.playerPosition.x, run.playerPosition.y);
+    this.revealNearbyTiles(run.playerPosition.x, run.playerPosition.y);
     // Prevents checkTileTrigger from treating "arriving here" as a no-op
     // just because some earlier floor happened to leave the same tile-key
     // behind — a teleport always counts as a fresh arrival.
@@ -1507,10 +1574,15 @@ export class ExploreState {
     // never hit; "which tile am I on" is always the nearest one.
     const currentTile = this.getTileAt(Math.round(run.playerPosition.x), Math.round(run.playerPosition.y));
     const canDescend = currentTile?.type === TILE_TYPES.STAIRS && run.enemiesRemaining === 0;
+    // Percentage, not a raw "X/Y" tile count, per user request — now that
+    // exploration itself is a smooth continuous-radius reveal (see
+    // revealNearbyTiles) rather than discrete tile-by-tile pop-in, a
+    // percentage reads as the more natural match for that continuity.
+    const exploredPercent = Math.floor(((run.tilesExplored / (dungeon?.tilesTotal || 1)) * 100));
 
     this.els.hud.innerHTML = `
       <span>${t('explore.floor', { n: run.floor })}</span>
-      <span>${t('explore.explored', { explored: run.tilesExplored, total: dungeon?.tilesTotal ?? 0 })}</span>
+      <span>${t('explore.explored', { percent: exploredPercent })}</span>
       <span>${t('explore.enemies_remaining', { n: run.enemiesRemaining })}</span>
       <span class="events-indicator" data-events>${t('explore.events_remaining', { n: counts.total })}</span>
       <span>${t('explore.hp', { current: this.player.currentHealth, max: this.player.getMaxHealth() })}</span>`;

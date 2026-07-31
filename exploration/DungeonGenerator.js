@@ -631,6 +631,10 @@ export class DungeonGenerator {
       tiles,
       tilesTotal: carved.length,
       tilesExplored: 0,
+      // Base64 PNG of the corner minimap's fog-of-war layer — null until
+      // ExploreState's first throttled sync (see FOG_SYNC_INTERVAL_SECONDS)
+      // writes real pixels in; a brand-new floor has nothing to restore.
+      fogData: null,
       playerPos: { x: startTile.x, y: startTile.y },
       enemiesRemaining: enemyCount,
     };

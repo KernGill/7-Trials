@@ -957,7 +957,7 @@ export class DungeonRenderer3D {
     entry.marker = marker;
   }
 
-  /** True while the equipped offHand item is the Torch — see the TORCH_* constants above. Cheap enough (a shallow inventory read, already called every move elsewhere — see ExploreState.markNearbyExplored) to just re-check on demand rather than cache. */
+  /** True while the equipped offHand item is the Torch — see the TORCH_* constants above. Cheap enough (a shallow inventory read, already called every frame elsewhere — see ExploreState.revealNearbyTiles) to just re-check on demand rather than cache. */
   _hasTorchEquipped() {
     return this.app?.inventory?.getEquippedItems?.().offHand === 'torch';
   }

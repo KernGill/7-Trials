@@ -60,7 +60,7 @@ export const ITEMS = {
     flavour: 'Dropped by a Torch Eater. Still burning. Illuminates the darkness.',
     // Deliberately all-zero — its value is entirely in the two passive
     // effects below (see combat/CombatManager.js's Torch fire-move
-    // discount, and states/ExploreState.js's markNearbyExplored).
+    // discount, and states/ExploreState.js's revealNearbyTiles).
     stats: { str: 0, dex: 0, con: 0, def: 0, spd: 0, int: 0, critChance: 0, critDamage: 0 },
     moveIds: [],
     price: null,

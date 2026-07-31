@@ -45,25 +45,52 @@ function tileColor(tile) {
  * centered) plus a click-to-open expanded view of everything explored so
  * far.
  *
- * The corner view draws the WHOLE explored dungeon onto one canvas sized
- * to the full map (same "explored tiles only" rule drawExpanded already
- * uses — ExploreState.markNearbyExplored marks the immediate area around
- * every tile the player has stood next to as explored, so there's no
- * "close but not yet explored" gap this loses), then leaves ROTATION
- * entirely to CSS: transform-origin is pinned to the player's exact
- * pixel, and left/top position that same pixel at the viewport's center,
- * so rotating the whole canvas around it keeps the player perfectly
- * still on-screen at any angle. That's the "easy way to rotate it" — a
- * cheap CSS property update every frame, not a per-frame canvas redraw —
- * and it's what lets the corner view track the free-look camera's
- * continuous yaw smoothly for free. The canvas's actual PIXELS only get
- * repainted when the dungeon or explored-tile state changes
- * (redrawMap()), never on a per-frame basis.
+ * Per user request, "explored" is no longer a per-tile boolean at all —
+ * it's a genuinely continuous, pixel-resolution fog-of-war, built from two
+ * offscreen layers per floor:
+ *   - `_terrainCanvas`: the dungeon's true tile colors, drawn ONCE per
+ *     floor load (the layout itself never changes while exploring it, so
+ *     this never needs repainting again — unlike the old per-tile draw
+ *     loop, which re-ran on every single reveal).
+ *   - `_fogCanvas`: starts fully opaque (black), and `revealCircle()`
+ *     permanently erases a soft-edged circle into it — via a radial-
+ *     gradient brush composited with `destination-out` — at the player's
+ *     exact CONTINUOUS position, every frame (see ExploreState.
+ *     revealNearbyTiles). Because the brush fades smoothly from opaque at
+ *     its center to transparent at its edge, and is stamped at the
+ *     player's real sub-tile position rather than snapped to a tile
+ *     center, the revealed boundary reads as a soft, organic torchlit
+ *     edge rather than a grid of hard-edged tile squares.
+ * The two layers are composited onto the visible `canvas` (terrain then
+ * fog on top) every time either changes; fog's own alpha channel does the
+ * masking, so there's no separate "is this tile visible" branch left
+ * anywhere in the draw path.
+ *
+ * The corner view leaves ROTATION entirely to CSS: transform-origin is
+ * pinned to the player's exact pixel, and left/top position that same
+ * pixel at the viewport's center, so rotating the whole canvas around it
+ * keeps the player perfectly still on-screen at any angle — a cheap CSS
+ * property update every frame, not a per-frame canvas redraw, and what
+ * lets the corner view track the free-look camera's continuous yaw
+ * smoothly for free.
+ *
+ * Fog persistence: per user request, the actual fog pixels survive a
+ * save/reload exactly (not just an approximation reconstructed from
+ * visited tiles) — see getFogDataUrl()/`dungeon.fogData` and
+ * _ensureFloorLoaded()'s restore path.
  */
 export class Minimap {
   constructor(app) {
     this.app = app;
     this._dungeon = null;
+    this._terrainCanvas = null;
+    this._fogCanvas = null;
+    // Bumped on every floor (re)load; an in-flight async fog-image decode
+    // checks its own captured token against this before applying, so a
+    // slow decode for a floor the player has since left (e.g. rapid
+    // elevator hopping) can never clobber a newer floor's fog with stale
+    // pixels.
+    this._fogLoadToken = 0;
   }
 
   mount(container, { onClick } = {}) {
@@ -75,7 +102,7 @@ export class Minimap {
     this.canvas.style.position = 'absolute';
     this.wrapper.appendChild(this.canvas);
     // Player marker for the corner view lives OUTSIDE the tile canvas as
-    // its own always-centered overlay (see redrawMap()'s comment on why
+    // its own always-centered overlay (see _updatePan()'s comment on why
     // the canvas's own panning technique already keeps the player's pixel
     // pinned to the wrapper's exact center at every rotation) — that's
     // what lets update() spin it every single frame off the live camera
@@ -87,8 +114,8 @@ export class Minimap {
     container.appendChild(this.wrapper);
     this._onClick = () => onClick?.();
     this.wrapper.addEventListener('click', this._onClick);
-    this._dungeon = null; // force a fresh full-size redraw on the next redrawMap()
-    this.redrawMap();
+    this._dungeon = null; // force a fresh floor load on the next check
+    this._ensureFloorLoaded();
     this.applyRotationDeg(0);
     this._applyArrowRotation(undefined);
   }
@@ -104,55 +131,194 @@ export class Minimap {
     this.wrapper = null;
     this.canvas = null;
     this.arrowEl = null;
+    this._terrainCanvas = null;
+    this._fogCanvas = null;
     this._dungeon = null;
+    this._fogLoadToken += 1; // orphan any in-flight fog-image decode
   }
 
   /**
-   * Repaints the full-map canvas's pixel content (every explored tile —
-   * the player marker itself is a separate always-centered overlay
-   * element, see mount()) and repositions it so the player's exact pixel
-   * sits at the viewport's center with rotation pivoting around that same
-   * point. Call whenever the dungeon reference changes, the player moves,
-   * or a tile's explored state changes — never per-frame (see update()/
-   * applyRotationDeg() for the cheap per-frame part).
+   * (Re)builds the two offscreen layers for whatever `run.dungeon`
+   * currently is, if it isn't the one already loaded — a no-op on every
+   * other call (cheap reference check), so it's safe to call from any
+   * hot path (see revealCircle()). Terrain is drawn synchronously in full
+   * (see _buildTerrain). Fog either starts fully opaque (a floor with no
+   * `dungeon.fogData` yet — brand new this run) or is restored from that
+   * saved PNG (a floor revisited via the elevator) — the restore is
+   * necessarily async (decoding an image), so the fog canvas is filled
+   * opaque as an immediate placeholder and swapped the instant the real
+   * pixels finish decoding, rather than leaving stale/wrong-floor pixels
+   * visible in the meantime.
    */
-  redrawMap() {
+  _ensureFloorLoaded() {
     if (!this.canvas) return;
     const run = this.app.gameState.run;
     const dungeon = run?.dungeon;
-    if (!dungeon) return;
+    if (!dungeon || dungeon === this._dungeon) return;
+    this._dungeon = dungeon;
 
-    if (dungeon !== this._dungeon) {
-      this._dungeon = dungeon;
-      this.canvas.width = dungeon.width * CELL_SIZE;
-      this.canvas.height = dungeon.height * CELL_SIZE;
+    const w = dungeon.width * CELL_SIZE;
+    const h = dungeon.height * CELL_SIZE;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this._terrainCanvas = document.createElement('canvas');
+    this._terrainCanvas.width = w;
+    this._terrainCanvas.height = h;
+    this._buildTerrain(dungeon);
+
+    this._fogCanvas = document.createElement('canvas');
+    this._fogCanvas.width = w;
+    this._fogCanvas.height = h;
+    this._fillFogOpaque();
+
+    const token = (this._fogLoadToken += 1);
+    if (dungeon.fogData) {
+      const img = new Image();
+      img.onload = () => {
+        if (token !== this._fogLoadToken || !this._fogCanvas) return;
+        this._fogCanvas.getContext('2d').drawImage(img, 0, 0);
+        this._applyEventRevealOverrides(dungeon);
+        this._composite();
+      };
+      // Corrupted/truncated fog data shouldn't crash or wedge the map —
+      // just fall back to the already-applied opaque placeholder.
+      img.onerror = () => {
+        if (token !== this._fogLoadToken) return;
+        this._applyEventRevealOverrides(dungeon);
+        this._composite();
+      };
+      img.src = dungeon.fogData;
     }
 
-    const ctx = this.canvas.getContext('2d');
+    this._applyEventRevealOverrides(dungeon);
+    this._composite();
+    this._updatePan();
+  }
+
+  /** Public alias — external callers (e.g. right after a fresh floor's dungeon reference is assigned) can call this directly instead of waiting for the next revealCircle() to notice the change. */
+  redrawMap() {
+    this._ensureFloorLoaded();
+  }
+
+  _fillFogOpaque() {
+    if (!this._fogCanvas) return;
+    const ctx = this._fogCanvas.getContext('2d');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+    ctx.fillRect(0, 0, this._fogCanvas.width, this._fogCanvas.height);
+  }
+
+  /** The dungeon's true colors, drawn once and never touched again while this floor is active — fog (not terrain) is what hides anything, so every tile paints its real color unconditionally, including meta.hiddenPastGate's caveat below. */
+  _buildTerrain(dungeon) {
+    const ctx = this._terrainCanvas.getContext('2d');
     ctx.fillStyle = UNKNOWN_COLOR;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    const revealEvents = this.hasEventRevealPassive();
+    ctx.fillRect(0, 0, this._terrainCanvas.width, this._terrainCanvas.height);
     dungeon.tiles.forEach((tile) => {
       // meta.hiddenPastGate (floor-5 secret hallway, past its blocking
-      // gate, plus the arena) never draws here — per user request, the
-      // map should only ever show the harmless dead-end-looking stub
-      // before the gate, never the secret half, even once explored.
+      // gate, plus the arena) never draws here at all — per user request,
+      // the map should only ever show the harmless dead-end-looking stub
+      // before the gate, never the secret half, even once explored (fog
+      // can't reveal what the terrain layer never painted in the first
+      // place).
       if (tile.meta?.hiddenPastGate) return;
-      // Thief's Future: an unresolved event tile draws even before it's
-      // actually been explored.
-      const revealed = revealEvents && !tile.meta?.resolved && REVEALABLE_EVENT_TYPES.includes(tile.type);
-      if (!tile.explored && !revealed) return;
       ctx.fillStyle = tileColor(tile);
       ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
+  }
 
+  /**
+   * Thief's Idol: permanently punches a hard-edged, tile-sized fog hole
+   * over every unresolved revealable-event tile whenever the passive is
+   * equipped — independent of player proximity. Called on every floor
+   * load and every revealCircle() (cheap — a handful of fillRects at
+   * most, and destination-out on already-erased pixels is a visual
+   * no-op), so equipping it mid-floor takes effect on the very next
+   * frame. Unlike the old per-frame boolean-gated draw, this reveal is
+   * permanent once painted (matches fog's own "never re-hides" nature) —
+   * unequipping the item afterward does not re-hide a tile it already
+   * revealed, which reads as "you found out where it was" rather than
+   * "you lost the ability to see it," a reasonable difference from the
+   * old strictly-live gate.
+   */
+  _applyEventRevealOverrides(dungeon) {
+    if (!this._fogCanvas || !this.hasEventRevealPassive()) return;
+    const ctx = this._fogCanvas.getContext('2d');
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+    dungeon.tiles.forEach((tile) => {
+      if (tile.meta?.resolved || !REVEALABLE_EVENT_TYPES.includes(tile.type)) return;
+      ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    });
+    ctx.restore();
+  }
+
+  _composite() {
+    if (!this.canvas || !this._terrainCanvas || !this._fogCanvas) return;
+    const ctx = this.canvas.getContext('2d');
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.drawImage(this._terrainCanvas, 0, 0);
+    ctx.drawImage(this._fogCanvas, 0, 0);
+  }
+
+  /** Repositions the canvas so the player's exact pixel sits at the viewport's center, rotation pivoting around that same point — see the class doc comment. Runs every frame via revealCircle() now (previously only on a tile-arrival event), so panning itself is now as continuous as the reveal is. */
+  _updatePan() {
+    if (!this.canvas) return;
+    const run = this.app.gameState.run;
+    if (!run?.dungeon) return;
     const { x: px, y: py } = run.playerPosition;
     const pixelX = px * CELL_SIZE + CELL_SIZE / 2;
     const pixelY = py * CELL_SIZE + CELL_SIZE / 2;
-
     this.canvas.style.left = `${VIEWPORT_SIZE / 2 - pixelX}px`;
     this.canvas.style.top = `${VIEWPORT_SIZE / 2 - pixelY}px`;
     this.canvas.style.transformOrigin = `${pixelX}px ${pixelY}px`;
+  }
+
+  /**
+   * Punches a soft-edged circle of true radius `radiusTiles` (tile-units)
+   * centered at the CONTINUOUS point (px,py) permanently into the fog
+   * layer — called every frame from ExploreState.revealNearbyTiles with
+   * the player's exact live position, giving a smooth, pixel-precise
+   * "torchlight" reveal edge instead of the old hard tile-by-tile
+   * boundary. A radial-gradient brush (opaque core out to ~55% of the
+   * radius, fading to fully transparent at the edge) composited with
+   * destination-out erases proportionally to its own alpha, leaving a
+   * soft, organic fringe rather than a hard-edged disc. Safe/cheap to
+   * call every single frame even when nothing new is actually revealed —
+   * destination-out over already-transparent pixels is a visual no-op,
+   * and canvas compositing at this scale is well under a millisecond.
+   */
+  revealCircle(px, py, radiusTiles) {
+    this._ensureFloorLoaded();
+    if (!this._fogCanvas) return;
+    const dungeon = this._dungeon;
+    const ctx = this._fogCanvas.getContext('2d');
+    const cx = px * CELL_SIZE;
+    const cy = py * CELL_SIZE;
+    const r = radiusTiles * CELL_SIZE;
+    const gradient = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    if (dungeon) this._applyEventRevealOverrides(dungeon);
+    this._composite();
+    this._updatePan();
+  }
+
+  /**
+   * Base64 PNG snapshot of the current fog layer, for persistence (see
+   * `dungeon.fogData` / ExploreState's throttled sync in tick()) — a real
+   * PNG encode, not free, so callers should throttle how often this gets
+   * called rather than doing it every frame.
+   */
+  getFogDataUrl() {
+    return this._fogCanvas ? this._fogCanvas.toDataURL('image/png') : null;
   }
 
   /**
@@ -211,44 +377,36 @@ export class Minimap {
   }
 
   /**
-   * Draws every explored tile of the current floor onto a caller-provided
-   * canvas (the expanded modal view opened by clicking the corner minimap
-   * or pressing M), sized+positioned to fill `viewport` (a fixed-size
-   * square element) and rotated to `angleDeg` — per user request, "heading
-   * up" (whichever way the player is currently looking) rather than
-   * always north-up. Uses the exact same "center the player's pixel,
-   * rotate around it" CSS technique as the corner view's redrawMap(), just
-   * scaled up: the canvas is drawn at native CELL_SIZE resolution, then
-   * CSS-scaled so its LONGER axis exactly fills the viewport (its shorter
-   * axis, and anything rotated past the viewport's edges, gets cropped by
-   * the viewport's own overflow:hidden — same crop trade-off the corner
-   * view already makes while rotating, just on a bigger, still mostly-
+   * Composites the corner view's own already-up-to-date terrain+fog
+   * layers onto a caller-provided canvas (the expanded modal view opened
+   * by clicking the corner minimap or pressing M), sized+positioned to
+   * fill `viewport` (a fixed-size square element) and rotated to
+   * `angleDeg` — per user request, "heading up" (whichever way the
+   * player is currently looking) rather than always north-up. Uses the
+   * exact same "center the player's pixel, rotate around it" CSS
+   * technique as the corner view's _updatePan(), just scaled up: the
+   * canvas is drawn at native CELL_SIZE resolution, then CSS-scaled so
+   * its LONGER axis exactly fills the viewport (its shorter axis, and
+   * anything rotated past the viewport's edges, gets cropped by the
+   * viewport's own overflow:hidden — same crop trade-off the corner view
+   * already makes while rotating, just on a bigger, still mostly-
    * unclipped canvas instead of a tiny fixed 9x9 window). `yaw` is the
    * exact continuous camera look-yaw at the moment the modal was opened
    * (movement/look is blocked while it's up, so a single bake here is all
-   * that's ever needed — no per-frame overlay like the corner view's
-   * arrowEl) — passed straight to _drawPlayerMarker so the baked arrow
-   * matches the camera's actual direction instead of only the nearest of
-   * the 4 cardinal run.facing zones.
+   * that's ever needed) — passed straight to _drawPlayerMarker so the
+   * baked arrow matches the camera's actual direction instead of only the
+   * nearest of the 4 cardinal run.facing zones.
    */
   drawExpanded(canvas, viewport, angleDeg = 0, yaw) {
     const run = this.app.gameState.run;
     const dungeon = run?.dungeon;
-    if (!dungeon || !viewport) return;
+    if (!dungeon || !viewport || !this._terrainCanvas || !this._fogCanvas) return;
     canvas.width = dungeon.width * CELL_SIZE;
     canvas.height = dungeon.height * CELL_SIZE;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = UNKNOWN_COLOR;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const revealEvents = this.hasEventRevealPassive();
-    dungeon.tiles.forEach((tile) => {
-      if (tile.meta?.hiddenPastGate) return;
-      const revealed = revealEvents && !tile.meta?.resolved && REVEALABLE_EVENT_TYPES.includes(tile.type);
-      if (!tile.explored && !revealed) return;
-      ctx.fillStyle = tileColor(tile);
-      ctx.fillRect(tile.x * CELL_SIZE, tile.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    });
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(this._terrainCanvas, 0, 0);
+    ctx.drawImage(this._fogCanvas, 0, 0);
 
     const { x: px, y: py } = run.playerPosition;
     const pixelX = px * CELL_SIZE + CELL_SIZE / 2;
