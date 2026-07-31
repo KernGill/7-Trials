@@ -4,7 +4,7 @@ export const MOVE_TEMPLATES = {
   challengers_mettle: {
     id: 'challengers_mettle',
     name: "Challenger's Mettle",
-    description: 'Every other turn, permanently gains +3 Strength.',
+    description: 'Every other turn, permanently gains +2 Strength.',
     properties: [MOVE_PROPERTIES.PASSIVE, MOVE_PROPERTIES.BUFF],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -20,7 +20,13 @@ export const MOVE_TEMPLATES = {
     // CombatManager.js), which in practice meant a Mettle stack almost
     // always died before the player's next action anyway, making it look
     // like an unrelated later cast (e.g. Golden Calling) had wiped it.
-    buffs: [{ type: 'stat', stat: 'str', amount: 3, duration: -1 }],
+    // Per user request: nerfed 3 -> 2 str per stack — now that stacks are
+    // permanent (see comment above) rather than expiring almost
+    // immediately, a long fight (especially one dragged out against a
+    // tanky/high-health foe like Vanguard of Darkness) would otherwise
+    // let this snowball too far, since every other one of the owner's
+    // own turns keeps adding another permanent stack for the whole fight.
+    buffs: [{ type: 'stat', stat: 'str', amount: 2, duration: -1 }],
     // Fires on every 2nd of its own owner's character turns (not every
     // single one) — was previously wired to a trigger string CombatManager
     // never actually called, so this never fired at all.
