@@ -21,18 +21,22 @@ const TEMPORAL_CHEST_COUNT = 1;
 const ELEVATOR_COUNT = 1;
 const VENDOR_COUNT = 1;
 
-// Floor 5 only: a secret, disconnected 40-tile hallway starting near the
-// stairs, ending in a 7x7 arena guarding a single hidden enemy — see
-// placeHiddenArena below.
+// Floor 5 only: a secret 40-tile hallway starting right at the stairs,
+// ending in a 7x7 arena guarding a single hidden enemy — see
+// placeHiddenArenaFromStairs below.
 const HIDDEN_HALLWAY_LENGTH = 40;
 const HIDDEN_ROOM_SIZE = 7;
 const HIDDEN_ROOM_RADIUS = Math.floor(HIDDEN_ROOM_SIZE / 2);
-// The gate's index within the finished path array is fully determined
-// ahead of time (a successful walk always produces exactly
-// HIDDEN_HALLWAY_LENGTH + 1 cells — see placeHiddenArena), so this is
-// computed once and shared by both the walk-time and room-time
-// cross-gate-touch guards, not just the final tagging pass.
-const GATE_INDEX = Math.floor((HIDDEN_HALLWAY_LENGTH + 1) / 2);
+// Steps 1..HIDDEN_GATE_STEP-1 out from the stairs are a plain visible
+// corridor stub; step HIDDEN_GATE_STEP is the gate itself (a real WALL
+// until unlocked at runtime) — see placeHiddenArenaFromStairs's doc
+// comment. Deliberately placed roughly midway down the hallway (not right
+// at the entrance) — the 3D view's own sight radius (VISIBLE_RADIUS/
+// TORCH_VISIBLE_RADIUS in DungeonRenderer3D, 9-12 tiles) can't reach this
+// far, so a player standing at the stairs has no way to spot the dead end
+// from there; only someone who actually commits to walking the corridor
+// finds it blocked.
+const HIDDEN_GATE_STEP = Math.floor(HIDDEN_HALLWAY_LENGTH / 2);
 
 // Open flat rooms (per user request), placed before the maze walker runs
 // and chain-connected so they're always reachable. Room count scales
@@ -192,219 +196,107 @@ function addExtraConnections(at, carved, width, height, count) {
   });
 }
 
-const HIDDEN_ARENA_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-// Transient sentinel — never TILE_TYPES.WALL — so every later generation
-// pass (placeRooms/the main walker/widenCorridors/addExtraConnections, all
-// of which only ever carve/consider `type === WALL` cells) automatically
-// skips straight over the reserved footprint. Converted to its real type
-// by finalizeHiddenArena() right before generate() returns; never exposed
-// outside this file.
-const HIDDEN_RESERVED_TYPE = 'hidden_reserved';
-
 /**
- * Floor 5 only: reserves a winding 40-tile, 1-wide hallway starting
- * somewhere on the interior edge ring and ending in a 7x7 open arena with
- * a single hidden-enemy tile at its center. Called FIRST — before any
- * other carving — while the grid is still 100% WALL, so the 40-tile
- * self-avoiding walk has the entire map to itself and succeeds almost
- * every attempt; doing this AFTER the main maze forms instead (tried
- * first, and reverted) fails the vast majority of the time, because free
- * wall space left over from a ~45%-carved maze exists mostly as thin
- * strips between corridors, not open pockets a 40-cell walk can wind
- * through. Its footprint itself is deliberately kept out of `carved` (see
- * generate()'s docs on tilesTotal), but generate() later carves an
- * ordinary connector from the stairs to this hallway's entry point (added
- * to `carved` normally) — the hallway is meant to be a real, walkable
- * branch a player standing at the stairs can see and choose to ignore for
- * looking like a dead end, not a physically unreachable secret; only the
- * "is there anything left to find" bookkeeping (tilesTotal/HUD event
- * count) is what stays blind to it. It winds (strongly biased to keep going
- * straight, but free to
- * turn) rather than demanding one unbroken straight line, since a straight
- * run of 40 can't fit within a typical arc0 grid's own interior span
- * (~33-42 tiles edge to edge) regardless of available space. Returns the
- * entry point (so generate() can bias stairs placement toward it — "near
- * the stairs") or null if a fit genuinely isn't found (should be
- * essentially never, but must not throw either way).
- *
- * Roughly midway along the path, one tile is reserved as a GATE (per user
- * request): it finalizes as an actual WALL, sealing the hallway's back
- * half — including the whole arena — behind it until
- * ExploreState.checkHiddenGateUnlock() finds the floor fully cleared
- * (every regular enemy dead, every locked door/chest/temporal chest
- * looted) and swaps it to FLOOR at runtime. A player who wanders in early
- * just finds a corridor that dead-ends at a wall, exactly like any other
- * unlucky branch of the maze — nothing marks it as special. Tiles are
- * tagged `meta.hiddenPastGate` from the gate onward (gate tile itself
- * excluded, so the wall that makes it LOOK like a dead end is visible on
- * the minimap same as any other explored wall) — Minimap.js skips drawing
- * anything with that flag, so the secret half never appears on the map
- * even once explored, while the harmless front stub reads as normal
- * explored corridor per user request.
+ * Returns the tile at (x,y), minting and registering a brand-new WALL tile
+ * if one doesn't already exist there — i.e. (x,y) falls outside the normal
+ * [0,width)x[0,height) grid generate() built up front. Used exclusively by
+ * placeHiddenArenaFromStairs, which deliberately walks off the edge of
+ * that grid.
  */
-function placeHiddenArena(at, width, height) {
-  const inBounds = (x, y) => x >= 1 && y >= 1 && x <= width - 2 && y <= height - 2;
-  const isFreeWall = (x, y) => inBounds(x, y) && at(x, y)?.type === TILE_TYPES.WALL;
-
-  const edgeStarts = [];
-  for (let x = 1; x <= width - 2; x += 1) { edgeStarts.push({ x, y: 1 }); edgeStarts.push({ x, y: height - 2 }); }
-  for (let y = 1; y <= height - 2; y += 1) { edgeStarts.push({ x: 1, y }); edgeStarts.push({ x: width - 2, y }); }
-
-  const tries = shuffle(edgeStarts);
-  for (let i = 0; i < tries.length; i += 1) {
-    const { x: startX, y: startY } = tries[i];
-    if (!isFreeWall(startX, startY)) continue;
-
-    // A random (or edge-parallel) initial direction routinely just traces
-    // along the SAME edge the walk started on — the 40-tile path never
-    // gets more than a step or two away from it, so the 7x7 room at the
-    // end always lands out of bounds. Starting inward instead reliably
-    // drives the walk into the interior; the room only needs the walk to
-    // have made it a few tiles clear of every boundary by its 40th step.
-    const inward = startY === 1 ? [0, 1]
-      : startY === height - 2 ? [0, -1]
-      : startX === 1 ? [1, 0]
-      : [-1, 0]; // startX === width - 2
-    const path = [{ x: startX, y: startY }];
-    let cx = startX;
-    let cy = startY;
-    let lastDir = inward;
-    let fits = true;
-    for (let step = 0; step < HIDDEN_HALLWAY_LENGTH; step += 1) {
-      // Mostly keeps going straight (reads as a real corridor, and makes
-      // steady progress into the interior) but turns unprompted often
-      // enough to actually wind rather than rule a straight line — an
-      // unbroken 40-tile beeline would need ~40 clear interior tiles in
-      // one direction, which the grid's own span doesn't reliably have.
-      const preferStraight = Math.random() < 0.75;
-      const rest = shuffle(HIDDEN_ARENA_DIRS.filter(([dx, dy]) => dx !== lastDir[0] || dy !== lastDir[1]));
-      const candidates = preferStraight ? [lastDir, ...rest] : [...rest, lastDir];
-      // Self-avoiding in CELLS alone (the pre-existing path.some check)
-      // isn't enough: a winding 40-step walk can easily curl back close
-      // enough to become directly *adjacent* to an earlier, non-consecutive
-      // stretch of itself without ever revisiting a cell outright. That's
-      // only dangerous, though, when it crosses the (fixed, known-in-advance
-      // — path always ends up 41 cells long when a walk fully succeeds)
-      // mid-hallway gate index: a cell past where the gate will sit
-      // touching a cell at-or-before it creates an internal shortcut
-      // around the gate (the actual cause of occasionally reaching the
-      // Vanguard immediately). Touching elsewhere on the same side of the
-      // gate is completely harmless — both cells are already mutually
-      // reachable without a shortcut — so only cross-gate touches are
-      // rejected here; banning ALL self-touching made the 40-step walk
-      // fail almost every attempt (tried first, reverted).
-      let moved = false;
-      for (let c = 0; c < candidates.length; c += 1) {
-        const [dx, dy] = candidates[c];
-        const nx = cx + dx;
-        const ny = cy + dy;
-        const newIndex = path.length;
-        const bypassesGate = newIndex > GATE_INDEX && HIDDEN_ARENA_DIRS.some(([ddx, ddy]) => {
-          const ax = nx + ddx;
-          const ay = ny + ddy;
-          if (ax === cx && ay === cy) return false; // the immediately-preceding cell — always adjacent, expected
-          return path.some((p, idx) => idx <= GATE_INDEX && p.x === ax && p.y === ay);
-        });
-        if (isFreeWall(nx, ny) && !path.some((p) => p.x === nx && p.y === ny) && !bypassesGate) {
-          cx = nx; cy = ny; lastDir = [dx, dy];
-          path.push({ x: cx, y: cy });
-          moved = true;
-          break;
-        }
-      }
-      if (!moved) { fits = false; break; }
-    }
-    if (!fits) continue;
-
-    const centerX = cx + lastDir[0];
-    const centerY = cy + lastDir[1];
-    const roomCells = [];
-    let roomFits = true;
-    for (let dy = -HIDDEN_ROOM_RADIUS; dy <= HIDDEN_ROOM_RADIUS && roomFits; dy += 1) {
-      for (let dx = -HIDDEN_ROOM_RADIUS; dx <= HIDDEN_ROOM_RADIUS; dx += 1) {
-        const rx = centerX + dx;
-        const ry = centerY + dy;
-        if (!isFreeWall(rx, ry)) { roomFits = false; break; }
-        if (!path.some((p) => p.x === rx && p.y === ry)) roomCells.push(at(rx, ry));
-      }
-    }
-    if (!roomFits) continue;
-
-    // Same cross-gate-touch concern as the path walk above, but for the
-    // room: its 7x7 bounding box is placed purely by open-space fit, with
-    // no awareness of where the path wound earlier — it's entirely
-    // possible for the room to land adjacent to an at-or-before-gate path
-    // cell, which would let a player walk from the entry straight into
-    // the arena without ever reaching the gate. Adjacency to an
-    // *after*-gate path cell is harmless (same reasoning as above) and
-    // deliberately not rejected here.
-    const roomTouchesPathBeforeGate = roomCells.some((tile) => HIDDEN_ARENA_DIRS.some(([dx, dy]) => {
-      const nx = tile.x + dx;
-      const ny = tile.y + dy;
-      return path.some((p, idx) => idx <= GATE_INDEX && p.x === nx && p.y === ny);
-    }));
-    if (roomTouchesPathBeforeGate) continue;
-
-    path.forEach((p, i) => {
-      const tile = at(p.x, p.y);
-      tile.type = HIDDEN_RESERVED_TYPE;
-      tile.meta.hidden = true;
-      if (i === GATE_INDEX) tile.meta.isHiddenGate = true;
-      else if (i > GATE_INDEX) tile.meta.hiddenPastGate = true;
-    });
-    roomCells.forEach((tile) => { tile.type = HIDDEN_RESERVED_TYPE; tile.meta.hidden = true; tile.meta.hiddenPastGate = true; });
-    const centerTile = at(centerX, centerY);
-    centerTile.type = HIDDEN_RESERVED_TYPE;
-    centerTile.meta.hidden = true;
-    centerTile.meta.hiddenPastGate = true;
-    centerTile.meta.enemySpawn = true;
-    centerTile.meta.isHiddenCenter = true;
-
-    // Seal the hidden footprint off from the rest of the maze. The main
-    // walker below only ever treats a cell as carveable-toward if it's
-    // WALL, but its "does this touch existing floor" check tests
-    // `type !== WALL` — which HIDDEN_RESERVED_TYPE satisfies too, since
-    // it isn't literally TILE_TYPES.WALL. Without this, the main maze
-    // could legally carve any ordinary wall cell that happened to end up
-    // adjacent to the hidden path/room, opening an unintended walkable
-    // connection straight into it — bypassing both the single designed
-    // entry point and the mid-hallway gate entirely (the actual bug
-    // behind occasionally reaching the Vanguard immediately on floor 5).
-    // Every reserved cell EXCEPT the entry (path[0] — the one deliberate
-    // connection point, reached later by the stairs connector) gets its
-    // WALL neighbors converted to buffer cells first; buffer cells finalize
-    // as real WALL (see finalizeHiddenArena), so the main maze carving
-    // *toward* one just reads as an ordinary dead end — completely inert.
-    const footprintKeys = new Set();
-    path.forEach((p) => footprintKeys.add(`${p.x},${p.y}`));
-    roomCells.forEach((tile) => footprintKeys.add(`${tile.x},${tile.y}`));
-    footprintKeys.add(`${centerX},${centerY}`);
-    const sealCells = [...path.slice(1), ...roomCells, centerTile];
-    sealCells.forEach((cell) => {
-      HIDDEN_ARENA_DIRS.forEach(([dx, dy]) => {
-        const nx = cell.x + dx;
-        const ny = cell.y + dy;
-        if (footprintKeys.has(`${nx},${ny}`)) return;
-        const neighborTile = at(nx, ny);
-        if (neighborTile?.type === TILE_TYPES.WALL) {
-          neighborTile.type = HIDDEN_RESERVED_TYPE;
-          neighborTile.meta.isHiddenBuffer = true;
-        }
-      });
-    });
-
-    return { x: startX, y: startY };
+function getOrCreateTile(byKey, tiles, x, y) {
+  const key = `${x},${y}`;
+  let tile = byKey.get(key);
+  if (!tile) {
+    tile = new Tile(x, y, TILE_TYPES.WALL);
+    byKey.set(key, tile);
+    tiles.push(tile);
   }
-  return null;
+  return tile;
 }
 
-/** Converts every HIDDEN_RESERVED_TYPE tile to its real final type — called once, right before generate() returns. */
-function finalizeHiddenArena(tiles) {
-  tiles.forEach((tile) => {
-    if (tile.type !== HIDDEN_RESERVED_TYPE) return;
-    if (tile.meta.isHiddenGate || tile.meta.isHiddenBuffer) tile.type = TILE_TYPES.WALL;
-    else tile.type = tile.meta.isHiddenCenter ? TILE_TYPES.HIDDEN_ENEMY : TILE_TYPES.FLOOR;
-  });
+/**
+ * Floor 5 only: a secret 40-tile, 1-wide hallway starting immediately at
+ * the stairs and ending in a 7x7 open arena with a single hidden-enemy
+ * tile (Vanguard of Darkness) at its center — per user request, walking
+ * straight OUT of the map's normal width/height grid entirely rather than
+ * winding through space reserved inside it.
+ *
+ * The previous design reserved a winding path/room inside the normal
+ * interior grid BEFORE the main maze ran, then sealed it off with a ring
+ * of buffer-wall cells so the main maze's carving passes couldn't touch
+ * it — that sealing was subtle and had already needed one dedicated fix
+ * (an "adjacency leak" letting the main maze touch the secret area), and
+ * per a live report could still leave the arena genuinely unreachable
+ * even once the gate itself opened. Walking outside the grid removes the
+ * entire bug class structurally: nothing else in this file — rooms, the
+ * main walker, widening, extra connections, enemy/loot placement — ever
+ * touches a coordinate outside [0,width)x[0,height) in the first place,
+ * so there is nothing left for this hallway to collide with, and no
+ * sealing is needed at all.
+ *
+ * Called AFTER stairs placement (unlike the old up-front reservation),
+ * since the entry point IS the stairs tile now. Stairs are always chosen
+ * from the carveable interior's own edge ring (x===1/width-2 or
+ * y===1/height-2 — see generate()'s isEdge), so one cardinal step outward
+ * from the stairs always lands on the permanent outer wall ring the main
+ * generator never carves, and one more step past that is already outside
+ * the grid entirely — both guaranteed collision-free with zero fit-
+ * checking, unlike the old self-avoiding walk.
+ *
+ * Step 1 is a plain visible doorway stub (reads as an ordinary corridor
+ * from the stairs); step HIDDEN_GATE_STEP is the gate itself — a real
+ * WALL until ExploreState.checkHiddenGateUnlock() finds the floor fully
+ * cleared and swaps it to FLOOR at runtime, exactly as before. Every step
+ * past the gate (including the final 7x7 room) is tagged
+ * `meta.hiddenPastGate` — Minimap.js still skips drawing anything with
+ * that flag, so the secret half never appears on the map even once
+ * explored, matching the original design.
+ */
+function placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height) {
+  let dir;
+  if (stairsTile.y === 1) dir = [0, -1];
+  else if (stairsTile.y === height - 2) dir = [0, 1];
+  else if (stairsTile.x === 1) dir = [-1, 0];
+  else if (stairsTile.x === width - 2) dir = [1, 0];
+  // Stairs weren't on the interior edge ring (shouldn't normally happen —
+  // generate() always prefers an edge tile when one was carved) — any
+  // direction still works, just without the "first step is guaranteed
+  // untouched permanent wall" property.
+  else dir = DIRS[randomInt(0, 3)];
+
+  let cx = stairsTile.x;
+  let cy = stairsTile.y;
+  for (let step = 1; step <= HIDDEN_HALLWAY_LENGTH; step += 1) {
+    cx += dir[0];
+    cy += dir[1];
+    const tile = getOrCreateTile(byKey, tiles, cx, cy);
+    tile.meta.hidden = true;
+    if (step === HIDDEN_GATE_STEP) {
+      tile.type = TILE_TYPES.WALL;
+      tile.meta.isHiddenGate = true;
+    } else {
+      tile.type = TILE_TYPES.FLOOR;
+      if (step > HIDDEN_GATE_STEP) tile.meta.hiddenPastGate = true;
+    }
+  }
+
+  const centerX = cx + dir[0];
+  const centerY = cy + dir[1];
+  for (let dy = -HIDDEN_ROOM_RADIUS; dy <= HIDDEN_ROOM_RADIUS; dy += 1) {
+    for (let dx = -HIDDEN_ROOM_RADIUS; dx <= HIDDEN_ROOM_RADIUS; dx += 1) {
+      if (dx === 0 && dy === 0) continue; // center tile — becomes HIDDEN_ENEMY below, not plain floor
+      const tile = getOrCreateTile(byKey, tiles, centerX + dx, centerY + dy);
+      tile.type = TILE_TYPES.FLOOR;
+      tile.meta.hidden = true;
+      tile.meta.hiddenPastGate = true;
+    }
+  }
+  const centerTile = getOrCreateTile(byKey, tiles, centerX, centerY);
+  centerTile.type = TILE_TYPES.HIDDEN_ENEMY;
+  centerTile.meta.hidden = true;
+  centerTile.meta.hiddenPastGate = true;
+  centerTile.meta.enemySpawn = true;
+  centerTile.meta.isHiddenCenter = true;
 }
 
 /**
@@ -450,13 +342,6 @@ export class DungeonGenerator {
     // scan, called on every step of a carve loop that can run tens of
     // thousands of iterations, became a real bottleneck.
     const at = (x, y) => byKey.get(`${x},${y}`);
-
-    // Reserved FIRST, while the grid is still 100% WALL — see
-    // placeHiddenArena's docblock for why placement order matters here.
-    // Its footprint is a transient sentinel type the passes below never
-    // touch, converted to real tiles by finalizeHiddenArena() just before
-    // this function returns.
-    const hiddenEntry = floor === 5 ? placeHiddenArena(at, width, height) : null;
 
     // Carveable interior excludes the outermost ring on every side, which
     // is what keeps that ring permanently WALL without padding the grid.
@@ -522,36 +407,15 @@ export class DungeonGenerator {
 
     const isEdge = (t) => t.x === 1 || t.y === 1 || t.x === width - 2 || t.y === height - 2;
     const edgeCandidates = carved.filter((t) => t !== startTile && isEdge(t));
-    // "By the stairs" (per user request): when a hidden arena got reserved
-    // above, bias the stairs to land near its entry point instead of
-    // picking a fully random edge tile — among the 5 closest edge
-    // candidates (falls back to the normal random pick if none are
-    // reasonably close, e.g. the hidden arena ended up on the opposite
-    // side of the map from every edge candidate that actually got carved).
-    let stairsTile;
-    if (hiddenEntry && edgeCandidates.length) {
-      const byDistance = [...edgeCandidates].sort((a, b) => {
-        const da = Math.abs(a.x - hiddenEntry.x) + Math.abs(a.y - hiddenEntry.y);
-        const db = Math.abs(b.x - hiddenEntry.x) + Math.abs(b.y - hiddenEntry.y);
-        return da - db;
-      });
-      stairsTile = shuffle(byDistance.slice(0, Math.min(5, byDistance.length)))[0];
-    } else {
-      stairsTile = edgeCandidates.length ? shuffle(edgeCandidates)[0]
-        : shuffle(carved.filter((t) => t !== startTile))[0];
-    }
+    const stairsTile = edgeCandidates.length ? shuffle(edgeCandidates)[0]
+      : shuffle(carved.filter((t) => t !== startTile))[0];
     stairsTile.type = TILE_TYPES.STAIRS;
 
-    // The hidden hallway is meant to be an actual, walkable branch a
-    // player standing at the stairs can see and choose to ignore (per
-    // user request) — not a physically disconnected secret. carveLine
-    // stops carving the instant it reaches a non-WALL cell, so it
-    // naturally halts right at the reserved footprint's edge without
-    // overwriting it, leaving a normal (counted-in-`carved`) connector
-    // corridor that ends flush against the reserved entry tile.
-    if (hiddenEntry) {
-      carved.push(...carveLine(at, stairsTile.x, stairsTile.y, hiddenEntry.x, hiddenEntry.y));
-    }
+    // Floor 5 only, and only now that we know exactly where the stairs
+    // ended up — see placeHiddenArenaFromStairs's doc comment for why this
+    // walks straight out of the normal grid instead of being reserved
+    // inside it.
+    if (floor === 5) placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height);
 
     const remaining = shuffle(carved.filter((t) => t !== startTile && t !== stairsTile));
     const enemyCount = Math.min(this.arcConfig.enemiesPerFloor ?? 5, remaining.length);
@@ -620,8 +484,6 @@ export class DungeonGenerator {
         vendorTile.type = TILE_TYPES.VENDOR;
       }
     }
-
-    if (hiddenEntry) finalizeHiddenArena(tiles);
 
     return {
       floor,

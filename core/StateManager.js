@@ -388,6 +388,14 @@ export class StateManager {
       // travelToFloor/archiveCurrentFloor) can only ever warp to one of
       // these, each archived to its own lazily-loaded SaveSystem key.
       visitedFloors: [1],
+      // Set true in onCombatVictory() the moment Vanguard of Darkness is
+      // beaten THIS run — unlike achievements.isComplete(), which is a
+      // permanent cross-run flag, this is what actually gates the
+      // "Vanguard calling" wall-lighting effect (see DungeonRenderer3D.
+      // updateVisibility()'s vanguardCalling branch): that effect needs to
+      // fire every time the floor 5 gate opens in a fresh run, even for a
+      // player who's already beaten Vanguard in a past run.
+      vanguardDefeated: false,
     };
     // A fresh run (or one explicitly started over via "Begin Anew")
     // discards any pending "Continue: Floor N" offer.
@@ -609,6 +617,7 @@ export class StateManager {
 
       if (enemy.enemyId === 'vanguard_of_darkness') {
         this.achievements.setComplete('defeat_vanguard_of_darkness');
+        this.gameState.run.vanguardDefeated = true;
       }
 
       if (config?.species === 'skeleton') {

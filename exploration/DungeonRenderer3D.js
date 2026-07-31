@@ -100,6 +100,31 @@ const MOON_COLOR_STEP3 = 0x84acb8; // slightly desaturated darkish blue
 const MOON_COLOR_STEP4 = 0x2f5561; // really dark blue
 const MOON_COLOR_FAR = 0x000000; // black — full darkness, right at the edge of sight
 
+// "Vanguard calling" effect: once floor 5's hidden gate has opened (every
+// enemy dead, every event looted) and Vanguard of Darkness hasn't been
+// beaten yet THIS run (see ExploreState.checkHiddenGateUnlock /
+// StateManager's run.vanguardDefeated), floor and walls both stop using
+// their normal continuous distance gradient — per user request, meant to
+// read as "your own radiating moonlight is barely holding back the dark."
+// Ends the instant Vanguard is defeated or the player leaves floor 5 (see
+// updateVisibility()'s vanguardCalling check). The two surfaces get
+// deliberately different treatments:
+// - Walls: flat/binary, no blend — MOON_COLOR_NEAR within
+//   VANGUARD_CALLING_WALL_NEAR_RADIUS tiles, MOON_COLOR_FAR beyond it —
+//   using the normal visibility cutoff/radius, nothing shrinks here.
+// - Floor: a much tighter, steeper gradient than usual (fades from
+//   MOON_COLOR_NEAR at dist 0 to fully black by
+//   VANGUARD_CALLING_FLOOR_GRADIENT_RADIUS tiles out, via
+//   VANGUARD_CALLING_FLOOR_FALLOFF_POWER — steeper than the normal ambient
+//   VISIBILITY_FALLOFF_POWER) PLUS simply not rendering at all past
+//   VANGUARD_CALLING_FLOOR_VISIBLE_RADIUS, a much tighter cutoff than the
+//   normal VISIBLE_RADIUS, so the ground itself seems to be swallowed by
+//   the dark a few steps out rather than just changing color.
+const VANGUARD_CALLING_WALL_NEAR_RADIUS = 2;
+const VANGUARD_CALLING_FLOOR_GRADIENT_RADIUS = 2;
+const VANGUARD_CALLING_FLOOR_VISIBLE_RADIUS = 3;
+const VANGUARD_CALLING_FLOOR_FALLOFF_POWER = 4;
+
 // Reused across every moonHue/torchHue/blendColor call instead of a fresh
 // `new THREE.Color(...)` per call (these run per visible floor tile, per
 // visible ambient wall panel, AND per vertex of every visible torch wall
@@ -882,6 +907,14 @@ export class DungeonRenderer3D {
     // camera/sprite to it on the next setPlayerState() rather than
     // tweening a long swoop across the whole dungeon.
     this._playerStateInitialized = false;
+    // Vanguard-calling wall effect (see VANGUARD_CALLING_WALL_RADIUS) —
+    // cached once per setDungeon() call rather than re-scanning
+    // dungeon.tiles every frame in updateVisibility(). Only floor 5's
+    // dungeon has a tile with meta.isHiddenGate at all, so this is null
+    // (effect off) on every other floor automatically; checkHiddenGateUnlock()
+    // mutates THIS SAME tile object's .type in place (never replaces it),
+    // so re-reading .type off the cached reference each frame stays live.
+    this._callingGateTile = dungeon.tiles.find((t) => t.meta.isHiddenGate) ?? null;
 
     const tilesByKey = new Map(dungeon.tiles.map((t) => [tileKey(t.x, t.y), t]));
 
@@ -1039,6 +1072,13 @@ export class DungeonRenderer3D {
     const floorStrengthFor = torch ? torchVisibilityStrength : visibilityStrength;
     const px = this.currentPlayerPos.x / TILE_SIZE;
     const py = this.currentPlayerPos.z / TILE_SIZE;
+    // See the VANGUARD_CALLING_* constants' comment — overrides wall AND
+    // floor coloring (markers keep their normal continuous behavior)
+    // whenever floor 5's gate is open and Vanguard hasn't been beaten yet
+    // this run.
+    const vanguardCalling = !!this._callingGateTile
+      && this._callingGateTile.type === TILE_TYPES.FLOOR
+      && !this.app?.gameState?.run?.vanguardDefeated;
 
     this.tileMeshes.forEach((entry) => {
       const dx = entry.x - px;
@@ -1051,7 +1091,14 @@ export class DungeonRenderer3D {
         entry.walls.forEach((w) => {
           w.mesh.visible = visible;
           if (!visible) return;
-          if (torch) {
+          if (vanguardCalling) {
+            // Flat/binary — no blend, uses the normal visibility cutoff
+            // (see VANGUARD_CALLING_WALL_NEAR_RADIUS's comment; the floor
+            // branch below is what shrinks the render distance, not this).
+            w.ambientMaterial.color.set(dist <= VANGUARD_CALLING_WALL_NEAR_RADIUS ? MOON_COLOR_NEAR : MOON_COLOR_FAR);
+            w.mesh.material = w.ambientMaterial;
+            w.mesh.geometry = w.isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW;
+          } else if (torch) {
             writeTorchWallGeometryColors(w.torchGeometry, dist);
             w.mesh.material = this._mat.torchWallMaterial;
             w.mesh.geometry = w.torchGeometry;
@@ -1063,12 +1110,25 @@ export class DungeonRenderer3D {
         });
         return;
       }
-      entry.floor.visible = visible;
+      // Overrides the normal visibility cutoff too, not just the color —
+      // see VANGUARD_CALLING_FLOOR_VISIBLE_RADIUS's comment: the ground
+      // itself shrinks in around you during this effect.
+      const floorVisible = vanguardCalling ? dist <= VANGUARD_CALLING_FLOOR_VISIBLE_RADIUS : visible;
+      entry.floor.visible = floorVisible;
       // See this method's doc comment — floor is deliberately NOT bucketed
       // by rounded distance like walls/markers; only actually compute (and
       // allocate the intermediate Color objects for) it while visible.
-      if (visible) {
-        entry.floor.material.color.copy(blendColor(floorHueFor(dist), floorKeep * floorStrengthFor(dist), BACKGROUND_COLOR));
+      if (floorVisible) {
+        if (vanguardCalling) {
+          // One formula covers both the 0..GRADIENT_RADIUS fade AND the
+          // solid-black band beyond it out to VISIBLE_RADIUS: strength
+          // hits exactly 0 (pure black, since MOON_COLOR_NEAR * 0 = black)
+          // right at GRADIENT_RADIUS and stays clamped there.
+          const strength = Math.max(0, 1 - dist / VANGUARD_CALLING_FLOOR_GRADIENT_RADIUS) ** VANGUARD_CALLING_FLOOR_FALLOFF_POWER;
+          entry.floor.material.color.setHex(MOON_COLOR_NEAR).multiplyScalar(strength);
+        } else {
+          entry.floor.material.color.copy(blendColor(floorHueFor(dist), floorKeep * floorStrengthFor(dist), BACKGROUND_COLOR));
+        }
       }
       if (entry.marker) {
         entry.marker.visible = visible;
