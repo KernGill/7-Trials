@@ -919,6 +919,20 @@ export class DungeonRenderer3D {
     const tilesByKey = new Map(dungeon.tiles.map((t) => [tileKey(t.x, t.y), t]));
 
     dungeon.tiles.forEach((tile) => {
+      // Everything past the floor-5 hidden gate gets skipped entirely —
+      // no mesh, no tileMeshes entry, nothing — while that gate is still
+      // sealed (this._callingGateTile.type === WALL). Minimap.js already
+      // refuses to DRAW anything flagged hiddenPastGate, but this renderer
+      // had no equivalent guard: it built full geometry for every tile
+      // regardless, so the oblique camera could see clean over/around a
+      // single thin gate panel into the "secret" corridor and room beyond
+      // it — a real leak (see live report), since a solid gate tile only
+      // blocks foot traffic, not sightlines, once its neighbor geometry
+      // exists. Once checkHiddenGateUnlock() flips the SAME gate tile
+      // object to FLOOR and rebuilds via a fresh setDungeon() call, this
+      // condition is false and the whole area gets built normally.
+      if (tile.meta.hiddenPastGate && this._callingGateTile?.type === TILE_TYPES.WALL) return;
+
       const worldX = tile.x * TILE_SIZE;
       const worldZ = tile.y * TILE_SIZE;
 
@@ -927,6 +941,18 @@ export class DungeonRenderer3D {
         CARDINAL_DIRS.forEach(({ dx, dy, side }) => {
           const neighbor = tilesByKey.get(tileKey(tile.x + dx, tile.y + dy));
           if (!neighbor || neighbor.type === TILE_TYPES.WALL) return; // no panel toward another wall or off-grid
+          // Nor toward a concealed hiddenPastGate neighbor — same as
+          // whichever tile OWNS this panel skipping its own geometry
+          // above, a WALL tile bordering a still-locked hidden neighbor
+          // must not paint a panel facing it either. Without this the gate
+          // tile itself is the concrete example: its far side (away from
+          // the player, toward the sealed corridor) has a genuine FLOOR
+          // neighbor one step past it — that neighbor's own rendering is
+          // skipped, but its `.type` is still FLOOR, so this check alone
+          // would still build a real panel facing directly into the
+          // "hidden" area, visible peeking out past the near-side panel
+          // from the oblique camera (the actual leak — see live report).
+          if (neighbor.meta.hiddenPastGate && this._callingGateTile?.type === TILE_TYPES.WALL) return;
           const isNS = side === 'north' || side === 'south';
           // Own private ambient material + torch geometry per panel (not
           // shared from this._mat/this._geo) — see updateVisibility()'s

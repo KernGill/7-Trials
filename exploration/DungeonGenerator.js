@@ -30,13 +30,13 @@ const HIDDEN_ROOM_RADIUS = Math.floor(HIDDEN_ROOM_SIZE / 2);
 // Steps 1..HIDDEN_GATE_STEP-1 out from the stairs are a plain visible
 // corridor stub; step HIDDEN_GATE_STEP is the gate itself (a real WALL
 // until unlocked at runtime) — see placeHiddenArenaFromStairs's doc
-// comment. Deliberately placed roughly midway down the hallway (not right
-// at the entrance) — the 3D view's own sight radius (VISIBLE_RADIUS/
-// TORCH_VISIBLE_RADIUS in DungeonRenderer3D, 9-12 tiles) can't reach this
-// far, so a player standing at the stairs has no way to spot the dead end
-// from there; only someone who actually commits to walking the corridor
-// finds it blocked.
-const HIDDEN_GATE_STEP = Math.floor(HIDDEN_HALLWAY_LENGTH / 2);
+// comment. Not right at the entrance (so a player standing at the stairs,
+// whose own sight radius per DungeonRenderer3D's VISIBLE_RADIUS/
+// TORCH_VISIBLE_RADIUS is 9-12 tiles, can't spot the dead end from there —
+// only someone who actually commits to walking the corridor finds it
+// blocked) but per user request not a full "roughly midway" (20) either —
+// that read as suspiciously long for a corridor with nothing in it.
+const HIDDEN_GATE_STEP = 9;
 
 // Open flat rooms (per user request), placed before the maze walker runs
 // and chain-connected so they're always reachable. Room count scales
@@ -264,6 +264,18 @@ function placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height) {
   // untouched permanent wall" property.
   else dir = DIRS[randomInt(0, 3)];
 
+  // The two cells flanking a 1-wide corridor running along `dir` (a 90°
+  // rotation of it). An ordinary in-grid corridor gets real walls on both
+  // sides for free, since the whole grid starts out 100% WALL before
+  // anything carves through it — off-grid tiles have no such starting
+  // point, they simply don't exist at all until something creates them,
+  // so without explicitly minting these two neighbors at every step the
+  // corridor would render as a bare floor strip floating in open space
+  // (DungeonRenderer3D only ever puts a wall panel on an EXISTING WALL
+  // tile that has a FLOOR neighbor — nothing to hang a panel off of when
+  // the neighbor cell doesn't exist in `tiles` at all).
+  const perp = [-dir[1], dir[0]];
+
   let cx = stairsTile.x;
   let cy = stairsTile.y;
   for (let step = 1; step <= HIDDEN_HALLWAY_LENGTH; step += 1) {
@@ -278,6 +290,22 @@ function placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height) {
       tile.type = TILE_TYPES.FLOOR;
       if (step > HIDDEN_GATE_STEP) tile.meta.hiddenPastGate = true;
     }
+    // Left/right neighbors default to WALL (getOrCreateTile's own default
+    // for a brand-new tile) and are left untouched here — never given an
+    // explicit `.type` — so a neighbor that already exists (e.g. once the
+    // corridor nears the room below, see its own comment) is never
+    // accidentally reverted from FLOOR back to WALL. `meta.hiddenPastGate`
+    // DOES need setting here though, same as the corridor floor tile
+    // itself at this step — DungeonRenderer3D.setDungeon() skips building
+    // geometry for anything flagged hiddenPastGate while the gate is still
+    // locked, and these flanking walls are just as much a spoiler as the
+    // floor between them if left unflagged (a player could still see bare
+    // wall panels continuing past the gate into the void).
+    [[cx + perp[0], cy + perp[1]], [cx - perp[0], cy - perp[1]]].forEach(([fx, fy]) => {
+      const flank = getOrCreateTile(byKey, tiles, fx, fy);
+      flank.meta.hidden = true;
+      if (step > HIDDEN_GATE_STEP) flank.meta.hiddenPastGate = true;
+    });
   }
 
   const centerX = cx + dir[0];
@@ -285,10 +313,30 @@ function placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height) {
   for (let dy = -HIDDEN_ROOM_RADIUS; dy <= HIDDEN_ROOM_RADIUS; dy += 1) {
     for (let dx = -HIDDEN_ROOM_RADIUS; dx <= HIDDEN_ROOM_RADIUS; dx += 1) {
       if (dx === 0 && dy === 0) continue; // center tile — becomes HIDDEN_ENEMY below, not plain floor
+      // Unconditional overwrite (unlike the corridor's own flanking walls
+      // above) — the corridor's final few steps approach directly through
+      // this same footprint, and their own flanking-wall cells need to
+      // become real room floor here, not stay walled off from the arena
+      // they're about to open into.
       const tile = getOrCreateTile(byKey, tiles, centerX + dx, centerY + dy);
       tile.type = TILE_TYPES.FLOOR;
       tile.meta.hidden = true;
       tile.meta.hiddenPastGate = true;
+    }
+  }
+  // Same reasoning as the corridor's flanking walls above, one ring past
+  // the room's own 7x7 footprint — an actual enclosed arena instead of a
+  // floating island of floor. Never given an explicit `.type` for the
+  // same reason as the corridor's own flanking walls, but always
+  // hiddenPastGate — the whole room sits past the gate, unlike the
+  // corridor's own flanking walls (which only start counting as such once
+  // step > HIDDEN_GATE_STEP).
+  for (let dy = -HIDDEN_ROOM_RADIUS - 1; dy <= HIDDEN_ROOM_RADIUS + 1; dy += 1) {
+    for (let dx = -HIDDEN_ROOM_RADIUS - 1; dx <= HIDDEN_ROOM_RADIUS + 1; dx += 1) {
+      if (Math.abs(dx) <= HIDDEN_ROOM_RADIUS && Math.abs(dy) <= HIDDEN_ROOM_RADIUS) continue; // inside the room itself, handled above
+      const ring = getOrCreateTile(byKey, tiles, centerX + dx, centerY + dy);
+      ring.meta.hidden = true;
+      ring.meta.hiddenPastGate = true;
     }
   }
   const centerTile = getOrCreateTile(byKey, tiles, centerX, centerY);
