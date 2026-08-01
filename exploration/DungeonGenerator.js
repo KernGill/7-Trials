@@ -15,9 +15,18 @@ const CARVE_DENSITY = 0.3125; // target carved-tile fraction of the grid
 // a blob later by *other*, unrelated carves that each individually look fine.
 const STRAIGHT_BIAS = 0.7;
 
-const LOCKED_DOOR_COUNT = 3;
+// Trimmed from 3 (Timing QTE reads as a comparable time investment per
+// attempt to the old arrow QTE, even at a slightly lower tile count) to
+// make room for the 4 new event types below, landing at 11 total
+// events/floor — enough that a player is likely to descend without
+// clearing every event on a floor.
+const LOCKED_DOOR_COUNT = 2;
 const TREASURE_COUNT = 2;
 const TEMPORAL_CHEST_COUNT = 1;
+const SEALED_SHRINE_COUNT = 2;
+const ARCANE_SIGIL_COUNT = 2;
+const WANDERING_SATCHEL_COUNT = 1;
+const WOUNDED_ANIMAL_COUNT = 1;
 const ELEVATOR_COUNT = 1;
 const VENDOR_COUNT = 1;
 
@@ -493,41 +502,84 @@ export class DungeonGenerator {
       remaining[i].meta.groupSize = remaining[i].meta.isBoss ? 1 : (groupSizeBracket?.size ?? 1);
     }
 
+    // Each event type claims its own contiguous slice of the shuffled
+    // `remaining` list, one after another — tracked via a running offset
+    // rather than repeating an ever-longer sum by hand for all 7 event
+    // types (a low-risk simplification of the same slicing pattern this
+    // file already used, not a functional change).
+    let offset = enemyCount;
+
     for (let i = 0; i < LOCKED_DOOR_COUNT; i += 1) {
-      const lockedRoomTile = remaining[enemyCount + i];
+      const lockedRoomTile = remaining[offset + i];
       if (lockedRoomTile) {
         lockedRoomTile.type = TILE_TYPES.LOCKED_DOOR;
         lockedRoomTile.meta.lockDifficulty = 10 + floor;
       }
     }
+    offset += LOCKED_DOOR_COUNT;
 
     for (let i = 0; i < TREASURE_COUNT; i += 1) {
-      const treasureTile = remaining[enemyCount + LOCKED_DOOR_COUNT + i];
+      const treasureTile = remaining[offset + i];
       if (treasureTile) {
         treasureTile.type = TILE_TYPES.TREASURE;
       }
     }
+    offset += TREASURE_COUNT;
 
     for (let i = 0; i < TEMPORAL_CHEST_COUNT; i += 1) {
-      const temporalChestTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + i];
+      const temporalChestTile = remaining[offset + i];
       if (temporalChestTile) {
         temporalChestTile.type = TILE_TYPES.TEMPORAL_CHEST;
       }
     }
+    offset += TEMPORAL_CHEST_COUNT;
+
+    for (let i = 0; i < SEALED_SHRINE_COUNT; i += 1) {
+      const shrineTile = remaining[offset + i];
+      if (shrineTile) {
+        shrineTile.type = TILE_TYPES.SEALED_SHRINE;
+      }
+    }
+    offset += SEALED_SHRINE_COUNT;
+
+    for (let i = 0; i < ARCANE_SIGIL_COUNT; i += 1) {
+      const sigilTile = remaining[offset + i];
+      if (sigilTile) {
+        sigilTile.type = TILE_TYPES.ARCANE_SIGIL;
+      }
+    }
+    offset += ARCANE_SIGIL_COUNT;
+
+    for (let i = 0; i < WANDERING_SATCHEL_COUNT; i += 1) {
+      const satchelTile = remaining[offset + i];
+      if (satchelTile) {
+        satchelTile.type = TILE_TYPES.WANDERING_SATCHEL;
+      }
+    }
+    offset += WANDERING_SATCHEL_COUNT;
+
+    for (let i = 0; i < WOUNDED_ANIMAL_COUNT; i += 1) {
+      const woundedAnimalTile = remaining[offset + i];
+      if (woundedAnimalTile) {
+        woundedAnimalTile.type = TILE_TYPES.WOUNDED_ANIMAL;
+      }
+    }
+    offset += WOUNDED_ANIMAL_COUNT;
 
     // One elevator per floor — never resolved/consumed (see TILE_TYPES.ELEVATOR),
     // lets the player warp back to any previously-visited floor.
     for (let i = 0; i < ELEVATOR_COUNT; i += 1) {
-      const elevatorTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + TEMPORAL_CHEST_COUNT + i];
+      const elevatorTile = remaining[offset + i];
       if (elevatorTile) {
         elevatorTile.type = TILE_TYPES.ELEVATOR;
       }
     }
+    offset += ELEVATOR_COUNT;
 
     // One Vendor per floor — also never resolved/consumed, opens the
     // card-fusion UI (see TILE_TYPES.VENDOR, ExploreState.showVendor).
     for (let i = 0; i < VENDOR_COUNT; i += 1) {
-      const vendorTile = remaining[enemyCount + LOCKED_DOOR_COUNT + TREASURE_COUNT + TEMPORAL_CHEST_COUNT + ELEVATOR_COUNT + i];
+      const vendorTile = remaining[offset + i];
       if (vendorTile) {
         vendorTile.type = TILE_TYPES.VENDOR;
       }

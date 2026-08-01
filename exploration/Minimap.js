@@ -3,7 +3,10 @@ import { getMoveTemplate } from '../data/moves.js';
 
 // Thief's Future (Thief's Idol): these tile types count as "events" that
 // get marked on the map before they're actually explored.
-const REVEALABLE_EVENT_TYPES = [TILE_TYPES.LOCKED_DOOR, TILE_TYPES.TREASURE, TILE_TYPES.TEMPORAL_CHEST];
+const REVEALABLE_EVENT_TYPES = [
+  TILE_TYPES.LOCKED_DOOR, TILE_TYPES.TREASURE, TILE_TYPES.TEMPORAL_CHEST,
+  TILE_TYPES.SEALED_SHRINE, TILE_TYPES.ARCANE_SIGIL, TILE_TYPES.WANDERING_SATCHEL, TILE_TYPES.WOUNDED_ANIMAL,
+];
 
 const RADIUS = 4; // 9x9 visible window, per user request ("4 block radius")
 const CELL_SIZE = 16;
@@ -19,6 +22,10 @@ const TILE_COLORS = {
   [TILE_TYPES.TEMPORAL_CHEST]: '#1f5fd9',
   [TILE_TYPES.ELEVATOR]: '#2ecc71',
   [TILE_TYPES.VENDOR]: '#d4af37',
+  [TILE_TYPES.SEALED_SHRINE]: '#9b59b6',
+  [TILE_TYPES.ARCANE_SIGIL]: '#1fd9c9',
+  [TILE_TYPES.WANDERING_SATCHEL]: '#8a5a2f',
+  [TILE_TYPES.WOUNDED_ANIMAL]: '#c0392b',
 };
 const UNKNOWN_COLOR = '#000000';
 const PLAYER_COLOR = '#ffffff';

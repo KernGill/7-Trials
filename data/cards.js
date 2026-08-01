@@ -109,10 +109,49 @@ export const CARDS = {
     values: [2, 4, 6, 9, 14, 20],
     description: 'Gives a chance for a move you use to not go on cooldown at all.',
   },
+  spd: {
+    id: 'spd', category: 'util', statKey: 'spd', name: 'Speed', isPercent: false,
+    values: [3, 5, 7, 10, 15, 25],
+    description: 'Increases Speed, making you act earlier in turn order.',
+  },
+
+  // --- Shrine-only cards (Sealed Shrine event) ---
+  // Not part of the normal card pool — see cardsInCategory's shrineOnly
+  // filter, which keeps these out of the stairs offer and Vendor Shop.
+  // Only reachable via rollShrineCard(). Each is exactly 3x its base
+  // stat card's values (per user request: "the increase in the stat from
+  // the shrine card should be triple that of any regular card").
+  shrine_int: {
+    id: 'shrine_int', category: 'attack', statKey: 'int', name: 'Shrine Intellect', isPercent: false, shrineOnly: true,
+    values: [9, 15, 21, 30, 45, 75], // = CARDS.int.values x 3
+    description: 'A shrine-blessed surge of Intellect — triple the potency of a normal Intellect card.',
+  },
+  shrine_str: {
+    id: 'shrine_str', category: 'attack', statKey: 'str', name: 'Shrine Strength', isPercent: false, shrineOnly: true,
+    values: [9, 15, 21, 30, 45, 75], // = CARDS.str.values x 3
+    description: 'A shrine-blessed surge of Strength — triple the potency of a normal Strength card.',
+  },
+  shrine_dex: {
+    id: 'shrine_dex', category: 'util', statKey: 'dex', name: 'Shrine Dexterity', isPercent: false, shrineOnly: true,
+    values: [9, 15, 21, 30, 45, 75], // = CARDS.dex.values x 3
+    description: 'A shrine-blessed surge of Dexterity — triple the potency of a normal Dexterity card.',
+  },
+  shrine_def: {
+    id: 'shrine_def', category: 'sustain', statKey: 'def', name: 'Shrine Defense', isPercent: false, shrineOnly: true,
+    values: [6, 9, 12, 18, 27, 39], // = CARDS.defense.values x 3
+    description: 'A shrine-blessed surge of Defense — triple the potency of a normal Defense card.',
+  },
+  shrine_spd: {
+    id: 'shrine_spd', category: 'util', statKey: 'spd', name: 'Shrine Speed', isPercent: false, shrineOnly: true,
+    values: [9, 15, 21, 30, 45, 75], // = CARDS.spd.values x 3
+    description: 'A shrine-blessed surge of Speed — triple the potency of a normal Speed card.',
+  },
 };
 
+const SHRINE_CARD_IDS = ['shrine_int', 'shrine_str', 'shrine_dex', 'shrine_def', 'shrine_spd'];
+
 export function cardsInCategory(category) {
-  return Object.values(CARDS).filter((c) => c.category === category);
+  return Object.values(CARDS).filter((c) => c.category === category && !c.shrineOnly);
 }
 
 /** The value a card of `cardId` shows at `rarityIndex` — including the synthetic 'god' tier (always 3x that card's mythic value), which has no slot of its own in `values`. */
@@ -137,6 +176,13 @@ function rollOneCard(category) {
 /** One random card per category (Attack/Sustain/Util), each independently rolled to a random rarity. */
 export function rollCardOffer() {
   return [CARD_CATEGORIES.ATTACK, CARD_CATEGORIES.SUSTAIN, CARD_CATEGORIES.UTIL].map(rollOneCard);
+}
+
+/** Sealed Shrine reward: a random shrine-only stat card at a random rarity, following the same RARITY_WEIGHTS odds as a normal card roll. */
+export function rollShrineCard() {
+  const cardId = pickRandom(SHRINE_CARD_IDS);
+  const rarityIndex = rollRarityIndex();
+  return { cardId, category: CARDS[cardId].category, rarityIndex, value: cardValueForRarity(cardId, rarityIndex) };
 }
 
 /** Sums picked cards' values by statKey into a flat additive-bonus object, for Character.cardBonusStats. */

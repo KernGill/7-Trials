@@ -46,6 +46,7 @@ export class CombatManager {
     this.rewards = null;
     this.selectedMove = null;
     this.pendingExplorationBuffs = [];
+    this.pendingEnemyDebuff = null;
     this.timeline.reset();
     this.turnOrder.reset();
     this.enemyAI.reset();
@@ -90,11 +91,12 @@ export class CombatManager {
     this.timeline.flushSequence();
   }
 
-  startCombat({ player, enemies, explorationBuffs = [] }) {
+  startCombat({ player, enemies, explorationBuffs = [], pendingEnemyDebuff = null }) {
     this.reset();
     this.player = player;
     this.enemies = enemies;
     this.pendingExplorationBuffs = explorationBuffs;
+    this.pendingEnemyDebuff = pendingEnemyDebuff;
 
     [player, ...enemies].forEach((c) => c.resetBattleState());
     // Enemies always fight a solo player, so every enemy's combatOpponent
@@ -111,6 +113,7 @@ export class CombatManager {
       combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy, speed: c.battleSpeed })),
     });
     this.applyExplorationBuffs();
+    this.applyPendingEnemyDebuff();
     this.triggerPassives('fight_start');
     this.turnOrder.beginFightTurn(this.combatants);
     this.record({ kind: 'fightTurn', n: this.turnOrder.fightTurn, isFirst: true });
@@ -135,6 +138,22 @@ export class CombatManager {
       this.statusSystem.applyBuffs(this.player, [buff], this.player);
     });
     this.pendingExplorationBuffs = [];
+  }
+
+  /**
+   * Wounded Animal's queued next-fight debuff (see StateManager.startCombat,
+   * which reads-and-clears run.pendingEnemyDebuff the instant this fight
+   * begins). Applied to the FIRST enemy only, not every enemy in a
+   * multi-enemy pack — keeps the reward proportionate to a single Mash
+   * QTE (comparable to a Locked Door's own reward), and "the first enemy"
+   * is already this codebase's established primary-target convention
+   * (see player.combatOpponent's own default above).
+   */
+  applyPendingEnemyDebuff() {
+    if (!this.pendingEnemyDebuff) return;
+    const target = this.enemies[0];
+    if (target) this.logDebuffResults(this.statusSystem.applyDebuffs(target, [this.pendingEnemyDebuff], this.player));
+    this.pendingEnemyDebuff = null;
   }
 
   /**

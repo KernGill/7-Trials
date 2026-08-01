@@ -267,6 +267,14 @@ select {
 .result-box h2 { margin: 0 0 4px; text-align: center; color: #f1c40f; letter-spacing: 1px; font-size: 18px; }
 .result-line { color: #ddd; font-size: 13px; text-align: center; }
 .result-close { padding: 10px; font-size: 13px; margin-top: 8px; }
+.satchel-options { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.satchel-option-btn {
+  padding: 12px; border-radius: 8px; background: #1e3a5f; border: 1px solid #f1c40f;
+  color: #eee; font-size: 13px; cursor: pointer;
+}
+.satchel-option-btn:hover { background: #26547a; }
+.wounded-animal-choices { display: flex; gap: 12px; justify-content: center; margin-top: 10px; }
+.wounded-animal-choices .cat-btn { flex: 1; text-align: center; }
 .continue-run-btn, .begin-anew-btn { padding: 12px; font-size: 13px; letter-spacing: 0.5px; }
 
 /* ---------------- Cards (in-run progression) ---------------- */
@@ -381,6 +389,29 @@ select {
 .qte-key.qte-key-skip { filter: grayscale(1); opacity: 0.45; }
 .qte-timer-track { height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
 .qte-timer-fill { height: 100%; width: 100%; background: #e94560; }
+
+/* ---------------- Timing / Hold / Memory / Mash QTEs (new event types) ---------------- */
+.qte-fill-track { width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; }
+.qte-fill-bar { height: 100%; width: 0%; background: #2ecc71; }
+.timing-track { position: relative; width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; cursor: pointer; }
+.timing-zone { position: absolute; top: 0; bottom: 0; background: rgba(46, 204, 113, 0.55); }
+.timing-zone.hit { background: #2ecc71; }
+.timing-marker {
+  position: absolute; top: -4px; bottom: -4px; width: 3px; background: #e94560;
+  animation-name: timing-sweep; animation-timing-function: linear; animation-iteration-count: infinite;
+}
+@keyframes timing-sweep { from { left: 0%; } to { left: 100%; } }
+.timing-touch-btn, .hold-touch-btn, .mash-touch-btn {
+  display: none; width: 96px; height: 96px; border-radius: 50%; margin: 0 auto;
+  align-items: center; justify-content: center;
+  background: rgba(30, 58, 95, 0.9); border: 2px solid #e94560;
+}
+.timing-touch-btn:active, .hold-touch-btn:active, .mash-touch-btn:active { background: rgba(233, 69, 96, 0.55); }
+.memory-reveal { display: flex; align-items: center; justify-content: center; height: 64px; }
+.memory-slots { display: flex; gap: 8px; justify-content: center; }
+.qte-key-slot { width: 44px; height: 44px; border-radius: 8px; background: #1e3a5f; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; }
+.qte-key-slot.filled { border-style: solid; border-color: #2ecc71; }
+.qte-key-reveal { transform: scale(1.15); box-shadow: 0 0 14px 4px rgba(241, 196, 15, 0.85); }
 
 /* ---------------- FIGHT ---------------- */
 .fight-screen {
@@ -799,6 +830,7 @@ select {
   .mouselook-hint { display: none; } /* pointer-lock hint is meaningless on touch */
   .mobile-pause-btn { display: flex; }
   .qte-touch-pad { display: grid; }
+  .timing-touch-btn, .hold-touch-btn, .mash-touch-btn { display: flex; }
 }
 
 /* ---------------- Mobile landscape enforcement ---------------- */

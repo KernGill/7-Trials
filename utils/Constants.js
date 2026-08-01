@@ -24,6 +24,9 @@ export const MOVE_CATEGORIES = {
 export const CHEST_TRAP_DAMAGE = 30; // leaves party at 1 HP, never kills
 export const TEMPORAL_CHEST_TRAP_DAMAGE = 100; // leaves party at 1 HP, never kills
 export const LOCKED_ROOM_GOLD_REWARD = 80;
+export const SEALED_SHRINE_TRAP_DAMAGE = 50; // leaves party at 1 HP, never kills
+export const ARCANE_SIGIL_TRAP_DAMAGE = 40; // leaves party at 1 HP, never kills
+export const WOUNDED_ANIMAL_MASH_FAIL_DAMAGE = 80; // leaves party at 1 HP, never kills
 
 export const SINGLE_EQUIPMENT_SLOTS = [
   'mainWeapon', 'offHand', 'chest', 'head', 'boots', 'arms', 'legs',

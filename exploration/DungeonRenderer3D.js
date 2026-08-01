@@ -342,6 +342,10 @@ const MARKER_COLORS = {
   [TILE_TYPES.HIDDEN_ENEMY]: 0x000000,
   [TILE_TYPES.ELEVATOR]: 0x2ecc71,
   [TILE_TYPES.VENDOR]: 0xd4af37, // gold — reads as a distinct "shop" landmark against the elevator's green
+  [TILE_TYPES.SEALED_SHRINE]: 0x9b59b6, // violet — reads as "arcane/holy", distinct from the locked door's darker purple
+  [TILE_TYPES.ARCANE_SIGIL]: 0x1fd9c9, // teal/cyan — reads as a magic sigil, distinct from every other hue here
+  [TILE_TYPES.WANDERING_SATCHEL]: 0x8a5a2f, // brown/leather — reads as a satchel, distinct from treasure's gold
+  [TILE_TYPES.WOUNDED_ANIMAL]: 0xc0392b, // red — a living thing, not loot
 };
 
 function tileKey(x, y) {
@@ -1032,6 +1036,13 @@ export class DungeonRenderer3D {
     } else if (tile.type === TILE_TYPES.ELEVATOR || tile.type === TILE_TYPES.VENDOR) {
       // Genuine cube, same treatment as TEMPORAL_CHEST — a permanent
       // landmark, never one-shot/consumed like the flatter default marker.
+      geo = this._geo.enemyCube;
+      height = TILE_SIZE * 0.4;
+    } else if (tile.type === TILE_TYPES.SEALED_SHRINE || tile.type === TILE_TYPES.ARCANE_SIGIL) {
+      // Same taller cube treatment as TEMPORAL_CHEST — both are QTE-gated
+      // "special" rewards, unlike the flatter default marker used for
+      // Wandering Satchel/Wounded Animal below (no branch needed for
+      // those two — they fall through to the LOCKED_DOOR/TREASURE default).
       geo = this._geo.enemyCube;
       height = TILE_SIZE * 0.4;
     }

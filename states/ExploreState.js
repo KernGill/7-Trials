@@ -4,16 +4,19 @@ import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
 import { getArcForFloor } from '../data/arcs.js';
 import {
-  rollCardOffer, canFuseCards, fuseCards, cardValueForRarity, cardsInCategory,
+  rollCardOffer, rollShrineCard, canFuseCards, fuseCards, cardValueForRarity, cardsInCategory,
   CARDS, RARITIES, RARITY_COLORS, CARD_PRICES,
 } from '../data/cards.js';
-import { cardTileHTML, cardTooltipHTML, shopCardTileHTML } from '../ui/InfoFormatters.js';
-import { arrowIconSVG } from '../ui/DirectionIcons.js';
+import { cardTileHTML, cardTooltipHTML, shopCardTileHTML, statLabel } from '../ui/InfoFormatters.js';
+import { arrowIconSVG, holdIconSVG, mashIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 import { Minimap } from '../exploration/Minimap.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
-import { CHEST_TRAP_DAMAGE, TEMPORAL_CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD } from '../utils/Constants.js';
+import {
+  CHEST_TRAP_DAMAGE, TEMPORAL_CHEST_TRAP_DAMAGE, LOCKED_ROOM_GOLD_REWARD,
+  SEALED_SHRINE_TRAP_DAMAGE, ARCANE_SIGIL_TRAP_DAMAGE, WOUNDED_ANIMAL_MASH_FAIL_DAMAGE,
+} from '../utils/Constants.js';
 import { randomInt, clamp } from '../utils/MathUtils.js';
 import { pickRandom, rollWeightedChoice } from '../utils/RandomUtils.js';
 import {
@@ -99,6 +102,63 @@ const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material 
 // one-time retry — see finishQTE.
 const QTE_SECOND_CHANCE_FAIL_DAMAGE = 100;
 
+// QTE session types — see startQTE's dispatcher + the build*QTE methods.
+// 'arrow' is the original mechanic, kept only for Temporal Chest; the
+// other four are new. Every type shares the same finishQTE/mode/mouse-
+// look/Thief's-Curiosity-retry plumbing — only the build*/handle*/submit*
+// methods differ per type.
+const QTE_TYPES = { ARROW: 'arrow', TIMING: 'timing', HOLD: 'hold', MEMORY: 'memory', MASH: 'mash' };
+
+// --- Timing bar QTE (Locked Door, Treasure) ---
+const TIMING_BASE_ROUNDS = 3; // + 1 per TIMING_FLOOR_ROUNDS_INTERVAL floors
+const TIMING_FLOOR_ROUNDS_INTERVAL = 3;
+const TIMING_MARKER_PERIOD_SECONDS = 1.1; // one full sweep of the track — constant across floors, only the zone shrinks
+const TIMING_BASE_ZONE_PERCENT = 28; // sweet-spot width as % of track, floor 1
+const TIMING_ZONE_SHRINK_PER_FLOOR = 0.8;
+const TIMING_MIN_ZONE_PERCENT = 10;
+const TIMING_BASE_SECONDS = 6;
+
+// --- Hold QTE (Sealed Shrine) ---
+const HOLD_BASE_SECONDS = 7;
+const HOLD_FILL_PER_SECOND_HELD = 34; // % fill/sec while held, floor 1 (~2.9s to fill)
+const HOLD_FILL_GROWTH_PER_FLOOR = -1.1; // gets harder — slower fill per floor
+const HOLD_MIN_FILL_PER_SECOND = 14; // floor for the above (~7.1s to fill)
+const HOLD_DECAY_PER_SECOND = 22; // % fill lost/sec while released, constant
+
+// --- Memory / Simon-Says QTE (Arcane Sigil) ---
+const MEMORY_BASE_LENGTH = 4;
+const MEMORY_LENGTH_PER_FLOOR = 0.4; // ~+1 length per 2.5 floors
+const MEMORY_MAX_LENGTH = 10;
+const MEMORY_BASE_REVEAL_MS = 900; // ms each icon is shown during playback
+const MEMORY_REVEAL_SHRINK_PER_FLOOR_MS = 25;
+const MEMORY_MIN_REVEAL_MS = 400;
+const MEMORY_GAP_MS = 220; // pause between icons during playback, floor-independent
+const MEMORY_INPUT_SECONDS = 8; // time allowed to reproduce, floor-independent (dex/qteBonusSeconds still apply) — only counted once the reveal phase ends, see tick()
+
+// --- Mash QTE (Wounded Animal, 70% branch) ---
+const MASH_BASE_SECONDS = 5;
+const MASH_FILL_PER_PRESS = 9; // % fill per press, floor 1 (~12 presses)
+const MASH_FILL_PER_PRESS_FLOOR_DECAY = -0.25;
+const MASH_MIN_FILL_PER_PRESS = 4; // floor for the above (~25 presses)
+const MASH_DECAY_PER_SECOND = 12; // passive drain while not pressing, constant
+
+// --- Sealed Shrine / Arcane Sigil / Wandering Satchel / Wounded Animal ---
+const WOUNDED_ANIMAL_INSTANT_CHANCE = 30; // % chance "Try and save it" succeeds instantly, no QTE
+// Arcane Sigil's pre-fight buff amount — a separate floor-LINEAR formula
+// (not getRewardMultiplier's compounding gold/material curve, which would
+// start a flat stat buff at a token 25% of its floor-1 value) calibrated
+// against the reference consumable buff {stat:'str',amount:5,duration:-1}.
+const ARCANE_SIGIL_BASE_BUFF_AMOUNT = 6;
+const ARCANE_SIGIL_BUFF_PER_FLOOR = 1.5;
+const ARCANE_SIGIL_BUFF_STATS = ['str', 'int', 'dex', 'spd', 'def', 'con'];
+// Wandering Satchel's 3 reward-option shapes, all further scaled by getRewardMultiplier.
+const SATCHEL_GOLD_RATIO = 0.8;
+const SATCHEL_MATERIAL_MIN = 3;
+const SATCHEL_MATERIAL_MAX = 5;
+const SATCHEL_MIXED_GOLD_RATIO = 0.4;
+const SATCHEL_MIXED_MATERIAL_MIN = 2;
+const SATCHEL_MIXED_MATERIAL_MAX = 3;
+
 // Hidden floor-5 boss encounter (see DungeonGenerator's placeHiddenArena
 // and the TILE_TYPES.HIDDEN_ENEMY case below): shake+darken plays over the
 // dungeon view for HIDDEN_BOSS_TRANSITION_MS before the actual combat
@@ -119,6 +179,10 @@ function eventsBreakdownHTML(counts) {
     <div class="tt-row"><span>${t('explore.locked_rooms_remaining')}</span><span>${counts.lockedRooms}</span></div>
     <div class="tt-row"><span>${t('explore.chests_remaining')}</span><span>${counts.chests}</span></div>
     <div class="tt-row"><span>${t('explore.temporal_chests_remaining')}</span><span>${counts.temporalChests}</span></div>
+    <div class="tt-row"><span>${t('explore.shrines_remaining')}</span><span>${counts.shrines}</span></div>
+    <div class="tt-row"><span>${t('explore.sigils_remaining')}</span><span>${counts.sigils}</span></div>
+    <div class="tt-row"><span>${t('explore.satchels_remaining')}</span><span>${counts.satchels}</span></div>
+    <div class="tt-row"><span>${t('explore.wounded_animals_remaining')}</span><span>${counts.woundedAnimals}</span></div>
   `;
 }
 
@@ -413,11 +477,18 @@ export class ExploreState {
     }
 
     if (this.qte) {
-      this.qte.remaining -= dt;
-      if (this.qte.remaining <= 0) {
-        this.finishQTE(false);
-      } else {
-        this.updateQTETimerUI();
+      // Memory's reveal choreography is un-clocked against the fail-timer —
+      // it only starts counting down once the input phase begins (see
+      // buildMemoryQTE/playMemoryReveal).
+      const memoryReveal = this.qte.type === QTE_TYPES.MEMORY && this.qte.memory?.phase === 'reveal';
+      if (!memoryReveal) {
+        this.qte.remaining -= dt;
+        if (this.qte.remaining <= 0) {
+          this.finishQTE(false);
+        } else {
+          this.updateQTETimerUI();
+          this.tickQTEProgress(dt);
+        }
       }
     }
   }
@@ -456,6 +527,7 @@ export class ExploreState {
   /** Releases a held movement key (see handleKeydown) — always tracked regardless of pause/QTE/modal state, so a key released while one of those was active doesn't read as still held once it ends. */
   handleKeyup(e) {
     this._heldKeys.delete(e.key);
+    this.handleQTEKeyup(e);
   }
 
   /** Nudges the live FOV/zoom setting (see CameraSettings.js) by `deltaPercent`, clamped — shared by the scroll-wheel handler and the I/O keys. No-ops while Auto FOV is on, since cameraZoom is driven by camera angle then, not manual input. */
@@ -777,19 +849,43 @@ export class ExploreState {
       case TILE_TYPES.LOCKED_DOOR: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveLockedDoor(success, tile));
+        this.startQTE((success) => this.resolveLockedDoor(success, tile), { type: QTE_TYPES.TIMING });
         break;
       }
       case TILE_TYPES.TREASURE: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveTreasure(success, tile));
+        this.startQTE((success) => this.resolveTreasure(success, tile), { type: QTE_TYPES.TIMING });
         break;
       }
       case TILE_TYPES.TEMPORAL_CHEST: {
         if (tile.meta.resolved) break;
         tile.meta.resolved = true;
-        this.startQTE((success) => this.resolveTemporalChest(success, tile), { arrowMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
+        this.startQTE((success) => this.resolveTemporalChest(success, tile), { type: QTE_TYPES.ARROW, difficultyMultiplier: TEMPORAL_CHEST_ARROW_MULTIPLIER });
+        break;
+      }
+      case TILE_TYPES.SEALED_SHRINE: {
+        if (tile.meta.resolved) break;
+        tile.meta.resolved = true;
+        this.startQTE((success) => this.resolveSealedShrine(success, tile), { type: QTE_TYPES.HOLD });
+        break;
+      }
+      case TILE_TYPES.ARCANE_SIGIL: {
+        if (tile.meta.resolved) break;
+        tile.meta.resolved = true;
+        this.startQTE((success) => this.resolveArcaneSigil(success, tile), { type: QTE_TYPES.MEMORY });
+        break;
+      }
+      case TILE_TYPES.WANDERING_SATCHEL: {
+        if (tile.meta.resolved) break;
+        tile.meta.resolved = true;
+        this.showSatchelPicker(tile);
+        break;
+      }
+      case TILE_TYPES.WOUNDED_ANIMAL: {
+        if (tile.meta.resolved) break;
+        tile.meta.resolved = true;
+        this.showWoundedAnimalChoice(tile);
         break;
       }
       case TILE_TYPES.HIDDEN_ENEMY: {
@@ -1241,35 +1337,88 @@ export class ExploreState {
   }
 
   /**
-   * Quick-time event gating locked doors and chests. Dex adds time (not
-   * success chance, per user request), and arrow count/rewards both scale
-   * with the current floor — see resolveLockedDoor/resolveTreasure.
+   * Quick-time event gating locked doors/chests/shrine/sigil/wounded-animal.
+   * Dex adds time (not success chance, per user request); every type
+   * shares this same session lifecycle (mode/mouse-look/timer/Thief's-
+   * Curiosity-retry) and only differs in its own build/handle/submit
+   * methods for that mechanic — see the QTE_TYPES constant.
    */
-  startQTE(onResolve, { arrowMultiplier = 1, isRetry = false } = {}) {
+  startQTE(onResolve, { type = QTE_TYPES.ARROW, difficultyMultiplier = 1, isRetry = false } = {}) {
+    const timeLimit = this.computeQTETimeLimit(type);
+    this.mode = 'qte';
+    this.pauseMouseLookForEvent();
+    const modal = document.createElement('div');
+    modal.className = 'qte-overlay';
+    this.root.appendChild(modal);
+    this.qte = { type, timeLimit, remaining: timeLimit, modal, onResolve, isRetry, difficultyMultiplier };
+    switch (type) {
+      case QTE_TYPES.TIMING: this.buildTimingQTE(modal, difficultyMultiplier); break;
+      case QTE_TYPES.HOLD: this.buildHoldQTE(modal, difficultyMultiplier); break;
+      case QTE_TYPES.MEMORY: this.buildMemoryQTE(modal, difficultyMultiplier); break;
+      case QTE_TYPES.MASH: this.buildMashQTE(modal, difficultyMultiplier); break;
+      default: this.buildArrowQTE(modal, difficultyMultiplier); break;
+    }
+    this.updateQTETimerUI();
+  }
+
+  /** Base seconds for `type` before dex/qteBonusSeconds — shared by every build*QTE. */
+  qteBaseSeconds(type) {
+    switch (type) {
+      case QTE_TYPES.TIMING: return TIMING_BASE_SECONDS;
+      case QTE_TYPES.HOLD: return HOLD_BASE_SECONDS;
+      case QTE_TYPES.MEMORY: return MEMORY_INPUT_SECONDS;
+      case QTE_TYPES.MASH: return MASH_BASE_SECONDS;
+      default: return QTE_BASE_SECONDS;
+    }
+  }
+
+  computeQTETimeLimit(type) {
+    const dex = this.player.getStat('dex');
+    return this.qteBaseSeconds(type) + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
+  }
+
+  /** Net difficulty percent shared across every type's Thief's Ring/Sleeves reinterpretation (see each build*QTE). */
+  qteNetDifficultyPercent() {
+    return this.getPassiveSum('qteArrowIncreasePercent') - this.getPassiveSum('qteArrowReductionPercent');
+  }
+
+  handleQTEKeydown(e) {
+    switch (this.qte.type) {
+      case QTE_TYPES.TIMING: this.handleTimingKeydown(e); break;
+      case QTE_TYPES.HOLD: this.handleHoldKeydown(e); break;
+      case QTE_TYPES.MEMORY: this.handleMemoryKeydown(e); break;
+      case QTE_TYPES.MASH: this.handleMashKeydown(e); break;
+      default: this.handleArrowKeydown(e); break;
+    }
+  }
+
+  /** Releases Hold's press-state on keyup — the only type that cares about keyup, since it's the only one with a discrete "currently held" state. */
+  handleQTEKeyup(e) {
+    if (!this.qte) return;
+    if (this.qte.type === QTE_TYPES.HOLD && e.key === ' ') this.qte.hold.isHeld = false;
+  }
+
+  // ---------------------------------------------------------------------
+  // Arrow QTE (Temporal Chest only) — unchanged mechanic, ported verbatim
+  // into the dispatcher shape.
+  // ---------------------------------------------------------------------
+
+  buildArrowQTE(modal, difficultyMultiplier) {
     const run = this.app.gameState.run;
-    const baseArrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * arrowMultiplier);
+    const baseArrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * difficultyMultiplier);
     // Thief's Providence (Thief's Ring) reduces arrow count; Thief's
     // Resolve (Thief's Sleeves) increases it — both flat percents, summed
     // into one net multiplier so equipping both nets their difference
     // rather than compounding in some arbitrary order.
-    const arrowReductionPercent = this.getPassiveSum('qteArrowReductionPercent');
-    const arrowIncreasePercent = this.getPassiveSum('qteArrowIncreasePercent');
-    const netPercent = arrowIncreasePercent - arrowReductionPercent;
+    const netPercent = this.qteNetDifficultyPercent();
     const arrowCount = Math.max(1, Math.ceil(baseArrowCount * (1 + netPercent / 100)));
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
-    const dex = this.player.getStat('dex');
-    const timeLimit = QTE_BASE_SECONDS + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
-
-    this.mode = 'qte';
-    this.pauseMouseLookForEvent();
     // Thief's Prophecy (Thief's Goggles): every OTHER arrow gets auto-cleared
-    // for free (see advanceQTE), always starting from index 0 — so which
+    // for free (see advanceArrowQTE), always starting from index 0 — so which
     // arrows actually need a press is fixed and known up front. Marked
     // visually (red underglow = press this one, greyscale = it's free) so
     // the player can tell at a glance which ones to ignore.
     const doubleAdvance = this.hasPassiveFlag('qteDoubleAdvance');
-    const modal = document.createElement('div');
-    modal.className = 'qte-overlay';
     modal.innerHTML = `
       <div class="qte-box">
         <div class="qte-strip">
@@ -1286,40 +1435,38 @@ export class ExploreState {
           <button class="qte-touch-btn" data-dir="right" aria-label="Right">${arrowIconSVG('right')}</button>
         </div>
       </div>`;
-    this.root.appendChild(modal);
     // Touch input for the same sequence keyboard players answer with
-    // QTE_DIRECTION_KEYS — see submitQTEDirection, the shared core both
-    // this and handleQTEKeydown funnel into.
+    // QTE_DIRECTION_KEYS — see submitArrowDirection, the shared core both
+    // this and handleArrowKeydown funnel into.
     modal.querySelectorAll('.qte-touch-btn').forEach((btn) => {
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        this.submitQTEDirection(btn.dataset.dir);
+        this.submitArrowDirection(btn.dataset.dir);
       }, { passive: false });
     });
     // Captured up front, by index, rather than re-querying '.qte-key' on
     // every keypress — a querySelector re-grab would return the same
     // still-in-DOM first element if two correct presses land faster than
-    // advanceQTE's 120ms removal animation, leaving the visual strip a
+    // advanceArrowQTE's 120ms removal animation, leaving the visual strip a
     // step behind the (still-correct) internal index.
     const keyElements = Array.from(modal.querySelectorAll('.qte-key'));
-
-    this.qte = { directions, index: 0, timeLimit, remaining: timeLimit, modal, keyElements, onResolve, arrowMultiplier, isRetry };
-    this.updateQTETimerUI();
+    this.qte.arrow = { directions, index: 0, keyElements };
   }
 
-  handleQTEKeydown(e) {
+  handleArrowKeydown(e) {
     const dir = QTE_DIRECTION_KEYS[e.key];
     if (!dir) return;
     e.originalEvent?.preventDefault?.();
-    this.submitQTEDirection(dir);
+    this.submitArrowDirection(dir);
   }
 
-  /** Shared core behind keyboard (handleQTEKeydown) and the on-screen touch arrow pad (see startQTE's .qte-touch-btn wiring). */
-  submitQTEDirection(dir) {
+  /** Shared core behind keyboard (handleArrowKeydown) and the on-screen touch arrow pad (see buildArrowQTE's .qte-touch-btn wiring). */
+  submitArrowDirection(dir) {
     if (!this.qte) return;
-    const expected = this.qte.directions[this.qte.index];
+    const arrow = this.qte.arrow;
+    const expected = arrow.directions[arrow.index];
     if (dir === expected) {
-      this.advanceQTE();
+      this.advanceArrowQTE();
     } else {
       this.finishQTE(false);
     }
@@ -1331,16 +1478,279 @@ export class ExploreState {
    * each real press covers 2 spots instead of 1. Advances by 1 as normal
    * without the passive, or when only one arrow is left either way.
    */
-  advanceQTE() {
+  advanceArrowQTE() {
+    const arrow = this.qte.arrow;
     const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
-    for (let i = 0; i < advance && this.qte.index < this.qte.directions.length; i += 1) {
-      const keyEl = this.qte.keyElements[this.qte.index];
+    for (let i = 0; i < advance && arrow.index < arrow.directions.length; i += 1) {
+      const keyEl = arrow.keyElements[arrow.index];
       keyEl?.classList.add('correct');
       setTimeout(() => keyEl?.remove(), 120);
-      this.qte.index += 1;
+      arrow.index += 1;
     }
-    if (this.qte.index >= this.qte.directions.length) {
+    if (arrow.index >= arrow.directions.length) {
       this.finishQTE(true);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Timing bar QTE (Locked Door, Treasure)
+  // ---------------------------------------------------------------------
+
+  /**
+   * A marker sweeps a track on a fixed-period CSS animation; a randomly-
+   * positioned "sweet spot" zone (re-rolled every round) shrinks with
+   * floor. A single input (Space/click/tap) checks the marker's current
+   * position against the zone — hit advances the round counter, miss or
+   * timeout fails immediately (mirrors the arrow QTE's "one miss = fail").
+   */
+  buildTimingQTE(modal, difficultyMultiplier) {
+    const run = this.app.gameState.run;
+    const netPercent = this.qteNetDifficultyPercent();
+    const baseRounds = TIMING_BASE_ROUNDS + Math.floor(run.floor / TIMING_FLOOR_ROUNDS_INTERVAL);
+    const roundsNeeded = Math.max(1, Math.ceil(baseRounds * difficultyMultiplier * (1 + netPercent / 100)));
+    const zonePercent = Math.max(TIMING_MIN_ZONE_PERCENT, TIMING_BASE_ZONE_PERCENT - run.floor * TIMING_ZONE_SHRINK_PER_FLOOR);
+    const periodSeconds = TIMING_MARKER_PERIOD_SECONDS;
+    modal.innerHTML = `
+      <div class="qte-box">
+        <div class="timing-track">
+          <div class="timing-zone"></div>
+          <div class="timing-marker"></div>
+        </div>
+        <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+        <button class="timing-touch-btn" aria-label="Hit">${arrowIconSVG('up')}</button>
+      </div>`;
+    const track = modal.querySelector('.timing-track');
+    const marker = modal.querySelector('.timing-marker');
+    marker.style.animationDuration = `${periodSeconds}s`;
+    this.qte.timing = {
+      round: 0, roundsNeeded, zonePercent, periodSeconds,
+      sessionStartTime: performance.now(),
+      zoneEl: modal.querySelector('.timing-zone'),
+    };
+    this.rerollTimingZone();
+    const submit = () => this.submitTimingPress();
+    track.addEventListener('click', submit);
+    modal.querySelector('.timing-touch-btn').addEventListener('touchstart', (e) => { e.preventDefault(); submit(); }, { passive: false });
+  }
+
+  rerollTimingZone() {
+    const timing = this.qte.timing;
+    timing.zoneLeft = Math.random() * (100 - timing.zonePercent);
+    timing.zoneEl.style.left = `${timing.zoneLeft}%`;
+    timing.zoneEl.style.width = `${timing.zonePercent}%`;
+    timing.zoneEl.classList.remove('hit');
+  }
+
+  handleTimingKeydown(e) {
+    if (e.key !== ' ') return;
+    e.originalEvent?.preventDefault?.();
+    this.submitTimingPress();
+  }
+
+  submitTimingPress() {
+    if (!this.qte || this.qte.type !== QTE_TYPES.TIMING) return;
+    const timing = this.qte.timing;
+    const elapsedMs = performance.now() - timing.sessionStartTime;
+    const posPercent = ((elapsedMs % (timing.periodSeconds * 1000)) / (timing.periodSeconds * 1000)) * 100;
+    const inZone = posPercent >= timing.zoneLeft && posPercent <= timing.zoneLeft + timing.zonePercent;
+    if (!inZone) {
+      this.finishQTE(false);
+      return;
+    }
+    timing.zoneEl.classList.add('hit');
+    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
+    timing.round += advance;
+    if (timing.round >= timing.roundsNeeded) {
+      this.finishQTE(true);
+      return;
+    }
+    this.rerollTimingZone();
+  }
+
+  // ---------------------------------------------------------------------
+  // Hold QTE (Sealed Shrine)
+  // ---------------------------------------------------------------------
+
+  /**
+   * A single input held down fills a bar at `fillPerSecond`, which decays
+   * at a constant `decayPerSecond` while released. Success at 100% fill
+   * before the timer runs out; failure is purely the shared tick()-driven
+   * timeout path (no discrete miss).
+   */
+  buildHoldQTE(modal, difficultyMultiplier) {
+    const run = this.app.gameState.run;
+    const netPercent = this.qteNetDifficultyPercent();
+    let fillPerSecond = HOLD_FILL_PER_SECOND_HELD + run.floor * HOLD_FILL_GROWTH_PER_FLOOR;
+    fillPerSecond = Math.max(HOLD_MIN_FILL_PER_SECOND, fillPerSecond * difficultyMultiplier * (1 + netPercent / 100));
+    if (this.hasPassiveFlag('qteDoubleAdvance')) fillPerSecond *= 2;
+    modal.innerHTML = `
+      <div class="qte-box">
+        <div class="qte-fill-track"><div class="qte-fill-bar"></div></div>
+        <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+        <button class="hold-touch-btn" aria-label="Hold">${holdIconSVG()}</button>
+      </div>`;
+    this.qte.hold = {
+      fill: 0, fillPerSecond, decayPerSecond: HOLD_DECAY_PER_SECOND, isHeld: false,
+      fillEl: modal.querySelector('.qte-fill-bar'),
+    };
+    const touchBtn = modal.querySelector('.hold-touch-btn');
+    const setHeld = (held) => { if (this.qte?.hold) this.qte.hold.isHeld = held; };
+    touchBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setHeld(true); }, { passive: false });
+    touchBtn.addEventListener('touchend', (e) => { e.preventDefault(); setHeld(false); }, { passive: false });
+    touchBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); setHeld(false); }, { passive: false });
+  }
+
+  handleHoldKeydown(e) {
+    if (e.key !== ' ') return;
+    e.originalEvent?.preventDefault?.();
+    this.qte.hold.isHeld = true;
+  }
+
+  // ---------------------------------------------------------------------
+  // Memory / Simon-Says QTE (Arcane Sigil)
+  // ---------------------------------------------------------------------
+
+  /**
+   * A sequence of directions flashes one at a time, then hides; the
+   * player reproduces it from memory using the same directional input as
+   * the arrow QTE. Input is ignored during the reveal choreography — the
+   * fail-timer (this.qte.remaining) is frozen until the input phase
+   * actually begins (see tick()).
+   */
+  buildMemoryQTE(modal, difficultyMultiplier) {
+    const run = this.app.gameState.run;
+    const netPercent = this.qteNetDifficultyPercent();
+    const baseLength = MEMORY_BASE_LENGTH + run.floor * MEMORY_LENGTH_PER_FLOOR;
+    const length = Math.min(MEMORY_MAX_LENGTH, Math.max(1, Math.round(baseLength * difficultyMultiplier * (1 + netPercent / 100))));
+    const revealMs = Math.max(MEMORY_MIN_REVEAL_MS, MEMORY_BASE_REVEAL_MS - run.floor * MEMORY_REVEAL_SHRINK_PER_FLOOR_MS);
+    const sequence = Array.from({ length }, () => pickRandom(QTE_DIRECTIONS));
+    modal.innerHTML = `
+      <div class="qte-box">
+        <div class="memory-reveal"></div>
+        <div class="memory-slots"></div>
+        <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+        <div class="qte-touch-pad">
+          <button class="qte-touch-btn" data-dir="up" aria-label="Up">${arrowIconSVG('up')}</button>
+          <button class="qte-touch-btn" data-dir="left" aria-label="Left">${arrowIconSVG('left')}</button>
+          <button class="qte-touch-btn" data-dir="down" aria-label="Down">${arrowIconSVG('down')}</button>
+          <button class="qte-touch-btn" data-dir="right" aria-label="Right">${arrowIconSVG('right')}</button>
+        </div>
+      </div>`;
+    const revealEl = modal.querySelector('.memory-reveal');
+    const slotsEl = modal.querySelector('.memory-slots');
+    slotsEl.innerHTML = sequence.map(() => '<div class="qte-key-slot"></div>').join('');
+    modal.querySelectorAll('.qte-touch-btn').forEach((btn) => {
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); this.submitMemoryDirection(btn.dataset.dir); }, { passive: false });
+    });
+    this.qte.memory = {
+      sequence, index: 0, phase: 'reveal', revealMs,
+      slotElements: Array.from(slotsEl.querySelectorAll('.qte-key-slot')),
+    };
+    this.playMemoryReveal(revealEl);
+  }
+
+  /** Flashes each icon in sequence, one at a time, then flips to the 'input' phase — see submitMemoryDirection. */
+  playMemoryReveal(revealEl) {
+    const memory = this.qte?.memory;
+    if (!memory) return;
+    let i = 0;
+    const showNext = () => {
+      if (!this.qte || this.qte.memory !== memory) return; // QTE ended/replaced mid-choreography (timeout, retry, etc)
+      if (i >= memory.sequence.length) {
+        revealEl.innerHTML = '';
+        memory.phase = 'input';
+        return;
+      }
+      revealEl.innerHTML = `<div class="qte-key qte-key-reveal">${arrowIconSVG(memory.sequence[i])}</div>`;
+      i += 1;
+      setTimeout(() => {
+        if (!this.qte || this.qte.memory !== memory) return;
+        revealEl.innerHTML = '';
+        setTimeout(showNext, MEMORY_GAP_MS);
+      }, memory.revealMs);
+    };
+    showNext();
+  }
+
+  handleMemoryKeydown(e) {
+    const dir = QTE_DIRECTION_KEYS[e.key];
+    if (!dir) return;
+    e.originalEvent?.preventDefault?.();
+    this.submitMemoryDirection(dir);
+  }
+
+  /** Shared core behind keyboard (handleMemoryKeydown) and the touch pad — ignored during the reveal choreography, matching Simon-Says convention. */
+  submitMemoryDirection(dir) {
+    if (!this.qte || this.qte.type !== QTE_TYPES.MEMORY) return;
+    const memory = this.qte.memory;
+    if (memory.phase !== 'input') return;
+    const expected = memory.sequence[memory.index];
+    if (dir !== expected) {
+      this.finishQTE(false);
+      return;
+    }
+    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
+    for (let i = 0; i < advance && memory.index < memory.sequence.length; i += 1) {
+      memory.slotElements[memory.index]?.classList.add('filled');
+      memory.index += 1;
+    }
+    if (memory.index >= memory.sequence.length) {
+      this.finishQTE(true);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Mash QTE (Wounded Animal, 70% branch)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Rapid single-input presses fill a bar by `fillPerPress` each; a
+   * constant passive decay (see tickQTEProgress) requires sustained
+   * mashing, not just enough total presses at any pace. Success at 100%
+   * fill; failure is purely the shared tick()-driven timeout path.
+   */
+  buildMashQTE(modal, difficultyMultiplier) {
+    const run = this.app.gameState.run;
+    const netPercent = this.qteNetDifficultyPercent();
+    let fillPerPress = MASH_FILL_PER_PRESS + run.floor * MASH_FILL_PER_PRESS_FLOOR_DECAY;
+    fillPerPress = Math.max(MASH_MIN_FILL_PER_PRESS, fillPerPress * difficultyMultiplier * (1 + netPercent / 100));
+    if (this.hasPassiveFlag('qteDoubleAdvance')) fillPerPress *= 2;
+    modal.innerHTML = `
+      <div class="qte-box">
+        <div class="qte-fill-track"><div class="qte-fill-bar"></div></div>
+        <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
+        <button class="mash-touch-btn" aria-label="Mash">${mashIconSVG()}</button>
+      </div>`;
+    this.qte.mash = { fill: 0, fillPerPress, decayPerSecond: MASH_DECAY_PER_SECOND, fillEl: modal.querySelector('.qte-fill-bar') };
+    modal.querySelector('.mash-touch-btn').addEventListener('touchstart', (e) => { e.preventDefault(); this.submitMashPress(); }, { passive: false });
+  }
+
+  handleMashKeydown(e) {
+    if (e.key !== ' ') return;
+    e.originalEvent?.preventDefault?.();
+    this.submitMashPress();
+  }
+
+  submitMashPress() {
+    if (!this.qte || this.qte.type !== QTE_TYPES.MASH) return;
+    const mash = this.qte.mash;
+    mash.fill = Math.min(100, mash.fill + mash.fillPerPress);
+    if (mash.fillEl) mash.fillEl.style.width = `${mash.fill}%`;
+    if (mash.fill >= 100) this.finishQTE(true);
+  }
+
+  /** Per-frame continuous progress for Hold (fill while held, decay while released) and Mash (passive decay) — called from tick() only while the QTE's fail-timer is actively running. */
+  tickQTEProgress(dt) {
+    if (!this.qte) return;
+    if (this.qte.type === QTE_TYPES.HOLD) {
+      const hold = this.qte.hold;
+      hold.fill = clamp(hold.fill + (hold.isHeld ? hold.fillPerSecond : -hold.decayPerSecond) * dt, 0, 100);
+      if (hold.fillEl) hold.fillEl.style.width = `${hold.fill}%`;
+      if (hold.fill >= 100) this.finishQTE(true);
+    } else if (this.qte.type === QTE_TYPES.MASH) {
+      const mash = this.qte.mash;
+      mash.fill = clamp(mash.fill - mash.decayPerSecond * dt, 0, 100);
+      if (mash.fillEl) mash.fillEl.style.width = `${mash.fill}%`;
     }
   }
 
@@ -1352,24 +1762,24 @@ export class ExploreState {
 
   /**
    * Thief's Curiosity (Thief's Skeleton): a failed QTE gets ONE retry — a
-   * completely fresh attempt (new arrows, fresh timer), transparent to
-   * the caller (onResolve still only ever fires once, exactly as before).
-   * Failing the retry too costs a flat QTE_SECOND_CHANCE_FAIL_DAMAGE — its
-   * own distinct penalty for having taken the second chance at all, NOT
-   * "damage from failing a QTE" in the sense Thief's Experience/
-   * noQteFailDamage protects against (that's about the event's own
-   * chest-trap-style damage), so it always applies even with the full
-   * Thief's set equipped.
+   * completely fresh attempt (same type, fresh state, fresh timer),
+   * transparent to the caller (onResolve still only ever fires once,
+   * exactly as before). Failing the retry too costs a flat
+   * QTE_SECOND_CHANCE_FAIL_DAMAGE — its own distinct penalty for having
+   * taken the second chance at all, NOT "damage from failing a QTE" in
+   * the sense Thief's Experience/noQteFailDamage protects against (that's
+   * about the event's own trap-style damage), so it always applies even
+   * with the full Thief's set equipped.
    */
   finishQTE(success) {
-    const { onResolve, modal, isRetry, arrowMultiplier } = this.qte;
+    const { onResolve, modal, isRetry, type, difficultyMultiplier } = this.qte;
     if (!success && this.hasPassiveFlag('qteSecondChance') && !isRetry) {
       modal.remove();
       this.qte = null;
       // No mode write here — startQTE() below immediately re-sets
       // mode='qte' anyway, so there's no observable moment in between.
       this.app.gameState.addLog(t('log.thiefs_curiosity_retry'));
-      this.startQTE(onResolve, { arrowMultiplier, isRetry: true });
+      this.startQTE(onResolve, { type, difficultyMultiplier, isRetry: true });
       return;
     }
     if (!success && isRetry) {
@@ -1382,11 +1792,11 @@ export class ExploreState {
     modal.remove();
     this.qte = null;
     // 'result' (not 'normal') — onResolve() below synchronously calls one
-    // of resolveLockedDoor/resolveTreasure/resolveTemporalChest, which
-    // always ends by calling showResult(), so the QTE session isn't over
-    // yet; it's transitioning straight into its trailing result modal
-    // without passing back through 'normal' in between. Mouse-look stays
-    // suspended the whole time (see showResult's own comment).
+    // of the resolve*/show* methods, which always ends by calling
+    // showResult(), so the QTE session isn't over yet; it's transitioning
+    // straight into its trailing result modal without passing back
+    // through 'normal' in between. Mouse-look stays suspended the whole
+    // time (see showResult's own comment).
     this.mode = 'result';
     onResolve(success);
   }
@@ -1519,13 +1929,273 @@ export class ExploreState {
     this.renderHUD();
   }
 
-  /** Unresolved locked-door/chest/temporal-chest tiles left on the current floor. */
+  /**
+   * Sealed Shrine (Hold QTE): grants a random-rarity Shrine card (see
+   * rollShrineCard — a restricted "regular stat" pool at 3x a normal
+   * card's value). Deliberately does NOT call updateThiefStreak/
+   * checkFloorFullyLooted — per user decision, "Thief's Instinct" stays
+   * scoped to only locked doors/chests/temporal chests (see
+   * checkFloorFullyLooted's own doc comment). The new card takes effect
+   * immediately (not just on the next floor change) by rebuilding the
+   * player right here, mirroring applyCardPick's own rebuild.
+   */
+  resolveSealedShrine(success, tile) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      const picked = rollShrineCard();
+      run.cards.push(picked);
+      run.savedHealth = this.player.currentHealth;
+      this.player = app.createPlayer();
+      this.syncPlayer3D();
+      tile.meta.looted = true;
+      const name = tData('card', picked.cardId, CARDS[picked.cardId].name);
+      const lines = [t('explore.reward_shrine_card', { name })];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.shrine_opened'), lines);
+    } else if (this.hasPassiveFlag('noQteFailDamage')) {
+      this.showResult(t('explore.shrine_failed_title'), [t('explore.shrine_failed_line', { n: 0 })]);
+    } else {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - SEALED_SHRINE_TRAP_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      run.savedHealth = this.player.currentHealth;
+      this.showResult(t('explore.shrine_failed_title'), [t('explore.shrine_failed_line', { n: dealt })]);
+    }
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /**
+   * Arcane Sigil (Memory QTE): pushes a pre-fight stat buff onto
+   * run.explorationBuffs — the exact same pipeline consumable buff items
+   * use (see CombatManager.applyExplorationBuffs), applied automatically
+   * at the start of the player's next fight. Amount uses its own
+   * floor-linear formula (not getRewardMultiplier's compounding curve,
+   * which is tuned for gold/materials and would undervalue a flat stat
+   * buff at low floors) — see ARCANE_SIGIL_BASE_BUFF_AMOUNT.
+   */
+  resolveArcaneSigil(success, tile) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      const stat = pickRandom(ARCANE_SIGIL_BUFF_STATS);
+      let amount = Math.round(ARCANE_SIGIL_BASE_BUFF_AMOUNT + run.floor * ARCANE_SIGIL_BUFF_PER_FLOOR);
+      amount = Math.round(amount * (1 + this.getPassiveSum('rewardBonusPercent') / 100));
+      run.explorationBuffs = run.explorationBuffs ?? [];
+      run.explorationBuffs.push({ type: 'stat', stat, amount, duration: -1 });
+      tile.meta.looted = true;
+      const lines = [t('explore.reward_sigil_buff', { n: amount, stat: statLabel(stat) })];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.sigil_opened'), lines);
+    } else if (this.hasPassiveFlag('noQteFailDamage')) {
+      this.showResult(t('explore.sigil_failed_title'), [t('explore.sigil_failed_line', { n: 0 })]);
+    } else {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - ARCANE_SIGIL_TRAP_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      run.savedHealth = this.player.currentHealth;
+      this.showResult(t('explore.sigil_failed_title'), [t('explore.sigil_failed_line', { n: dealt })]);
+    }
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /** The 3 reward shapes a Wandering Satchel offers — see showSatchelPicker. */
+  rollSatchelOptions(mult) {
+    const run = this.app.gameState.run;
+    const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
+    const randomMaterial = () => materialPool[randomInt(0, Math.max(0, materialPool.length - 1))];
+    return [
+      { kind: 'gold', amount: Math.ceil(LOCKED_ROOM_GOLD_REWARD * SATCHEL_GOLD_RATIO * mult) },
+      { kind: 'material', materialId: randomMaterial(), amount: Math.ceil(randomInt(SATCHEL_MATERIAL_MIN, SATCHEL_MATERIAL_MAX) * mult) },
+      {
+        kind: 'mixed',
+        goldAmount: Math.ceil(LOCKED_ROOM_GOLD_REWARD * SATCHEL_MIXED_GOLD_RATIO * mult),
+        materialId: randomMaterial(),
+        materialAmount: Math.ceil(randomInt(SATCHEL_MIXED_MATERIAL_MIN, SATCHEL_MIXED_MATERIAL_MAX) * mult),
+      },
+    ];
+  }
+
+  satchelOptionLabel(option) {
+    if (option.kind === 'gold') return t('explore.satchel_option_gold', { n: option.amount });
+    if (option.kind === 'material') {
+      const name = tData('material', option.materialId, getMaterialConfig(option.materialId)?.name ?? option.materialId);
+      return t('explore.satchel_option_material', { n: option.amount, material: name });
+    }
+    const name = tData('material', option.materialId, getMaterialConfig(option.materialId)?.name ?? option.materialId);
+    return t('explore.satchel_option_mixed', { gold: option.goldAmount, n: option.materialAmount, material: name });
+  }
+
+  /** Wandering Satchel: no QTE — pick one of 3 reward shapes (see rollSatchelOptions), always "succeeds" once picked. */
+  showSatchelPicker(tile) {
+    this.mode = 'modal';
+    this.pauseMouseLookForEvent();
+    const run = this.app.gameState.run;
+    const mult = this.getRewardMultiplier(run);
+    const options = this.rollSatchelOptions(mult);
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box satchel-box">
+        <h2>${t('explore.satchel_title')}</h2>
+        <div class="satchel-options"></div>
+      </div>`;
+    this.root.appendChild(modal);
+    const grid = modal.querySelector('.satchel-options');
+    grid.innerHTML = options.map((opt, i) => `<button class="satchel-option-btn" data-i="${i}">${this.satchelOptionLabel(opt)}</button>`).join('');
+    grid.querySelectorAll('[data-i]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        modal.remove();
+        this.mode = 'normal';
+        this.restoreMouseLookAfterEvent();
+        this.applySatchelOption(options[Number(btn.dataset.i)], tile);
+      });
+    });
+  }
+
+  applySatchelOption(option, tile) {
+    const { app } = this;
+    const run = app.gameState.run;
+    const lines = [];
+    if (option.kind === 'gold') {
+      app.gameState.player.gold += option.amount;
+      lines.push(t('explore.reward_gold', { n: option.amount }));
+    } else if (option.kind === 'material') {
+      app.inventory.addMaterial(option.materialId, option.amount, true);
+      const name = tData('material', option.materialId, getMaterialConfig(option.materialId)?.name ?? option.materialId);
+      lines.push(t('explore.reward_material', { n: option.amount, material: name }));
+    } else {
+      app.gameState.player.gold += option.goldAmount;
+      app.inventory.addMaterial(option.materialId, option.materialAmount, true);
+      const name = tData('material', option.materialId, getMaterialConfig(option.materialId)?.name ?? option.materialId);
+      lines.push(t('explore.reward_gold', { n: option.goldAmount }));
+      lines.push(t('explore.reward_material', { n: option.materialAmount, material: name }));
+    }
+    tile.meta.looted = true;
+    const healed = this.applyEventSuccessHeal();
+    if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+    this.showResult(t('explore.satchel_opened'), lines);
+    run.savedHealth = this.player.currentHealth;
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /** Wounded Animal: "Let it die" (no-op) vs "Try and save it" (30% instant success / 70% Mash QTE) — see attemptSaveWoundedAnimal. */
+  showWoundedAnimalChoice(tile) {
+    this.mode = 'modal';
+    this.pauseMouseLookForEvent();
+    const modal = document.createElement('div');
+    modal.className = 'result-overlay';
+    modal.innerHTML = `
+      <div class="result-box wounded-animal-box">
+        <h2>${t('explore.wounded_animal_title')}</h2>
+        <div class="result-line">${t('explore.wounded_animal_prompt')}</div>
+        <div class="wounded-animal-choices">
+          <button class="cat-btn" data-choice="let_die">${t('explore.wounded_animal_let_die')}</button>
+          <button class="cat-btn" data-choice="save">${t('explore.wounded_animal_save')}</button>
+        </div>
+      </div>`;
+    this.root.appendChild(modal);
+    modal.querySelector('[data-choice="let_die"]').addEventListener('click', () => {
+      modal.remove();
+      this.mode = 'normal';
+      this.restoreMouseLookAfterEvent();
+      this.app.gameState.addLog(t('log.wounded_animal_let_die'));
+      this.app.saveSystem.save();
+    });
+    modal.querySelector('[data-choice="save"]').addEventListener('click', () => {
+      modal.remove();
+      this.mode = 'normal';
+      this.restoreMouseLookAfterEvent();
+      this.attemptSaveWoundedAnimal(tile);
+    });
+  }
+
+  attemptSaveWoundedAnimal(tile) {
+    const instantSuccess = rollWeightedChoice([
+      { weight: WOUNDED_ANIMAL_INSTANT_CHANCE, value: true },
+      { weight: 100 - WOUNDED_ANIMAL_INSTANT_CHANCE, value: false },
+    ]);
+    if (instantSuccess) {
+      this.grantWoundedAnimalMaterials(tile);
+      return;
+    }
+    this.startQTE((success) => this.resolveWoundedAnimalMash(success, tile), { type: QTE_TYPES.MASH });
+  }
+
+  /** Shared by the 30% instant-save branch and the Mash-success fallback (pending enemy debuff already queued) — identical to resolveTreasure's material reward. */
+  grantWoundedAnimalMaterials(tile) {
+    const { app } = this;
+    const run = app.gameState.run;
+    const materialPool = getArcForFloor(run.floor).materials ?? ['bones', 'flesh', 'mana_stone'];
+    const materialId = materialPool[randomInt(0, Math.max(0, materialPool.length - 1))];
+    const amount = Math.ceil(randomInt(2, 4) * this.getRewardMultiplier(run));
+    app.inventory.addMaterial(materialId, amount, true);
+    const materialName = tData('material', materialId, getMaterialConfig(materialId)?.name ?? materialId);
+    tile.meta.looted = true;
+    const lines = [t('explore.reward_material', { n: amount, material: materialName })];
+    const healed = this.applyEventSuccessHeal();
+    if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+    this.showResult(t('explore.wounded_animal_saved'), lines);
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /**
+   * Mash-QTE branch (70% chance). Success queues a single-slot,
+   * non-stacking "next enemy starts combat with 2 bleed stacks" debuff
+   * (see run.pendingEnemyDebuff / CombatManager.applyPendingEnemyDebuff)
+   * — if one is already queued and unconsumed, falls back to the same
+   * material reward as the instant-save branch instead of stacking or
+   * overwriting it. Failure deals a flat WOUNDED_ANIMAL_MASH_FAIL_DAMAGE,
+   * gated by noQteFailDamage like every other event's trap damage.
+   */
+  resolveWoundedAnimalMash(success, tile) {
+    const { app } = this;
+    const run = app.gameState.run;
+    if (success) {
+      if (run.pendingEnemyDebuff) {
+        this.grantWoundedAnimalMaterials(tile);
+        return;
+      }
+      run.pendingEnemyDebuff = { effect: 'bleed', stacks: 2 };
+      tile.meta.looted = true;
+      const lines = [t('explore.reward_pending_debuff')];
+      const healed = this.applyEventSuccessHeal();
+      if (healed > 0) lines.push(t('explore.reward_heal', { n: healed }));
+      this.showResult(t('explore.wounded_animal_saved'), lines);
+    } else if (this.hasPassiveFlag('noQteFailDamage')) {
+      this.showResult(t('explore.wounded_animal_failed_title'), [t('explore.wounded_animal_failed_line', { n: 0 })]);
+    } else {
+      const before = this.player.currentHealth;
+      this.player.currentHealth = Math.max(1, this.player.currentHealth - WOUNDED_ANIMAL_MASH_FAIL_DAMAGE);
+      const dealt = before - this.player.currentHealth;
+      run.savedHealth = this.player.currentHealth;
+      this.showResult(t('explore.wounded_animal_failed_title'), [t('explore.wounded_animal_failed_line', { n: dealt })]);
+    }
+    this.app.saveSystem.save();
+    this.renderHUD();
+  }
+
+  /** Unresolved event tiles left on the current floor, across all 7 event types. */
   getRemainingEventCounts() {
     const tiles = this.app.gameState.run.dungeon?.tiles ?? [];
-    const lockedRooms = tiles.filter((t) => t.type === TILE_TYPES.LOCKED_DOOR && !t.meta.resolved).length;
-    const chests = tiles.filter((t) => t.type === TILE_TYPES.TREASURE && !t.meta.resolved).length;
-    const temporalChests = tiles.filter((t) => t.type === TILE_TYPES.TEMPORAL_CHEST && !t.meta.resolved).length;
-    return { lockedRooms, chests, temporalChests, total: lockedRooms + chests + temporalChests };
+    const count = (type) => tiles.filter((t) => t.type === type && !t.meta.resolved).length;
+    const lockedRooms = count(TILE_TYPES.LOCKED_DOOR);
+    const chests = count(TILE_TYPES.TREASURE);
+    const temporalChests = count(TILE_TYPES.TEMPORAL_CHEST);
+    const shrines = count(TILE_TYPES.SEALED_SHRINE);
+    const sigils = count(TILE_TYPES.ARCANE_SIGIL);
+    const satchels = count(TILE_TYPES.WANDERING_SATCHEL);
+    const woundedAnimals = count(TILE_TYPES.WOUNDED_ANIMAL);
+    return {
+      lockedRooms, chests, temporalChests, shrines, sigils, satchels, woundedAnimals,
+      total: lockedRooms + chests + temporalChests + shrines + sigils + satchels + woundedAnimals,
+    };
   }
 
   /**
@@ -1535,6 +2205,15 @@ export class ExploreState {
    * count — see the `tile.meta.looted` flag set only on success above).
    * Checked after every event resolution; no-ops on floors below 3 or a
    * floor with no events at all (nothing to loot isn't "looting all of it").
+   *
+   * Deliberately still scoped to only these 3 original event types, NOT
+   * all 7 (per user decision — the achievement's own description text
+   * only ever promised "every locked door, chest, and temporal chest").
+   * Sealed Shrine/Arcane Sigil/Wandering Satchel/Wounded Animal resolvers
+   * never call this or updateThiefStreak. Contrast with
+   * checkHiddenGateUnlock, which reads getRemainingEventCounts().total —
+   * ALL 7 types — since floor 5's gate should require the floor genuinely
+   * cleared, not leave 4 new event types permanently unclearable there.
    */
   checkFloorFullyLooted() {
     const run = this.app.gameState.run;

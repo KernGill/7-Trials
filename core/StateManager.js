@@ -378,6 +378,11 @@ export class StateManager {
       consumables: { ...this.gameState.player.consumables },
       materials: {},
       explorationBuffs: [],
+      // Wounded Animal's queued "next enemy starts combat with 2 bleed
+      // stacks" reward — single-slot, non-stacking (see
+      // ExploreState.resolveWoundedAnimalMash), consumed the instant the
+      // next combat starts (see startCombat below).
+      pendingEnemyDebuff: null,
       savedHealth: null,
       floorMessage: null,
       cards: [],
@@ -579,10 +584,18 @@ export class StateManager {
     // acting first) fires while ExploreState is still current and gets
     // silently dropped, since ExploreState doesn't implement onSequence.
     this.setState(GAME_STATES.FIGHT);
+    // Read-and-cleared here, unconditionally, the instant this fight
+    // begins — unlike explorationBuffs (which only clears on victory,
+    // see onCombatVictory), pendingEnemyDebuff is meant to be a strict
+    // single-slot "consumed by the very next fight" reward, so it must
+    // not survive to leak into a second fight even if this one is lost.
+    const pendingEnemyDebuff = this.gameState.run.pendingEnemyDebuff;
+    this.gameState.run.pendingEnemyDebuff = null;
     this.combatManager.startCombat({
       player,
       enemies,
       explorationBuffs: this.gameState.run.explorationBuffs ?? [],
+      pendingEnemyDebuff,
     });
     this.gameState.combat = this.combatManager.getState();
   }

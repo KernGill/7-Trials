@@ -8,3 +8,19 @@ export function arrowIconSVG(direction) {
     <path d="M12 3 L21 15 L15 15 L15 21 L9 21 L9 15 L3 15 Z" fill="#ffffff"></path>
   </svg>`;
 }
+
+/** Filled target/circle glyph — Hold QTE's "press and hold" affordance. */
+export function holdIconSVG() {
+  return `<svg viewBox="0 0 24 24" width="32" height="32">
+    <circle cx="12" cy="12" r="9" fill="none" stroke="#ffffff" stroke-width="2"></circle>
+    <circle cx="12" cy="12" r="4" fill="#ffffff"></circle>
+  </svg>`;
+}
+
+/** Overlapping chevrons — Mash QTE's "rapid repeat-press" affordance. */
+export function mashIconSVG() {
+  return `<svg viewBox="0 0 24 24" width="32" height="32">
+    <path d="M6 4 L12 10 L18 4" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+    <path d="M6 13 L12 19 L18 13" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+  </svg>`;
+}

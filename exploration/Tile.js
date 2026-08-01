@@ -20,6 +20,12 @@ export const TILE_TYPES = {
   // Also permanently interactive, same as ELEVATOR — opens the card-fusion
   // UI (see ExploreState.showVendor) rather than being consumed on use.
   VENDOR: 'vendor',
+  // One-shot events, same convention as LOCKED_DOOR/TREASURE (see
+  // ExploreState.handleTileEffect + resolve*/show* methods).
+  SEALED_SHRINE: 'sealed_shrine',
+  ARCANE_SIGIL: 'arcane_sigil',
+  WANDERING_SATCHEL: 'wandering_satchel',
+  WOUNDED_ANIMAL: 'wounded_animal',
 };
 
 export class Tile {
