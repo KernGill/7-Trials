@@ -2,7 +2,7 @@ import { GAME_STATES } from '../utils/Constants.js';
 import { t } from '../ui/i18n.js';
 
 /**
- * Static reference data for the five QTE mechanics (see
+ * Static reference data for the six QTE mechanics (see
  * states/ExploreState.js's QTE_TYPES/build*QTE methods, which this
  * mirrors) — floor-1/5/9 knob values are pre-computed here rather than
  * imported live, since ExploreState's constants aren't exported and this
@@ -10,29 +10,34 @@ import { t } from '../ui/i18n.js';
  */
 const QTE_TYPE_CARDS = [
   {
-    id: 'arrow', color: '#4d84ef', name: 'Arrow', usedBy: 'Temporal Chest only',
-    baseTime: '5s', knobLabel: 'Arrows in sequence', floorValues: '12 → 18 → 24',
-    note: 'One wrong press = instant fail. 1.5× harder than a normal Timing count.',
+    id: 'arrow', color: '#4d84ef', name: 'Arrow', usedBy: 'Treasure only',
+    baseTime: '5s', knobLabel: 'Arrows in sequence', floorValues: '8 → 12 → 16',
+    note: 'One wrong press = instant fail. WASD/arrow keys only.',
   },
   {
-    id: 'timing', color: '#9a7ce0', name: 'Timing', usedBy: 'Locked Door, Treasure',
-    baseTime: '6s', knobLabel: 'Hits needed / zone width', floorValues: '3 hits, 27% → 4 hits, 24% → 6 hits, 21%',
-    note: 'Marker sweeps every 1.1s, always. Miss the zone once, or time out, and it fails.',
+    id: 'timing', color: '#9a7ce0', name: 'Timing', usedBy: 'Locked Door only',
+    baseTime: '6s', knobLabel: 'Hits needed / zone width', floorValues: '3 hits, 26% → 5 hits, 17% → 7 hits, 8%',
+    note: 'Marker sweeps every 1.1s, always, inside a flat 6s timer — more hits packed into a shrinking window is what makes late floors brutal. Miss the zone once, or time out, and it fails. Space only.',
+  },
+  {
+    id: 'combo', color: '#f39c12', name: 'Arrow+Timing Combo', usedBy: 'Temporal Chest only',
+    baseTime: '8s, flat', knobLabel: 'Arrow count, AND Timing rounds/zone — both live at once', floorValues: '12 arrows + 5 hits (26%) → 18 arrows + 8 hits (17%) → 24 arrows + 11 hits (8%)',
+    note: "The highest-risk, highest-reward QTE in the game — Temporal Chest's payout is 9× a regular chest's. The arrow strip (WASD/arrow keys) and the timing bar underneath it (Space) both run AT THE SAME TIME, sharing one 8s timer; a miss on EITHER half fails the whole attempt instantly, and BOTH halves have to finish before time runs out to succeed. Both halves scale 1.5× harder than their standalone Treasure/Locked-Door counterparts. Thief's Ring/Sleeves/Goggles apply their arrow-count and timing-rounds effects to both halves at once; Lockpick's bonus second and Skeleton's free retry apply to the whole combo session, not either half individually.",
   },
   {
     id: 'hold', color: '#b370c9', name: 'Hold', usedBy: 'Sealed Shrine',
-    baseTime: '4s, fixed', knobLabel: 'Slit width (win zone)', floorValues: '23% → 19% → 15%',
-    note: 'No early win — checked only the instant the timer hits 0. The slit also drifts back and forth, bouncing off both ends of the track, at 22%-of-track/sec base. Dex slows that drift instead of adding time or widening the slit: −2.5%/sec per 50 DEX, down to a 4%/sec floor.',
+    baseTime: '5s, fixed', knobLabel: 'Slit width (win zone)', floorValues: '11% → 7% → 5%',
+    note: 'The hardest QTE in the game, by design — Sealed Shrine drops a card. No early win — checked only the instant the timer hits 0. But there IS an early fail: a kill bar tracks cumulative time spent outside the slit and ends the attempt the moment that crosses 65% of the timer — losing this way costs 50 flat damage, since you were nowhere close. Losing to the ordinary timeout instead (holding position right up to the final instant, just not quite in the zone) costs a much steeper 200 — the closer you got, the worse the backlash. Fill/drain are twitchy: 68%/s held, 44%/s released. The slit is tiny and drifts erratically — random speed (20–55%-of-track/sec base) AND direction, re-rolled every 0.12–0.35s, always bouncing at the ends. Dex narrows that random speed range instead of widening the slit or adding time: −3%/sec per 50 DEX, floors at 6–14%/sec.',
   },
   {
     id: 'memory', color: '#2fd9c4', name: 'Memory', usedBy: 'Arcane Sigil',
-    baseTime: '8s (input only)', knobLabel: 'Sequence length / reveal speed', floorValues: '4 @875ms → 6 @775ms → 8 @675ms',
-    note: 'Timer is frozen during playback — only counts once you start answering.',
+    baseTime: '8s (input only)', knobLabel: 'Sequence length / reveal speed', floorValues: '5 @860ms → 8 @700ms → 10 @540ms',
+    note: 'Timer is frozen during playback — only counts once you start answering. Sequence length is the dominant difficulty knob — by floor 9 you\'re memorizing 10 random directions flashed under a second apart.',
   },
   {
     id: 'mash', color: '#e0584a', name: 'Mash', usedBy: 'Wounded Animal (70% branch)',
-    baseTime: '5s', knobLabel: 'Fill % per press', floorValues: '8.75% → 7.75% → 6.75%',
-    note: '≈11 presses at floor 1 vs. ≈15 at floor 9, ignoring passive decay. A separate stamina bar drains 14%/press and locks out pressing for 1s once empty (then refills to full) — Dex slows that drain too: −1.2%/press per 50 DEX, down to a 4%/press floor, meaning fewer lockouts and more net mashing time.',
+    baseTime: '5s', knobLabel: 'Fill % per press', floorValues: '8.35% → 5.75% → 3.15%',
+    note: '≈12 presses at floor 1 vs. ≈32 at floor 9, and the passive decay while not pressing gets harsher per floor too (12%/s → 21%/s by floor 9), so hesitating costs more late-game. A separate stamina bar drains on its own clock — pressing while it\'s red/empty is an instant fail — and that clock\'s base window also shrinks per floor (2s at floor 1 down toward its 1s floor by around floor 9-10), not just Dex-dependent like before; Dex still extends it back on top: +0.3s per 50 DEX, up to an 8s cap.',
   },
 ];
 
@@ -87,11 +92,12 @@ const MATRIX_ROWS = [
 ];
 
 const EVENT_LEGEND = [
-  { color: '#4d84ef', name: 'Arrow', event: 'Temporal Chest (×1.5 difficulty)' },
-  { color: '#9a7ce0', name: 'Timing', event: 'Locked Door, Treasure' },
+  { color: '#4d84ef', name: 'Arrow', event: 'Treasure' },
+  { color: '#9a7ce0', name: 'Timing', event: 'Locked Door' },
   { color: '#b370c9', name: 'Hold', event: 'Sealed Shrine' },
   { color: '#2fd9c4', name: 'Memory', event: 'Arcane Sigil' },
   { color: '#e0584a', name: 'Mash', event: 'Wounded Animal (70% of "try and save it")' },
+  { color: '#f39c12', name: 'Arrow+Timing Combo', event: 'Temporal Chest (×1.5 difficulty, ×9 reward)' },
 ];
 
 function typeCardHTML(card) {

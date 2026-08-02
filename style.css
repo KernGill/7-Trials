@@ -396,6 +396,14 @@ select {
 /* Hold QTE only: red by default (not resting in the target zone), green once it is — Mash's identical-looking bar has no slit concept so it stays plain green (the base rule above). */
 .hold-fill-bar { background: #e94560; }
 .hold-fill-bar.in-slit { background: #2ecc71; }
+/* Hold QTE's kill bar — a slim meter above the main track that counts DOWN
+   as cumulative time outside the slit accrues, hitting 0 ends the attempt
+   instantly (see tickQTEProgress). Color is interpolated continuously
+   from green to red in JS (lerpColor) rather than flipped at a threshold
+   — a hard binary flip plus a pulse animation read as a jarring "flash"
+   rather than a steady warning, so this bar has no CSS color rule of its
+   own; the base .qte-fill-bar green is just the frame-0 starting point. */
+.hold-kill-track { height: 10px; }
 /* Hold QTE's target zone — drawn ON TOP of the fill bar (see its markup order)
    as a bracket (translucent fill + solid edges) so it stays visible whether
    or not the fill bar currently covers it, rather than a fully opaque block. */
@@ -570,6 +578,8 @@ select {
 .pause-box.settings-box { width: 440px; max-width: 92vw; }
 .pause-box.achievements-box { width: 640px; max-width: 92vw; }
 .pause-box.events-box { width: 760px; max-width: 92vw; max-height: 80vh; overflow-y: auto; }
+.pause-box.buffs-box { width: 480px; max-width: 92vw; }
+.pause-box.buffs-box h3 { margin: 4px 0 0; color: #f1c40f; font-size: 14px; letter-spacing: 1px; }
 .pause-row, .settings-row { flex-wrap: wrap; }
 .fine-tune-row { padding-left: 16px; opacity: 0.9; }
 .loadout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

@@ -380,6 +380,13 @@ export class StateManager {
       consumables: { ...this.gameState.player.consumables },
       materials: {},
       explorationBuffs: [],
+      // Arcane Sigil's reward — a genuine FLOOR buff (per user request,
+      // not a one-fight consumable-style buff like explorationBuffs
+      // above): applied at the start of EVERY fight for the rest of the
+      // current floor, cleared only on floor change (stairs or elevator
+      // — see archiveCurrentFloor), never on victory/defeat. See
+      // ExploreState.resolveArcaneSigil / CombatManager.applyFloorBuffs.
+      floorBuffs: [],
       // Wounded Animal's queued "next enemy starts combat with 2 bleed
       // stacks" reward — single-slot, non-stacking (see
       // ExploreState.resolveWoundedAnimalMash), consumed the instant the
@@ -494,10 +501,14 @@ export class StateManager {
    * SaveSystem key, keyed by the floor being left — called right before
    * `run.floor` changes, whether via stairs (applyCardPick) or the
    * elevator (travelToFloor), so nothing about a floor's progress is lost
-   * when the player moves on from it.
+   * when the player moves on from it. Also the single shared "leaving
+   * this floor" hook, so run.floorBuffs (Arcane Sigil's reward — see
+   * DEFAULT_RUN's comment) is cleared here too, unconditionally, before
+   * the dungeon-snapshot early-return below.
    */
   archiveCurrentFloor() {
     const run = this.gameState.run;
+    run.floorBuffs = [];
     if (!run.dungeon) return;
     this.saveSystem.saveFloor(run.floor, {
       dungeon: run.dungeon,
@@ -597,6 +608,7 @@ export class StateManager {
       player,
       enemies,
       explorationBuffs: this.gameState.run.explorationBuffs ?? [],
+      floorBuffs: this.gameState.run.floorBuffs ?? [],
       pendingEnemyDebuff,
     });
     this.gameState.combat = this.combatManager.getState();

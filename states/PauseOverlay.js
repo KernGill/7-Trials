@@ -6,7 +6,8 @@ import { getAllAchievements } from '../data/achievements.js';
 import { achievementCardHTML } from './AchievementsState.js';
 import { eventsContentHTML } from './EventsState.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
-import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
+import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML, statLabel } from '../ui/InfoFormatters.js';
+import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 import { t, tData } from '../ui/i18n.js';
 import {
   CAMERA_SENSITIVITY_MIN_PERCENT, CAMERA_SENSITIVITY_MAX_PERCENT, DEFAULT_CAMERA_SENSITIVITY_PERCENT,
@@ -67,6 +68,7 @@ export class PauseOverlay {
     if (view === 'encyclopedia') return this.renderEncyclopedia();
     if (view === 'achievements') return this.renderAchievements();
     if (view === 'events') return this.renderEvents();
+    if (view === 'buffs') return this.renderBuffs();
     return this.renderMenu();
   }
 
@@ -78,6 +80,7 @@ export class PauseOverlay {
         <button data-a="resume">${t('pause.resume')}</button>
         <button data-a="loadout">${t('pause.view_loadout')}</button>
         <button data-a="cards">${t('pause.view_cards')}</button>
+        <button data-a="buffs">${t('pause.view_buffs')}</button>
         ${this.allowConsumables ? `<button data-a="consumables">${t('pause.use_consumables')}</button>` : ''}
         <button data-a="encyclopedia">${t('pause.encyclopedia')}</button>
         <button data-a="settings">${t('pause.open_settings')}</button>
@@ -88,6 +91,7 @@ export class PauseOverlay {
     this.el.querySelector('[data-a="resume"]').addEventListener('click', () => app.togglePause());
     this.el.querySelector('[data-a="loadout"]').addEventListener('click', () => { app.gameState.pauseView = 'loadout'; this.render(); });
     this.el.querySelector('[data-a="cards"]').addEventListener('click', () => { app.gameState.pauseView = 'cards'; this.render(); });
+    this.el.querySelector('[data-a="buffs"]').addEventListener('click', () => { app.gameState.pauseView = 'buffs'; this.render(); });
     this.el.querySelector('[data-a="encyclopedia"]').addEventListener('click', () => { app.gameState.pauseView = 'encyclopedia'; this.render(); });
     this.el.querySelector('[data-a="settings"]').addEventListener('click', () => { app.gameState.pauseView = 'settings'; this.render(); });
     if (this.allowConsumables) {
@@ -289,6 +293,39 @@ export class PauseOverlay {
         ${cards.length === 0
           ? `<div class="pause-row">${t('pause.no_cards')}</div>`
           : `<div class="cards-list">${cards.map((c) => cardTileHTML(c)).join('')}</div>`}
+        <button data-a="back">${t('common.back')}</button>
+      </div>`;
+
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
+  }
+
+  /**
+   * Shows the two kinds of "still pending" run rewards that don't live in
+   * the equipment/cards screens: Arcane Sigil's floor buffs
+   * (run.floorBuffs — reapply at the start of every fight until the
+   * floor changes, see CombatManager.applyFloorBuffs) and Wounded
+   * Animal's queued "help" (run.pendingEnemyDebuff — a single-slot debuff
+   * consumed by the very next fight). Both are otherwise invisible to the
+   * player once the result modal closes, hence this screen.
+   */
+  renderBuffs() {
+    const { app } = this;
+    const run = app.gameState.run;
+    const floorBuffs = run.floorBuffs ?? [];
+    const pendingDebuff = run.pendingEnemyDebuff;
+
+    const floorBuffLines = floorBuffs.map((b) => `<div class="pause-row">${t('pause.floor_buff_line', { n: b.amount, stat: statLabel(b.stat) })}</div>`).join('');
+    const debuffLine = pendingDebuff
+      ? `<div class="pause-row">${t('pause.wounded_animal_help_line', { n: pendingDebuff.stacks, status: tData('status', pendingDebuff.effect, STATUS_EFFECTS[pendingDebuff.effect]?.name ?? pendingDebuff.effect) })}</div>`
+      : '';
+
+    this.el.innerHTML = `
+      <div class="pause-box buffs-box">
+        <h2>${t('pause.buffs_title')}</h2>
+        <h3>${t('pause.floor_buffs_section')}</h3>
+        ${floorBuffLines || `<div class="pause-row">${t('pause.no_floor_buffs')}</div>`}
+        <h3>${t('pause.wounded_animal_section')}</h3>
+        ${debuffLine || `<div class="pause-row">${t('pause.no_wounded_animal_help')}</div>`}
         <button data-a="back">${t('common.back')}</button>
       </div>`;
 

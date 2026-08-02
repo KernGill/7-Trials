@@ -25,7 +25,14 @@ export const MOVE_CATEGORIES = {
 export const CHEST_TRAP_DAMAGE = 30; // leaves party at 1 HP, never kills
 export const TEMPORAL_CHEST_TRAP_DAMAGE = 100; // leaves party at 1 HP, never kills
 export const LOCKED_ROOM_GOLD_REWARD = 80;
-export const SEALED_SHRINE_TRAP_DAMAGE = 50; // leaves party at 1 HP, never kills
+// Sealed Shrine (Hold QTE) has two distinct fail paths with different
+// damage — the closer you got to succeeding, the worse the backlash.
+// Losing to the kill bar (an early fail while there was still time left
+// on the clock) is the "you weren't even close" case; losing to the
+// timer running out while still holding position (you were right there,
+// just not quite in the zone at the final instant) is far more costly.
+export const SEALED_SHRINE_KILLBAR_FAIL_DAMAGE = 50; // leaves party at 1 HP, never kills
+export const SEALED_SHRINE_TIMEOUT_FAIL_DAMAGE = 200; // leaves party at 1 HP, never kills
 export const ARCANE_SIGIL_TRAP_DAMAGE = 40; // leaves party at 1 HP, never kills
 export const WOUNDED_ANIMAL_MASH_FAIL_DAMAGE = 80; // leaves party at 1 HP, never kills
 

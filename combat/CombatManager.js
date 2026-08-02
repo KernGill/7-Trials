@@ -46,6 +46,7 @@ export class CombatManager {
     this.rewards = null;
     this.selectedMove = null;
     this.pendingExplorationBuffs = [];
+    this.floorBuffs = [];
     this.pendingEnemyDebuff = null;
     this.timeline.reset();
     this.turnOrder.reset();
@@ -91,11 +92,12 @@ export class CombatManager {
     this.timeline.flushSequence();
   }
 
-  startCombat({ player, enemies, explorationBuffs = [], pendingEnemyDebuff = null }) {
+  startCombat({ player, enemies, explorationBuffs = [], floorBuffs = [], pendingEnemyDebuff = null }) {
     this.reset();
     this.player = player;
     this.enemies = enemies;
     this.pendingExplorationBuffs = explorationBuffs;
+    this.floorBuffs = floorBuffs;
     this.pendingEnemyDebuff = pendingEnemyDebuff;
 
     [player, ...enemies].forEach((c) => c.resetBattleState());
@@ -113,6 +115,7 @@ export class CombatManager {
       combatants: this.combatants.map((c) => ({ character: c, health: c.currentHealth, energy: c.energy, speed: c.battleSpeed })),
     });
     this.applyExplorationBuffs();
+    this.applyFloorBuffs();
     this.applyPendingEnemyDebuff();
     this.triggerPassives('fight_start');
     this.turnOrder.beginFightTurn(this.combatants);
@@ -138,6 +141,21 @@ export class CombatManager {
       this.statusSystem.applyBuffs(this.player, [buff], this.player);
     });
     this.pendingExplorationBuffs = [];
+  }
+
+  /**
+   * Arcane Sigil's floor buffs (see DEFAULT_RUN's comment) — applied at
+   * the start of EVERY fight for as long as they're in run.floorBuffs,
+   * unlike applyExplorationBuffs above, which empties its own list right
+   * after applying it once. This one deliberately does NOT clear
+   * this.floorBuffs — StateManager.archiveCurrentFloor is what clears the
+   * underlying run.floorBuffs array, exactly once, on floor change, and
+   * every fight until then re-reads whatever's still in it.
+   */
+  applyFloorBuffs() {
+    this.floorBuffs.forEach((buff) => {
+      this.statusSystem.applyBuffs(this.player, [buff], this.player);
+    });
   }
 
   /**
