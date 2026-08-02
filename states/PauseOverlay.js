@@ -4,6 +4,7 @@ import { getConsumableConfig } from '../data/consumables.js';
 import { getItemConfig } from '../data/items.js';
 import { getAllAchievements } from '../data/achievements.js';
 import { achievementCardHTML } from './AchievementsState.js';
+import { eventsContentHTML } from './EventsState.js';
 import { TooltipManager } from '../ui/TooltipManager.js';
 import { itemTooltipHTML, equipmentGridHTML, equipmentTotalsHTML, cardTileHTML } from '../ui/InfoFormatters.js';
 import { t, tData } from '../ui/i18n.js';
@@ -65,6 +66,7 @@ export class PauseOverlay {
     if (view === 'consumables') return this.renderConsumables();
     if (view === 'encyclopedia') return this.renderEncyclopedia();
     if (view === 'achievements') return this.renderAchievements();
+    if (view === 'events') return this.renderEvents();
     return this.renderMenu();
   }
 
@@ -309,6 +311,7 @@ export class PauseOverlay {
         <h2>${t('encyclopedia.title')}</h2>
         ${this.canAbandon ? `<button data-a="bestiary">${t('encyclopedia.bestiary')}</button>` : ''}
         <button data-a="achievements">${t('encyclopedia.achievements')}</button>
+        <button data-a="events">${t('encyclopedia.events')}</button>
         <button data-a="back">${t('common.back')}</button>
       </div>`;
     if (this.canAbandon) {
@@ -320,6 +323,7 @@ export class PauseOverlay {
       });
     }
     this.el.querySelector('[data-a="achievements"]').addEventListener('click', () => { app.gameState.pauseView = 'achievements'; this.render(); });
+    this.el.querySelector('[data-a="events"]').addEventListener('click', () => { app.gameState.pauseView = 'events'; this.render(); });
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'menu'; this.render(); });
   }
 
@@ -337,6 +341,18 @@ export class PauseOverlay {
       <div class="pause-box achievements-box">
         <h2>${t('achievements.title')}</h2>
         <div class="achievements-list">${getAllAchievements().map((config) => achievementCardHTML(app, config)).join('')}</div>
+        <button data-a="back">${t('common.back')}</button>
+      </div>`;
+    this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'encyclopedia'; this.render(); });
+  }
+
+  /** Same static content as the full-screen EventsState (shared eventsContentHTML), rendered in-place as a pause sub-view — pure documentation, so it's always available regardless of canAbandon. */
+  renderEvents() {
+    const { app } = this;
+    this.el.innerHTML = `
+      <div class="pause-box events-box">
+        <h2>${t('events.title')}</h2>
+        <div class="events-content">${eventsContentHTML()}</div>
         <button data-a="back">${t('common.back')}</button>
       </div>`;
     this.el.querySelector('[data-a="back"]').addEventListener('click', () => { app.gameState.pauseView = 'encyclopedia'; this.render(); });

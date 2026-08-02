@@ -384,15 +384,26 @@ select {
   transition: background 0.1s ease;
 }
 .qte-key.correct { background: #2ecc71; }
-/* Thief's Prophecy (Thief's Goggles): which arrows still need a real press vs which get auto-cleared for free. */
-.qte-key.qte-key-press { box-shadow: 0 0 14px 4px rgba(233, 69, 96, 0.85), inset 0 0 10px rgba(233, 69, 96, 0.5); }
-.qte-key.qte-key-skip { filter: grayscale(1); opacity: 0.45; }
+/* Thief's Prophecy (Thief's Goggles): which arrows still need a real press vs which get auto-cleared for free. Shared by the Arrow strip (.qte-key), Memory's reveal flashes (.qte-key.qte-key-reveal), and Memory's answer slots (.qte-key-slot) — same visual language everywhere the passive applies. */
+.qte-key-press { box-shadow: 0 0 14px 4px rgba(233, 69, 96, 0.85), inset 0 0 10px rgba(233, 69, 96, 0.5); }
+.qte-key-skip { filter: grayscale(1); opacity: 0.45; }
 .qte-timer-track { height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
 .qte-timer-fill { height: 100%; width: 100%; background: #e94560; }
 
 /* ---------------- Timing / Hold / Memory / Mash QTEs (new event types) ---------------- */
-.qte-fill-track { width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; }
+.qte-fill-track { position: relative; width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; }
 .qte-fill-bar { height: 100%; width: 0%; background: #2ecc71; }
+/* Hold QTE only: red by default (not resting in the target zone), green once it is — Mash's identical-looking bar has no slit concept so it stays plain green (the base rule above). */
+.hold-fill-bar { background: #e94560; }
+.hold-fill-bar.in-slit { background: #2ecc71; }
+/* Hold QTE's target zone — drawn ON TOP of the fill bar (see its markup order)
+   as a bracket (translucent fill + solid edges) so it stays visible whether
+   or not the fill bar currently covers it, rather than a fully opaque block. */
+.hold-slit {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  background: rgba(241, 196, 15, 0.22);
+  border-left: 2px solid #f1c40f; border-right: 2px solid #f1c40f;
+}
 .timing-track { position: relative; width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; cursor: pointer; }
 .timing-zone { position: absolute; top: 0; bottom: 0; background: rgba(46, 204, 113, 0.55); }
 .timing-zone.hit { background: #2ecc71; }
@@ -407,6 +418,14 @@ select {
   background: rgba(30, 58, 95, 0.9); border: 2px solid #e94560;
 }
 .timing-touch-btn:active, .hold-touch-btn:active, .mash-touch-btn:active { background: rgba(233, 69, 96, 0.55); }
+/* Mash QTE's stamina meter — a slim bar above the main fill bar. Gold while
+   charged, red and pulsing once spent (presses don't register — see
+   submitMashPress/tickQTEProgress's lockout handling) until it refills. */
+.mash-stamina-track { height: 10px; }
+.mash-stamina-bar { background: #f1c40f; }
+.mash-stamina-bar.locked { background: #e94560; animation: mash-stamina-pulse 0.4s ease-in-out infinite alternate; }
+@keyframes mash-stamina-pulse { from { opacity: 1; } to { opacity: 0.45; } }
+.mash-touch-btn.locked { opacity: 0.4; }
 .memory-reveal { display: flex; align-items: center; justify-content: center; height: 64px; }
 .memory-slots { display: flex; gap: 8px; justify-content: center; }
 .qte-key-slot { width: 44px; height: 44px; border-radius: 8px; background: #1e3a5f; border: 2px dashed #444; display: flex; align-items: center; justify-content: center; }
@@ -550,6 +569,7 @@ select {
 .pause-box.loadout-box { width: 720px; max-width: 92vw; }
 .pause-box.settings-box { width: 440px; max-width: 92vw; }
 .pause-box.achievements-box { width: 640px; max-width: 92vw; }
+.pause-box.events-box { width: 760px; max-width: 92vw; max-height: 80vh; overflow-y: auto; }
 .pause-row, .settings-row { flex-wrap: wrap; }
 .fine-tune-row { padding-left: 16px; opacity: 0.9; }
 .loadout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -565,11 +585,11 @@ select {
 .loadout-totals-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; color: #f5e6d8; font-size: 12px; }
 
 /* ---------------- Shop / Inn / Locker / Bestiary / Settings / Saves ---------------- */
-.shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen {
+.shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen, .events-screen {
   min-height: 100vh; padding: 80px 40px 40px; max-width: 900px; margin: 0 auto;
 }
 .inn-screen { max-width: 1040px; }
-.shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1, .saves-screen h1, .encyclopedia-screen h1, .achievements-screen h1 {
+.shop-screen h1, .inn-screen h1, .locker-screen h1, .bestiary-screen h1, .settings-screen h1, .saves-screen h1, .encyclopedia-screen h1, .achievements-screen h1, .events-screen h1 {
   color: #e94560; letter-spacing: 3px; text-align: center;
 }
 .shop-gold { text-align: center; color: #f1c40f; margin-bottom: 16px; }
@@ -613,6 +633,65 @@ select {
 .achievement-progress { color: #f1c40f; font-size: 11px; margin-top: 6px; }
 .achievement-unlocks { color: #666; font-size: 11px; margin-top: 6px; }
 .achievement-card.completed .achievement-unlocks { color: #7fdba0; }
+
+/* ---------------- Events (QTE mechanics reference) ---------------- */
+.events-content { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; max-height: 70vh; overflow-y: auto; }
+.events-intro { color: #999; font-size: 12px; line-height: 1.6; margin: 0 0 8px; }
+.events-section-head {
+  color: #f1c40f; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+  margin: 20px 0 10px; padding-top: 14px; border-top: 1px solid #222;
+}
+.events-content .events-section-head:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+.events-note { color: #777; font-size: 11px; margin: -4px 0 10px; }
+.events-footnote { color: #666; font-size: 11px; margin-top: 10px; line-height: 1.6; }
+
+.events-universal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.events-universal-cell {
+  background: #14151f; border: 1px solid #222; border-radius: 6px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.events-universal-cell .label { color: #888; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.events-universal-cell .value { color: #f1c40f; font-size: 14px; }
+.events-universal-cell .formula { color: #666; font-size: 10.5px; }
+
+.event-type-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.event-type-card {
+  background: #14151f; border: 1px solid #222; border-top: 3px solid var(--type-color, #e94560);
+  border-radius: 6px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.event-type-card-head { display: flex; flex-direction: column; gap: 2px; }
+.event-type-name { color: var(--type-color, #eee); font-size: 14px; font-weight: bold; letter-spacing: 1px; }
+.event-type-used-by { color: #777; font-size: 10.5px; }
+.event-type-base { color: #999; font-size: 11px; }
+.event-type-base strong { color: #eee; }
+.event-type-knob-label { color: #888; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; margin-top: 2px; }
+.event-type-values { color: #eee; font-size: 12px; }
+.event-type-note { color: #666; font-size: 10.5px; border-top: 1px dashed #222; padding-top: 6px; margin-top: 2px; }
+
+.event-matrix { overflow-x: auto; border: 1px solid #222; border-radius: 6px; background: #14151f; }
+.event-matrix-row {
+  display: grid; grid-template-columns: 180px repeat(5, minmax(110px, 1fr)); gap: 1px;
+  min-width: 760px; background: #222; border-bottom: 1px solid #222;
+}
+.event-matrix-row:last-child { border-bottom: none; }
+.event-matrix-row.header { background: #1a1a24; }
+.event-matrix-item, .event-matrix-cell { background: #14151f; padding: 8px 10px; font-size: 10.5px; }
+.event-matrix-row.header .event-matrix-cell { font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+.event-matrix-item { display: flex; flex-direction: column; gap: 2px; }
+.event-matrix-item .name { color: #f1c40f; font-size: 11px; }
+.event-matrix-item .sub { color: #666; font-size: 9.5px; }
+.event-matrix-cell { color: #aaa; line-height: 1.4; }
+.event-matrix-row.wide { grid-template-columns: 180px 1fr; }
+.event-matrix-cell.wide { color: #999; font-style: italic; }
+
+.events-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.events-legend-item {
+  display: flex; align-items: center; gap: 8px; background: #14151f; border: 1px solid #222;
+  border-radius: 6px; padding: 8px 12px; font-size: 11px;
+}
+.events-legend-item .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.events-legend-item .qt { color: #eee; font-weight: bold; }
+.events-legend-item .ev { color: #888; }
 
 /* ---------------- Inn (roster + detail panel) ---------------- */
 .inn-body { display: flex; align-items: flex-start; gap: 32px; margin-top: 24px; }
@@ -849,7 +928,7 @@ select {
 
 /* ---------------- General small-viewport tightening ---------------- */
 @media (max-width: 700px), (max-height: 480px) {
-  .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen {
+  .shop-screen, .inn-screen, .locker-screen, .bestiary-screen, .settings-screen, .saves-screen, .encyclopedia-screen, .achievements-screen, .events-screen {
     padding: 56px 16px 24px;
   }
   .explore-hud { gap: 12px; font-size: 11px; padding: 6px 10px; flex-wrap: wrap; max-width: 60vw; }

@@ -95,6 +95,7 @@ export const TRANSLATIONS = {
     'encyclopedia.title': 'ENCYCLOPEDIA',
     'encyclopedia.bestiary': 'BESTIARY',
     'encyclopedia.achievements': 'ACHIEVEMENTS',
+    'encyclopedia.events': 'EVENTS',
 
     // Achievements
     'achievements.title': 'ACHIEVEMENTS',
@@ -103,6 +104,16 @@ export const TRANSLATIONS = {
     'achievements.progress': 'Progress: {current}/{target}',
     'achievements.unlocks': 'Unlocks:',
     'achievements.unlocks_none': '—',
+
+    // Events (QTE mechanics reference)
+    'events.title': 'EVENTS',
+    'events.intro': 'Every exploration event shares one quick-time engine, differing only in mechanic. Here is how Dexterity, floor number, and the Thief\'s-set gear each bend it.',
+    'events.section_universal': 'Dexterity & universal mechanics',
+    'events.section_types': 'The five mechanics',
+    'events.section_matrix': "Thief's-set gear × mechanic",
+    'events.matrix_note': "Full-width rows apply the same way no matter the mechanic. Ring, Sleeves, and Goggles each bend a different knob per type — see the mechanic cards above for what that knob is.",
+    'events.footnote': "Not shown above — four more Thief's-set pieces exist but never touch a QTE: Thief's Gloves (+40 flat gold on combat victory), Thief's Idol (reveals unexplored events on the minimap), Thief's Skin (triples the last kill's material drops), Thief's Dagger Holster (10% chance to steal an enemy's buff). All twelve pieces unlock together via the \"Thief's Instinct\" achievement.",
+    'events.section_legend': 'Event → mechanic map',
 
     // Locker
     'locker.title': 'LOCKER',
@@ -230,7 +241,7 @@ export const TRANSLATIONS = {
     'explore.wounded_animal_saved': 'THE ANIMAL — SAVED',
     'explore.wounded_animal_failed_title': 'THE ANIMAL — FOUGHT BACK',
     'explore.wounded_animal_failed_line': 'It thrashed and fought back! Took {n} damage.',
-    'explore.reward_pending_debuff': 'The wound will bleed into your next battle.',
+    'explore.reward_pending_debuff': 'Your new friend will help you in the next fight.',
     'explore.close': 'CLOSE',
     'explore.choose_card': 'CHOOSE A CARD',
     'explore.reroll_cards': 'REROLL (1 USE)',
@@ -546,7 +557,7 @@ export const TRANSLATIONS = {
     'explore.wounded_animal_saved': 'EL ANIMAL — SALVADO',
     'explore.wounded_animal_failed_title': 'EL ANIMAL — SE DEFENDIÓ',
     'explore.wounded_animal_failed_line': '¡Se agitó y se defendió! Recibiste {n} de daño.',
-    'explore.reward_pending_debuff': 'La herida sangrará en tu próxima batalla.',
+    'explore.reward_pending_debuff': 'Tu nuevo amigo te ayudará en la próxima batalla.',
     'explore.close': 'CERRAR',
     'explore.choose_card': 'ELIGE UNA CARTA',
     'explore.reroll_cards': 'RELANZAR (1 USO)',

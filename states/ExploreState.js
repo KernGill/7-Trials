@@ -119,11 +119,37 @@ const TIMING_MIN_ZONE_PERCENT = 10;
 const TIMING_BASE_SECONDS = 6;
 
 // --- Hold QTE (Sealed Shrine) ---
-const HOLD_BASE_SECONDS = 7;
-const HOLD_FILL_PER_SECOND_HELD = 34; // % fill/sec while held, floor 1 (~2.9s to fill)
-const HOLD_FILL_GROWTH_PER_FLOOR = -1.1; // gets harder — slower fill per floor
-const HOLD_MIN_FILL_PER_SECOND = 14; // floor for the above (~7.1s to fill)
+// A balance challenge, not a race to fill: a narrow "slit" sits on the
+// fill track and drifts back and forth along it (bouncing off both
+// ends); holding raises the fill level, releasing lets it drain.
+// Success/failure is decided ONLY when the timer runs out — the fill
+// level must be resting inside the slit's CURRENT position at that exact
+// moment (see tick()'s HOLD-specific timeout branch and
+// tickQTEProgress's per-frame slit movement). Unlike every other QTE
+// type, Hold's timer is a flat constant, untouched by Dexterity (or
+// floor) — per user request, Dex's contribution is redirected into
+// slowing the slit's drift instead (see
+// HOLD_SLIT_MOVE_SPEED_DEX_REDUCTION_PER_INTERVAL and
+// computeQTETimeLimit's Hold special-case).
+const HOLD_BASE_SECONDS = 4; // always exactly this — see computeQTETimeLimit
+const HOLD_FILL_PER_SECOND_HELD = 34; // % fill/sec while held, constant across floors — the slit width is what scales difficulty
 const HOLD_DECAY_PER_SECOND = 22; // % fill lost/sec while released, constant
+const HOLD_BASE_SLIT_PERCENT = 24; // slit width as % of the track, floor 1
+const HOLD_SLIT_SHRINK_PER_FLOOR = 1; // gets harder — narrower slit per floor
+const HOLD_MIN_SLIT_PERCENT = 8; // floor for the above
+const HOLD_MAX_SLIT_PERCENT = 90; // ceiling once gear widens it, never quite the whole track
+// The slit's drift speed, as % of the track traveled per second —
+// floor-independent (slit WIDTH is the per-floor difficulty knob, same
+// as Hold's other constants above). Dexterity slows this down instead of
+// widening the slit (see the header comment above): same interval as
+// every other type's Dex-adds-seconds formula, just a different unit.
+const HOLD_SLIT_MOVE_SPEED_BASE = 22;
+const HOLD_SLIT_MOVE_SPEED_DEX_REDUCTION_PER_INTERVAL = 2.5;
+const HOLD_SLIT_MOVE_MIN_SPEED = 4; // floor for the above — never fully stationary
+// Thief's Prophecy (Goggles): widens the slit further on top of the
+// Ring/Sleeves-adjusted width, same "extra margin for error" spirit as
+// its double-advance effect on the step-indexed QTE types.
+const HOLD_DOUBLE_ADVANCE_SLIT_MULTIPLIER = 1.5;
 
 // --- Memory / Simon-Says QTE (Arcane Sigil) ---
 const MEMORY_BASE_LENGTH = 4;
@@ -141,6 +167,16 @@ const MASH_FILL_PER_PRESS = 9; // % fill per press, floor 1 (~12 presses)
 const MASH_FILL_PER_PRESS_FLOOR_DECAY = -0.25;
 const MASH_MIN_FILL_PER_PRESS = 4; // floor for the above (~25 presses)
 const MASH_DECAY_PER_SECOND = 12; // passive drain while not pressing, constant
+// A separate "stamina" meter (see buildMashQTE/submitMashPress/
+// tickQTEProgress) starts full and drains per press; once it's empty,
+// pressing is locked out for MASH_STAMINA_LOCKOUT_SECONDS before it
+// refills to full and mashing resumes. Floor-independent, like the decay
+// rate above — Dex is the only knob, and it slows the drain so more
+// presses land (and less time is lost to lockouts) per QTE attempt.
+const MASH_STAMINA_DRAIN_PER_PRESS = 14;
+const MASH_STAMINA_LOCKOUT_SECONDS = 1;
+const MASH_STAMINA_DEX_DRAIN_REDUCTION_PER_INTERVAL = 1.2;
+const MASH_STAMINA_MIN_DRAIN_PER_PRESS = 4; // floor for the above
 
 // --- Sealed Shrine / Arcane Sigil / Wandering Satchel / Wounded Animal ---
 const WOUNDED_ANIMAL_INSTANT_CHANCE = 30; // % chance "Try and save it" succeeds instantly, no QTE
@@ -484,7 +520,14 @@ export class ExploreState {
       if (!memoryReveal) {
         this.qte.remaining -= dt;
         if (this.qte.remaining <= 0) {
-          this.finishQTE(false);
+          // Hold's win condition is checked ONLY here, at timeout — see
+          // buildHoldQTE's doc comment. Every other type simply fails on
+          // timeout (their success paths resolve earlier, mid-session).
+          if (this.qte.type === QTE_TYPES.HOLD) {
+            this.finishQTE(this.isHoldInSlit());
+          } else {
+            this.finishQTE(false);
+          }
         } else {
           this.updateQTETimerUI();
           this.tickQTEProgress(dt);
@@ -1372,9 +1415,15 @@ export class ExploreState {
     }
   }
 
+  /** Hold is deliberately excluded from Dex's time bonus — its timer is always exactly HOLD_BASE_SECONDS (plus qteBonusSeconds gear, same as everyone else); Dex slows its slit's drift instead, see buildHoldQTE. */
   computeQTETimeLimit(type) {
+    const dexSeconds = type === QTE_TYPES.HOLD ? 0 : this.dexTimeBonusSeconds();
+    return this.qteBaseSeconds(type) + dexSeconds + this.getPassiveSum('qteBonusSeconds');
+  }
+
+  dexTimeBonusSeconds() {
     const dex = this.player.getStat('dex');
-    return this.qteBaseSeconds(type) + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL + this.getPassiveSum('qteBonusSeconds');
+    return Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * QTE_DEX_SECONDS_PER_INTERVAL;
   }
 
   /** Net difficulty percent shared across every type's Thief's Ring/Sleeves reinterpretation (see each build*QTE). */
@@ -1572,32 +1621,61 @@ export class ExploreState {
   // ---------------------------------------------------------------------
 
   /**
-   * A single input held down fills a bar at `fillPerSecond`, which decays
-   * at a constant `decayPerSecond` while released. Success at 100% fill
-   * before the timer runs out; failure is purely the shared tick()-driven
-   * timeout path (no discrete miss).
+   * A single input held down raises the fill level at `fillPerSecond`;
+   * releasing lets it drain at `decayPerSecond`. A narrow "slit" marks the
+   * target zone on the track and DRIFTS back and forth along it (bouncing
+   * off both ends, see tickQTEProgress) — the ONLY win condition is the
+   * fill level resting inside the slit's CURRENT position the instant the
+   * timer runs out (see tick()'s HOLD-specific timeout branch); there's
+   * no early win or discrete miss. Thief's Ring/Sleeves widen/narrow the
+   * slit (inverse of their usual "shrink/grow the difficulty knob" sign,
+   * since a WIDER slit is what's easier here); Thief's Goggles widens it
+   * further still. Dexterity slows the slit's drift instead of widening
+   * it (flat %/sec reduction, same interval as every other type's
+   * Dex-adds-seconds bonus) — Hold's timer itself never moves, see
+   * computeQTETimeLimit's Hold special-case.
    */
   buildHoldQTE(modal, difficultyMultiplier) {
     const run = this.app.gameState.run;
     const netPercent = this.qteNetDifficultyPercent();
-    let fillPerSecond = HOLD_FILL_PER_SECOND_HELD + run.floor * HOLD_FILL_GROWTH_PER_FLOOR;
-    fillPerSecond = Math.max(HOLD_MIN_FILL_PER_SECOND, fillPerSecond * difficultyMultiplier * (1 + netPercent / 100));
-    if (this.hasPassiveFlag('qteDoubleAdvance')) fillPerSecond *= 2;
+    const baseSlitPercent = Math.max(HOLD_MIN_SLIT_PERCENT, HOLD_BASE_SLIT_PERCENT - run.floor * HOLD_SLIT_SHRINK_PER_FLOOR);
+    let slitPercent = baseSlitPercent * difficultyMultiplier * (1 - netPercent / 100);
+    if (this.hasPassiveFlag('qteDoubleAdvance')) slitPercent *= HOLD_DOUBLE_ADVANCE_SLIT_MULTIPLIER;
+    slitPercent = Math.min(HOLD_MAX_SLIT_PERCENT, Math.max(HOLD_MIN_SLIT_PERCENT, slitPercent));
+    const dex = this.player.getStat('dex');
+    const moveSpeed = Math.max(HOLD_SLIT_MOVE_MIN_SPEED, HOLD_SLIT_MOVE_SPEED_BASE - Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * HOLD_SLIT_MOVE_SPEED_DEX_REDUCTION_PER_INTERVAL);
+    const maxSlitLeft = 100 - slitPercent;
+    const slitLeft = Math.random() * maxSlitLeft;
+    const moveDir = Math.random() < 0.5 ? 1 : -1;
     modal.innerHTML = `
       <div class="qte-box">
-        <div class="qte-fill-track"><div class="qte-fill-bar"></div></div>
+        <div class="qte-fill-track">
+          <div class="qte-fill-bar hold-fill-bar"></div>
+          <div class="hold-slit"></div>
+        </div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
         <button class="hold-touch-btn" aria-label="Hold">${holdIconSVG()}</button>
       </div>`;
+    const slitEl = modal.querySelector('.hold-slit');
+    slitEl.style.left = `${slitLeft}%`;
+    slitEl.style.width = `${slitPercent}%`;
     this.qte.hold = {
-      fill: 0, fillPerSecond, decayPerSecond: HOLD_DECAY_PER_SECOND, isHeld: false,
-      fillEl: modal.querySelector('.qte-fill-bar'),
+      fill: 0, fillPerSecond: HOLD_FILL_PER_SECOND_HELD, decayPerSecond: HOLD_DECAY_PER_SECOND, isHeld: false,
+      slitLeft, slitPercent, moveSpeed, moveDir, maxSlitLeft,
+      fillEl: modal.querySelector('.hold-fill-bar'), slitEl,
     };
     const touchBtn = modal.querySelector('.hold-touch-btn');
     const setHeld = (held) => { if (this.qte?.hold) this.qte.hold.isHeld = held; };
     touchBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setHeld(true); }, { passive: false });
     touchBtn.addEventListener('touchend', (e) => { e.preventDefault(); setHeld(false); }, { passive: false });
     touchBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); setHeld(false); }, { passive: false });
+  }
+
+  /** True while the Hold QTE's fill level is currently resting inside the slit's current (possibly drifted) position — the win condition, checked at timeout (see tick()). */
+  isHoldInSlit() {
+    const hold = this.qte?.hold;
+    if (!hold) return false;
+    return hold.fill >= hold.slitLeft && hold.fill <= hold.slitLeft + hold.slitPercent;
   }
 
   handleHoldKeydown(e) {
@@ -1616,6 +1694,16 @@ export class ExploreState {
    * the arrow QTE. Input is ignored during the reveal choreography — the
    * fail-timer (this.qte.remaining) is frozen until the input phase
    * actually begins (see tick()).
+   *
+   * Thief's Prophecy (Thief's Goggles) auto-clears every OTHER slot for
+   * free here too (see submitMemoryDirection), same as the arrow QTE — but
+   * unlike the arrow QTE the sequence isn't visible during input, so a
+   * first-time Goggles owner has no way to notice that and will try to
+   * memorize/press every slot, then fail when their press for an
+   * already-cleared slot gets checked against the wrong index. Marked with
+   * the exact same red-glow/greyscale language as the arrow strip, on both
+   * the reveal flashes and the answer slots, so it reads as "you don't
+   * need this one" from the very first flash.
    */
   buildMemoryQTE(modal, difficultyMultiplier) {
     const run = this.app.gameState.run;
@@ -1624,6 +1712,7 @@ export class ExploreState {
     const length = Math.min(MEMORY_MAX_LENGTH, Math.max(1, Math.round(baseLength * difficultyMultiplier * (1 + netPercent / 100))));
     const revealMs = Math.max(MEMORY_MIN_REVEAL_MS, MEMORY_BASE_REVEAL_MS - run.floor * MEMORY_REVEAL_SHRINK_PER_FLOOR_MS);
     const sequence = Array.from({ length }, () => pickRandom(QTE_DIRECTIONS));
+    const doubleAdvance = this.hasPassiveFlag('qteDoubleAdvance');
     modal.innerHTML = `
       <div class="qte-box">
         <div class="memory-reveal"></div>
@@ -1638,12 +1727,15 @@ export class ExploreState {
       </div>`;
     const revealEl = modal.querySelector('.memory-reveal');
     const slotsEl = modal.querySelector('.memory-slots');
-    slotsEl.innerHTML = sequence.map(() => '<div class="qte-key-slot"></div>').join('');
+    slotsEl.innerHTML = sequence.map((_, i) => {
+      const emphasisClass = doubleAdvance ? (i % 2 === 0 ? ' qte-key-press' : ' qte-key-skip') : '';
+      return `<div class="qte-key-slot${emphasisClass}"></div>`;
+    }).join('');
     modal.querySelectorAll('.qte-touch-btn').forEach((btn) => {
       btn.addEventListener('touchstart', (e) => { e.preventDefault(); this.submitMemoryDirection(btn.dataset.dir); }, { passive: false });
     });
     this.qte.memory = {
-      sequence, index: 0, phase: 'reveal', revealMs,
+      sequence, index: 0, phase: 'reveal', revealMs, doubleAdvance,
       slotElements: Array.from(slotsEl.querySelectorAll('.qte-key-slot')),
     };
     this.playMemoryReveal(revealEl);
@@ -1661,7 +1753,8 @@ export class ExploreState {
         memory.phase = 'input';
         return;
       }
-      revealEl.innerHTML = `<div class="qte-key qte-key-reveal">${arrowIconSVG(memory.sequence[i])}</div>`;
+      const emphasisClass = memory.doubleAdvance ? (i % 2 === 0 ? ' qte-key-press' : ' qte-key-skip') : '';
+      revealEl.innerHTML = `<div class="qte-key qte-key-reveal${emphasisClass}">${arrowIconSVG(memory.sequence[i])}</div>`;
       i += 1;
       setTimeout(() => {
         if (!this.qte || this.qte.memory !== memory) return;
@@ -1708,21 +1801,40 @@ export class ExploreState {
    * constant passive decay (see tickQTEProgress) requires sustained
    * mashing, not just enough total presses at any pace. Success at 100%
    * fill; failure is purely the shared tick()-driven timeout path.
+   *
+   * A second "stamina" bar sits above the fill bar: it starts full and
+   * drains a fixed amount per press; once it empties, mashing is locked
+   * out for MASH_STAMINA_LOCKOUT_SECONDS (during which the fill bar keeps
+   * passively decaying, same as any other idle stretch), then it snaps
+   * back to full and presses count again. Dex slows the drain per press
+   * (see buildMashQTE), so fewer lockouts happen and more net mashing
+   * time fits inside the fixed timer.
    */
   buildMashQTE(modal, difficultyMultiplier) {
     const run = this.app.gameState.run;
     const netPercent = this.qteNetDifficultyPercent();
     let fillPerPress = MASH_FILL_PER_PRESS + run.floor * MASH_FILL_PER_PRESS_FLOOR_DECAY;
-    fillPerPress = Math.max(MASH_MIN_FILL_PER_PRESS, fillPerPress * difficultyMultiplier * (1 + netPercent / 100));
+    // Inverse sign vs. Timing/Memory's (1+net/100): fillPerPress is a
+    // "bigger is easier" knob (like Hold's slit width), not a "bigger is
+    // harder" count/length — a reduction (net<0) must RAISE it.
+    fillPerPress = Math.max(MASH_MIN_FILL_PER_PRESS, fillPerPress * difficultyMultiplier * (1 - netPercent / 100));
     if (this.hasPassiveFlag('qteDoubleAdvance')) fillPerPress *= 2;
+    const dex = this.player.getStat('dex');
+    const staminaPerPress = Math.max(MASH_STAMINA_MIN_DRAIN_PER_PRESS, MASH_STAMINA_DRAIN_PER_PRESS - Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * MASH_STAMINA_DEX_DRAIN_REDUCTION_PER_INTERVAL);
     modal.innerHTML = `
       <div class="qte-box">
-        <div class="qte-fill-track"><div class="qte-fill-bar"></div></div>
+        <div class="qte-fill-track mash-stamina-track"><div class="qte-fill-bar mash-stamina-bar"></div></div>
+        <div class="qte-fill-track"><div class="qte-fill-bar mash-progress-bar"></div></div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
         <button class="mash-touch-btn" aria-label="Mash">${mashIconSVG()}</button>
       </div>`;
-    this.qte.mash = { fill: 0, fillPerPress, decayPerSecond: MASH_DECAY_PER_SECOND, fillEl: modal.querySelector('.qte-fill-bar') };
-    modal.querySelector('.mash-touch-btn').addEventListener('touchstart', (e) => { e.preventDefault(); this.submitMashPress(); }, { passive: false });
+    this.qte.mash = {
+      fill: 0, fillPerPress, decayPerSecond: MASH_DECAY_PER_SECOND,
+      stamina: 100, staminaPerPress, lockoutRemaining: 0,
+      fillEl: modal.querySelector('.mash-progress-bar'), staminaEl: modal.querySelector('.mash-stamina-bar'),
+      touchBtn: modal.querySelector('.mash-touch-btn'),
+    };
+    this.qte.mash.touchBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.submitMashPress(); }, { passive: false });
   }
 
   handleMashKeydown(e) {
@@ -1734,23 +1846,53 @@ export class ExploreState {
   submitMashPress() {
     if (!this.qte || this.qte.type !== QTE_TYPES.MASH) return;
     const mash = this.qte.mash;
+    if (mash.lockoutRemaining > 0) return; // stamina spent — presses don't register until it refills, see tickQTEProgress
     mash.fill = Math.min(100, mash.fill + mash.fillPerPress);
     if (mash.fillEl) mash.fillEl.style.width = `${mash.fill}%`;
-    if (mash.fill >= 100) this.finishQTE(true);
+    if (mash.fill >= 100) {
+      this.finishQTE(true);
+      return;
+    }
+    mash.stamina = Math.max(0, mash.stamina - mash.staminaPerPress);
+    if (mash.staminaEl) mash.staminaEl.style.width = `${mash.stamina}%`;
+    if (mash.stamina <= 0) {
+      mash.lockoutRemaining = MASH_STAMINA_LOCKOUT_SECONDS;
+      mash.staminaEl?.classList.add('locked');
+      mash.touchBtn?.classList.add('locked');
+    }
   }
 
-  /** Per-frame continuous progress for Hold (fill while held, decay while released) and Mash (passive decay) — called from tick() only while the QTE's fail-timer is actively running. */
+  /** Per-frame continuous progress for Hold (fill + slit drift while held/released) and Mash (passive decay + stamina lockout countdown) — called from tick() only while the QTE's fail-timer is actively running. */
   tickQTEProgress(dt) {
     if (!this.qte) return;
     if (this.qte.type === QTE_TYPES.HOLD) {
+      // No early win/fail here — success is decided only at timeout (see
+      // tick()'s HOLD-specific branch), since this is a "hold position"
+      // balance challenge, not a race to fill.
       const hold = this.qte.hold;
       hold.fill = clamp(hold.fill + (hold.isHeld ? hold.fillPerSecond : -hold.decayPerSecond) * dt, 0, 100);
-      if (hold.fillEl) hold.fillEl.style.width = `${hold.fill}%`;
-      if (hold.fill >= 100) this.finishQTE(true);
+      if (hold.maxSlitLeft > 0) {
+        hold.slitLeft += hold.moveDir * hold.moveSpeed * dt;
+        if (hold.slitLeft <= 0) { hold.slitLeft = 0; hold.moveDir = 1; }
+        else if (hold.slitLeft >= hold.maxSlitLeft) { hold.slitLeft = hold.maxSlitLeft; hold.moveDir = -1; }
+        if (hold.slitEl) hold.slitEl.style.left = `${hold.slitLeft}%`;
+      }
+      if (hold.fillEl) {
+        hold.fillEl.style.width = `${hold.fill}%`;
+        hold.fillEl.classList.toggle('in-slit', this.isHoldInSlit());
+      }
     } else if (this.qte.type === QTE_TYPES.MASH) {
       const mash = this.qte.mash;
       mash.fill = clamp(mash.fill - mash.decayPerSecond * dt, 0, 100);
       if (mash.fillEl) mash.fillEl.style.width = `${mash.fill}%`;
+      if (mash.lockoutRemaining > 0) {
+        mash.lockoutRemaining = Math.max(0, mash.lockoutRemaining - dt);
+        if (mash.lockoutRemaining <= 0) {
+          mash.stamina = 100;
+          if (mash.staminaEl) { mash.staminaEl.style.width = '100%'; mash.staminaEl.classList.remove('locked'); }
+          mash.touchBtn?.classList.remove('locked');
+        }
+      }
     }
   }
 

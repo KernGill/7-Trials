@@ -12,6 +12,7 @@ export const GAME_STATES = {
   SAVES: 'saves',
   ENCYCLOPEDIA: 'encyclopedia',
   ACHIEVEMENTS: 'achievements',
+  EVENTS: 'events',
 };
 
 export const MOVE_CATEGORIES = {
