@@ -8,7 +8,7 @@ import {
   CARDS, RARITIES, RARITY_COLORS, CARD_PRICES,
 } from '../data/cards.js';
 import { cardTileHTML, cardTooltipHTML, shopCardTileHTML, statLabel } from '../ui/InfoFormatters.js';
-import { arrowIconSVG, holdIconSVG, mashIconSVG } from '../ui/DirectionIcons.js';
+import { arrowIconSVG, holdIconSVG, mashIconSVG, lockIconSVG } from '../ui/DirectionIcons.js';
 import { t, tData } from '../ui/i18n.js';
 import { DungeonRenderer3D } from '../exploration/DungeonRenderer3D.js';
 import { Minimap } from '../exploration/Minimap.js';
@@ -100,10 +100,22 @@ const TEMPORAL_CHEST_ARROW_MULTIPLIER = 1.5;
 // prior 2x-a-regular-chest value, to match the Arrow+Timing combo QTE
 // (see buildComboQTE) now guarding it.
 const TEMPORAL_CHEST_REWARD_MULTIPLIER = 9;
-// Combo QTE's flat timer — a bit more generous than plain Arrow's
-// QTE_BASE_SECONDS since it demands BOTH halves at once, but still far
-// tighter than doing either alone would need.
-const COMBO_BASE_SECONDS = QTE_BASE_SECONDS + 3;
+// Combo QTE's flat timer — bumped to a full 20s per user request now that
+// the arrow strip and timing bar run as one interlocked mechanic (see
+// buildComboQTE) rather than two independent races; the old +3s-over-Arrow
+// budget was sized for "do both quickly," not "keep pace with an endless
+// timing loop while also clearing every arrow."
+const COMBO_BASE_SECONDS = 20;
+// The timing TRACK renders this many times wider for Combo specifically
+// (see buildComboQTE's 'combo-wide' CSS class, style.css) so it doesn't
+// look tiny next to the arrow strip above it — purely a container size
+// change. Per user correction, the green sweet-spot zone and the marker's
+// sweep speed must NOT scale up along with it — buildComboQTE divides
+// computeTimingParams' zonePercent by this same multiplier (keeping the
+// zone's actual PIXEL width identical to standalone Timing's) and
+// multiplies periodSeconds by it (keeping the marker's PIXEL speed
+// identical too, since it now has 3x the distance to cover).
+const COMBO_TIMING_TRACK_WIDTH_MULTIPLIER = 3;
 const RARE_MATERIALS = ['jar_of_spores', 'memory_fragment'];
 const TEMPORAL_CHEST_RARE_CHANCE = 20; // vs. 0% from a normal chest's material pool
 // Thief's Curiosity (Thief's Skeleton): flat penalty for failing the
@@ -127,10 +139,21 @@ const QTE_TYPES = { ARROW: 'arrow', TIMING: 'timing', HOLD: 'hold', MEMORY: 'mem
 // more required hits inside a much narrower window, same time budget.
 const TIMING_BASE_ROUNDS = 3; // + 1 per TIMING_FLOOR_ROUNDS_INTERVAL floors
 const TIMING_FLOOR_ROUNDS_INTERVAL = 2;
-const TIMING_MARKER_PERIOD_SECONDS = 1.1; // one full sweep of the track — constant across floors, only the zone shrinks
+// One full sweep of the track — constant across floors, only the zone
+// shrinks. 20% faster per user request (was 1.1s flat). Combo QTE's
+// marker (Temporal Chest) derives its own period from this same constant
+// — see buildComboQTE — so it speeds up in lockstep automatically.
+const TIMING_MARKER_PERIOD_SECONDS = 1.1 / 1.2;
 const TIMING_BASE_ZONE_PERCENT = 28; // sweet-spot width as % of track, floor 1
 const TIMING_ZONE_SHRINK_PER_FLOOR = 2.2;
 const TIMING_MIN_ZONE_PERCENT = 6;
+// Dexterity widens the zone directly (on top of its universal Dex-adds-
+// seconds bonus to the timer — see computeQTETimeLimit), same interval
+// as every other type's Dex knob, applied AFTER the floor shrink above.
+// Capped well short of the whole track so it's never trivial even at
+// very high Dex.
+const TIMING_DEX_ZONE_PERCENT_PER_INTERVAL = 1.5;
+const TIMING_MAX_ZONE_PERCENT = 50;
 const TIMING_BASE_SECONDS = 6;
 
 // --- Hold QTE (Sealed Shrine) ---
@@ -1618,23 +1641,37 @@ export class ExploreState {
   // ---------------------------------------------------------------------
 
   /**
-   * A marker sweeps a track on a fixed-period CSS animation; a randomly-
-   * positioned "sweet spot" zone (re-rolled every round) shrinks with
-   * floor. A single input (Space/click/tap) checks the marker's current
-   * position against the zone — hit advances the round counter, miss or
-   * timeout fails immediately (mirrors the arrow QTE's "one miss = fail").
+   * A marker sweeps a track on a fixed-period CSS animation; one or more
+   * randomly-positioned "sweet spot" zones (re-rolled every round) shrink
+   * with floor and widen with Dex. A single input (Space/click/tap)
+   * checks the marker's current position against ANY zone — hit advances
+   * the round counter, miss or timeout fails immediately (mirrors the
+   * arrow QTE's "one miss = fail").
+   *
+   * Thief's Prophecy (Goggles): for this type specifically, "double
+   * advance" means TWO simultaneous zones on the track (twice the chance
+   * to land a hit on any given sweep) instead of double credit per hit —
+   * see computeTimingParams. A hit always advances exactly 1 round,
+   * regardless of which zone it landed in or how many zones exist.
    */
-  buildTimingQTE(modal, difficultyMultiplier) {
+  computeTimingParams(difficultyMultiplier) {
     const run = this.app.gameState.run;
     const netPercent = this.qteNetDifficultyPercent();
     const baseRounds = TIMING_BASE_ROUNDS + Math.floor(run.floor / TIMING_FLOOR_ROUNDS_INTERVAL);
     const roundsNeeded = Math.max(1, Math.ceil(baseRounds * difficultyMultiplier * (1 + netPercent / 100)));
-    const zonePercent = Math.max(TIMING_MIN_ZONE_PERCENT, TIMING_BASE_ZONE_PERCENT - run.floor * TIMING_ZONE_SHRINK_PER_FLOOR);
-    const periodSeconds = TIMING_MARKER_PERIOD_SECONDS;
+    const baseZonePercent = Math.max(TIMING_MIN_ZONE_PERCENT, TIMING_BASE_ZONE_PERCENT - run.floor * TIMING_ZONE_SHRINK_PER_FLOOR);
+    const dex = this.player.getStat('dex');
+    const zonePercent = Math.min(TIMING_MAX_ZONE_PERCENT, baseZonePercent + Math.floor(dex / QTE_DEX_SECONDS_INTERVAL) * TIMING_DEX_ZONE_PERCENT_PER_INTERVAL);
+    const zoneCount = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
+    return { roundsNeeded, zonePercent, periodSeconds: TIMING_MARKER_PERIOD_SECONDS, zoneCount };
+  }
+
+  buildTimingQTE(modal, difficultyMultiplier) {
+    const { roundsNeeded, zonePercent, periodSeconds, zoneCount } = this.computeTimingParams(difficultyMultiplier);
     modal.innerHTML = `
       <div class="qte-box">
         <div class="timing-track">
-          <div class="timing-zone"></div>
+          ${Array.from({ length: zoneCount }, () => '<div class="timing-zone"></div>').join('')}
           <div class="timing-marker"></div>
         </div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
@@ -1646,20 +1683,25 @@ export class ExploreState {
     this.qte.timing = {
       round: 0, roundsNeeded, zonePercent, periodSeconds,
       sessionStartTime: performance.now(),
-      zoneEl: modal.querySelector('.timing-zone'),
+      zoneEls: Array.from(modal.querySelectorAll('.timing-zone')),
+      zoneLefts: [],
     };
-    this.rerollTimingZone();
+    this.rerollTimingZones();
     const submit = () => this.submitTimingPress();
     track.addEventListener('click', submit);
     modal.querySelector('.timing-touch-btn').addEventListener('touchstart', (e) => { e.preventDefault(); submit(); }, { passive: false });
   }
 
-  rerollTimingZone() {
+  /** Repositions every zone (1 normally, 2 with Thief's Goggles) independently at random — see buildTimingQTE/computeTimingParams. */
+  rerollTimingZones() {
     const timing = this.qte.timing;
-    timing.zoneLeft = Math.random() * (100 - timing.zonePercent);
-    timing.zoneEl.style.left = `${timing.zoneLeft}%`;
-    timing.zoneEl.style.width = `${timing.zonePercent}%`;
-    timing.zoneEl.classList.remove('hit');
+    timing.zoneLefts = timing.zoneEls.map((zoneEl) => {
+      const left = Math.random() * (100 - timing.zonePercent);
+      zoneEl.style.left = `${left}%`;
+      zoneEl.style.width = `${timing.zonePercent}%`;
+      zoneEl.classList.remove('hit');
+      return left;
+    });
   }
 
   handleTimingKeydown(e) {
@@ -1673,54 +1715,67 @@ export class ExploreState {
     const timing = this.qte.timing;
     const elapsedMs = performance.now() - timing.sessionStartTime;
     const posPercent = ((elapsedMs % (timing.periodSeconds * 1000)) / (timing.periodSeconds * 1000)) * 100;
-    const inZone = posPercent >= timing.zoneLeft && posPercent <= timing.zoneLeft + timing.zonePercent;
-    if (!inZone) {
+    const hitIndex = timing.zoneLefts.findIndex((left) => posPercent >= left && posPercent <= left + timing.zonePercent);
+    if (hitIndex === -1) {
       this.finishQTE(false);
       return;
     }
-    timing.zoneEl.classList.add('hit');
-    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
-    timing.round += advance;
+    timing.zoneEls[hitIndex].classList.add('hit');
+    timing.round += 1;
     if (timing.round >= timing.roundsNeeded) {
       this.finishQTE(true);
       return;
     }
-    this.rerollTimingZone();
+    this.rerollTimingZones();
   }
 
   // ---------------------------------------------------------------------
-  // Combo QTE (Temporal Chest only) — Arrow + Timing running concurrently.
-  // Per user request: the chest that already gave the best reward in the
-  // game now demands both halves at once, sharing one timer, in exchange
-  // for a tripled payout (see TEMPORAL_CHEST_REWARD_MULTIPLIER). Built
-  // from the exact same formulas as the standalone Arrow/Timing QTEs
-  // (just both applied under one difficultyMultiplier — see buildArrowQTE/
-  // buildTimingQTE for the formulas themselves), but tracked as two
-  // independent "done" flags rather than either one finishing the whole
-  // session on its own — see checkComboComplete.
+  // Combo QTE (Temporal Chest only) — Arrow strip + an infinite Timing
+  // bar working together, not two independent races. Per user redesign:
+  // winning is ENTIRELY about the arrow strip — the timing bar underneath
+  // never has a win/lose state of its own. A correct arrow press doesn't
+  // finish that arrow, it LOCKS it (dark blue, lock icon) — locked arrows
+  // only become permanent ('broken') the instant you land a hit in the
+  // timing bar's green zone, which breaks every currently-locked arrow at
+  // once. The timing marker loops forever; if a full lap goes by with no
+  // successful hit, every still-locked (not yet broken) arrow reverts to
+  // pending and has to be pressed again — see tickQTEProgress's COMBO
+  // branch (relockCombo) and submitComboTimingPress (breakLockedArrows).
+  // This is what forces genuine simultaneity: you can't just blitz the
+  // arrows first and mop up timing after, since anything you don't lock
+  // in via a timing hit within one lap unravels.
   // ---------------------------------------------------------------------
 
   /**
-   * WASD/arrow keys drive the arrow sequence at the top exactly like the
-   * standalone Arrow QTE; Space drives the timing bar at the bottom
-   * exactly like the standalone Timing QTE — both are live at once, both
-   * must reach completion before the shared timer runs out. A wrong
-   * arrow press or a missed/late Space press fails the WHOLE session
-   * immediately, same as either standalone type's own "one miss = fail."
+   * WASD/arrow keys press the next PENDING arrow in the strip (locking it
+   * on a correct press); Space checks the timing marker against its
+   * zone(s) and, on a hit, breaks every currently-locked arrow free for
+   * good. A wrong arrow press still fails the whole session instantly,
+   * same as standalone Arrow's "one miss = fail" — but a missed/late
+   * Space press is harmless (there's always another lap coming). The
+   * session only succeeds once every arrow has been broken.
    */
   buildComboQTE(modal, difficultyMultiplier) {
     const run = this.app.gameState.run;
     const netPercent = this.qteNetDifficultyPercent();
+
     const doubleAdvance = this.hasPassiveFlag('qteDoubleAdvance');
 
     const baseArrowCount = Math.floor((QTE_BASE_ARROWS + run.floor) * difficultyMultiplier);
     const arrowCount = Math.max(1, Math.ceil(baseArrowCount * (1 + netPercent / 100)));
     const directions = Array.from({ length: arrowCount }, () => pickRandom(QTE_DIRECTIONS));
 
-    const baseRounds = TIMING_BASE_ROUNDS + Math.floor(run.floor / TIMING_FLOOR_ROUNDS_INTERVAL);
-    const roundsNeeded = Math.max(1, Math.ceil(baseRounds * difficultyMultiplier * (1 + netPercent / 100)));
-    const zonePercent = Math.max(TIMING_MIN_ZONE_PERCENT, TIMING_BASE_ZONE_PERCENT - run.floor * TIMING_ZONE_SHRINK_PER_FLOOR);
-    const periodSeconds = TIMING_MARKER_PERIOD_SECONDS;
+    // roundsNeeded is unused here — Combo's timing bar is infinite, it
+    // never finishes on its own (see class header comment above). The
+    // TRACK renders COMBO_TIMING_TRACK_WIDTH_MULTIPLIER times wider, but
+    // per user correction that's a container-size change only — the green
+    // zone's actual pixel width and the marker's actual pixel speed must
+    // match standalone Timing's exactly, so zonePercent (a %-of-track
+    // value) is divided by the multiplier and periodSeconds is multiplied
+    // by it before either is used for anything.
+    const { zonePercent: rawZonePercent, periodSeconds: rawPeriodSeconds, zoneCount } = this.computeTimingParams(difficultyMultiplier);
+    const zonePercent = rawZonePercent / COMBO_TIMING_TRACK_WIDTH_MULTIPLIER;
+    const periodSeconds = rawPeriodSeconds * COMBO_TIMING_TRACK_WIDTH_MULTIPLIER;
 
     modal.innerHTML = `
       <div class="qte-box">
@@ -1730,8 +1785,8 @@ export class ExploreState {
             return `<div class="qte-key${emphasisClass}" data-dir="${d}">${arrowIconSVG(d)}</div>`;
           }).join('')}
         </div>
-        <div class="timing-track">
-          <div class="timing-zone"></div>
+        <div class="timing-track combo-wide">
+          ${Array.from({ length: zoneCount }, () => '<div class="timing-zone"></div>').join('')}
           <div class="timing-marker"></div>
         </div>
         <div class="qte-timer-track"><div class="qte-timer-fill"></div></div>
@@ -1748,17 +1803,29 @@ export class ExploreState {
       btn.addEventListener('touchstart', (e) => { e.preventDefault(); this.submitComboArrow(btn.dataset.dir); }, { passive: false });
     });
     const keyElements = Array.from(modal.querySelectorAll('.qte-key'));
-    this.qte.arrow = { directions, index: 0, keyElements, done: false };
+    // states[i]: 'pending' (untouched) → 'locked' (correctly pressed,
+    // awaiting a timing-bar break) → 'broken' (permanent — counts toward
+    // the win condition). See renderComboArrowState for the visuals.
+    // doubleAdvance is carried on the object (not just a local var) so
+    // renderComboArrowState can re-derive the press/skip emphasis after a
+    // relock without recomputing hasPassiveFlag.
+    this.qte.arrow = { directions, states: keyElements.map(() => 'pending'), keyElements, doubleAdvance };
 
     const marker = modal.querySelector('.timing-marker');
     marker.style.animationDuration = `${periodSeconds}s`;
     this.qte.timing = {
-      round: 0, roundsNeeded, zonePercent, periodSeconds,
+      zonePercent, periodSeconds,
       sessionStartTime: performance.now(),
-      zoneEl: modal.querySelector('.timing-zone'),
-      done: false,
+      zoneEls: Array.from(modal.querySelectorAll('.timing-zone')),
+      zoneLefts: [],
+      // Lap-wrap tracking for the relock penalty — see tickQTEProgress.
+      // hitThisLap means "a hit has landed since the most recent lock" —
+      // see lockComboArrow, which clears it back to false on every lock so
+      // an earlier hit can't also cover arrows locked after it.
+      currentLapIndex: 0,
+      hitThisLap: false,
     };
-    this.rerollTimingZone();
+    this.rerollTimingZones();
     const submitTiming = () => this.submitComboTimingPress();
     modal.querySelector('.timing-track').addEventListener('click', submitTiming);
     modal.querySelector('.timing-touch-btn').addEventListener('touchstart', (e) => { e.preventDefault(); submitTiming(); }, { passive: false });
@@ -1778,57 +1845,119 @@ export class ExploreState {
     }
   }
 
-  /** Arrow half of the combo — identical logic to advanceArrowQTE/submitArrowDirection, but marks its own "done" flag and defers to checkComboComplete instead of resolving the session alone. */
+  /**
+   * Renders arrow index `i`'s current state (pending/locked/broken) onto
+   * its key element — see buildComboQTE's states array. Thief's Prophecy
+   * (Goggles) press/skip emphasis only makes sense while an arrow is
+   * still pending (it's telling you which ones need a real press) — it's
+   * hidden the instant an arrow locks (the lock visual takes over) and
+   * comes back automatically if a relock reverts it to pending, since the
+   * emphasis is re-derived from index parity every render rather than
+   * being a one-time class set at build time.
+   */
+  renderComboArrowState(i) {
+    const arrow = this.qte.arrow;
+    const keyEl = arrow.keyElements[i];
+    if (!keyEl) return;
+    const state = arrow.states[i];
+    keyEl.classList.remove('locked', 'correct', 'qte-key-press', 'qte-key-skip');
+    if (arrow.doubleAdvance && state === 'pending') {
+      keyEl.classList.add(i % 2 === 0 ? 'qte-key-press' : 'qte-key-skip');
+    }
+    if (state === 'locked') {
+      keyEl.classList.add('locked');
+      keyEl.innerHTML = lockIconSVG();
+    } else {
+      if (state === 'broken') keyEl.classList.add('correct');
+      keyEl.innerHTML = arrowIconSVG(arrow.directions[i]);
+    }
+  }
+
+  /**
+   * Locks arrow index `i` (correct press, awaiting a timing-bar break) —
+   * see buildComboQTE. Per user correction, this also clears
+   * `hitThisLap`: an earlier hit this lap already broke every arrow that
+   * was locked before it, so it shouldn't also give a free pass to
+   * whatever gets locked AFTER it — a fresh hit is required before the
+   * next wrap or this arrow (and anything else still locked) reverts to
+   * pending right at that wrap, same as if no hit had landed at all.
+   */
+  lockComboArrow(i) {
+    this.qte.arrow.states[i] = 'locked';
+    this.renderComboArrowState(i);
+    this.qte.timing.hitThisLap = false;
+  }
+
+  /**
+   * Presses the next PENDING arrow in the strip. Thief's Prophecy
+   * (Goggles): a correct press also locks the NEXT pending arrow for
+   * free — same "double advance" spirit as standalone Arrow, just landing
+   * on 'locked' instead of an instant, permanent completion (it still
+   * needs a timing-bar break like any other locked arrow).
+   */
   submitComboArrow(dir) {
     if (!this.qte || this.qte.type !== QTE_TYPES.COMBO) return;
     const arrow = this.qte.arrow;
-    if (arrow.done) return; // this half is already finished — only the timing half is still live
-    const expected = arrow.directions[arrow.index];
+    const idx = arrow.states.indexOf('pending');
+    if (idx === -1) return; // every arrow is already locked or broken — nothing to press right now
+    const expected = arrow.directions[idx];
     if (dir !== expected) {
       this.finishQTE(false);
       return;
     }
-    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
-    for (let i = 0; i < advance && arrow.index < arrow.directions.length; i += 1) {
-      const keyEl = arrow.keyElements[arrow.index];
-      keyEl?.classList.add('correct');
-      setTimeout(() => keyEl?.remove(), 120);
-      arrow.index += 1;
-    }
-    if (arrow.index >= arrow.directions.length) {
-      arrow.done = true;
-      this.checkComboComplete();
+    this.lockComboArrow(idx);
+    if (this.hasPassiveFlag('qteDoubleAdvance')) {
+      const nextIdx = arrow.states.indexOf('pending');
+      if (nextIdx !== -1) this.lockComboArrow(nextIdx);
     }
   }
 
-  /** Timing half of the combo — identical logic to submitTimingPress, but marks its own "done" flag and defers to checkComboComplete instead of resolving the session alone. */
+  /**
+   * Checks the timing marker against its zone(s), same math as standalone
+   * Timing — but a miss here is harmless (see class header comment); only
+   * a hit matters, breaking every currently-locked arrow free for good
+   * and marking this lap as "scored" so tickQTEProgress's lap-wrap check
+   * doesn't relock anything.
+   */
   submitComboTimingPress() {
     if (!this.qte || this.qte.type !== QTE_TYPES.COMBO) return;
     const timing = this.qte.timing;
-    if (timing.done) return; // this half is already finished — only the arrow half is still live
     const elapsedMs = performance.now() - timing.sessionStartTime;
     const posPercent = ((elapsedMs % (timing.periodSeconds * 1000)) / (timing.periodSeconds * 1000)) * 100;
-    const inZone = posPercent >= timing.zoneLeft && posPercent <= timing.zoneLeft + timing.zonePercent;
-    if (!inZone) {
-      this.finishQTE(false);
-      return;
-    }
-    timing.zoneEl.classList.add('hit');
-    const advance = this.hasPassiveFlag('qteDoubleAdvance') ? 2 : 1;
-    timing.round += advance;
-    if (timing.round >= timing.roundsNeeded) {
-      timing.done = true;
-      this.checkComboComplete();
-      return;
-    }
-    this.rerollTimingZone();
+    const hitIndex = timing.zoneLefts.findIndex((left) => posPercent >= left && posPercent <= left + timing.zonePercent);
+    if (hitIndex === -1) return;
+    timing.zoneEls[hitIndex].classList.add('hit');
+    timing.hitThisLap = true;
+    this.breakLockedComboArrows();
+    // breakLockedComboArrows() may have just won (and ended) the session —
+    // this.qte is null in that case, nothing left to reroll.
+    if (this.qte) this.rerollTimingZones();
   }
 
-  /** Combo QTE succeeds only once BOTH halves report done — see submitComboArrow/submitComboTimingPress. */
-  checkComboComplete() {
-    if (this.qte?.arrow?.done && this.qte?.timing?.done) {
+  /** Breaks every currently-locked arrow free for good, then checks the win condition. */
+  breakLockedComboArrows() {
+    const arrow = this.qte.arrow;
+    arrow.states.forEach((s, i) => {
+      if (s === 'locked') {
+        arrow.states[i] = 'broken';
+        this.renderComboArrowState(i);
+      }
+    });
+    if (arrow.states.every((s) => s === 'broken')) {
       this.finishQTE(true);
     }
+  }
+
+  /** Combo QTE only: a full timing lap with no hit reverts every currently-locked arrow back to pending — see tickQTEProgress's COMBO branch. */
+  relockCombo() {
+    const arrow = this.qte?.arrow;
+    if (!arrow) return;
+    arrow.states.forEach((s, i) => {
+      if (s === 'locked') {
+        arrow.states[i] = 'pending';
+        this.renderComboArrowState(i);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -2166,6 +2295,21 @@ export class ExploreState {
           mash.staminaEl?.classList.add('locked');
           mash.touchBtn?.classList.add('locked');
         }
+      }
+    } else if (this.qte.type === QTE_TYPES.COMBO) {
+      // Lap-wrap detection for the relock penalty (see relockCombo) — the
+      // timing marker sweeps on a CSS animation, so JS has to independently
+      // track lap boundaries by elapsed time to know when one completes
+      // without a scored hit. A while loop (not an if) covers the
+      // vanishingly rare case of more than one lap elapsing in a single
+      // frame (e.g. a stalled tab regaining focus).
+      const timing = this.qte.timing;
+      const elapsedMs = performance.now() - timing.sessionStartTime;
+      const lapIndex = Math.floor(elapsedMs / (timing.periodSeconds * 1000));
+      while (timing.currentLapIndex < lapIndex) {
+        if (!timing.hitThisLap) this.relockCombo();
+        timing.hitThisLap = false;
+        timing.currentLapIndex += 1;
       }
     }
   }

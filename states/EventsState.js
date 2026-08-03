@@ -17,12 +17,12 @@ const QTE_TYPE_CARDS = [
   {
     id: 'timing', color: '#9a7ce0', name: 'Timing', usedBy: 'Locked Door only',
     baseTime: '6s', knobLabel: 'Hits needed / zone width', floorValues: '3 hits, 26% → 5 hits, 17% → 7 hits, 8%',
-    note: 'Marker sweeps every 1.1s, always, inside a flat 6s timer — more hits packed into a shrinking window is what makes late floors brutal. Miss the zone once, or time out, and it fails. Space only.',
+    note: "Marker sweeps every 1.1s, always, inside a flat 6s timer — more hits packed into a shrinking window is what makes late floors brutal. Miss the zone once, or time out, and it fails. Space only. Dex widens the zone directly, on top of its usual time bonus: +1.5% width per 50 DEX, up to 50%. Thief's Prophecy (Goggles) puts TWO zones on the track instead of one — twice the chance to land a hit each sweep — rather than banking extra rounds per hit.",
   },
   {
     id: 'combo', color: '#f39c12', name: 'Arrow+Timing Combo', usedBy: 'Temporal Chest only',
-    baseTime: '8s, flat', knobLabel: 'Arrow count, AND Timing rounds/zone — both live at once', floorValues: '12 arrows + 5 hits (26%) → 18 arrows + 8 hits (17%) → 24 arrows + 11 hits (8%)',
-    note: "The highest-risk, highest-reward QTE in the game — Temporal Chest's payout is 9× a regular chest's. The arrow strip (WASD/arrow keys) and the timing bar underneath it (Space) both run AT THE SAME TIME, sharing one 8s timer; a miss on EITHER half fails the whole attempt instantly, and BOTH halves have to finish before time runs out to succeed. Both halves scale 1.5× harder than their standalone Treasure/Locked-Door counterparts. Thief's Ring/Sleeves/Goggles apply their arrow-count and timing-rounds effects to both halves at once; Lockpick's bonus second and Skeleton's free retry apply to the whole combo session, not either half individually.",
+    baseTime: '20s', knobLabel: 'Arrow count — the ONLY win condition; timing bar is endless', floorValues: '12 arrows → 18 arrows → 24 arrows (unlimited hits — bar/zone/speed sized to match standalone Timing exactly)',
+    note: "The highest-risk, highest-reward QTE in the game — Temporal Chest's payout is 9× a regular chest's. Winning is entirely about the arrow strip (WASD/arrow keys) — the timing bar underneath it (Space, sweeping in an endless loop) never finishes on its own. The bar's TRACK renders 3x wider than standalone Timing's so it doesn't look tiny under the arrow strip, but that's a container-size change only — the green zone's actual width and the marker's actual speed are kept pixel-for-pixel identical to standalone Timing's (the zone is a smaller % of the wider track, and the marker takes proportionally longer to sweep it), so the real hit-window difficulty is unchanged. A correct arrow press doesn't complete that arrow, it LOCKS it — dark blue, lock icon. Locked arrows only become permanent the instant you land a hit in the timing bar's green zone, which breaks EVERY currently-locked arrow at once. Let a full lap of the timing bar pass with no hit, though, and every still-locked arrow snaps back to unpressed — real simultaneity, not two races you can do one at a time. A wrong arrow press still fails the whole attempt instantly; a missed timing press doesn't — there's always another lap. Dex still widens the timing zone exactly like standalone Timing; Ring/Sleeves still scale the arrow count (their old timing-rounds effect has nothing left to act on, since the bar has no round count anymore); Goggles still gives the timing half two zones instead of one; Lockpick's bonus second and Skeleton's free retry apply to the whole session.",
   },
   {
     id: 'hold', color: '#b370c9', name: 'Hold', usedBy: 'Sealed Shrine',
@@ -42,7 +42,7 @@ const QTE_TYPE_CARDS = [
 ];
 
 const UNIVERSAL_CELLS = [
-  { label: 'Dexterity → time', value: '+0.5s / 50 DEX', formula: 'timeLimit = base + ⌊dex÷50⌋ × 0.5 — except Hold, see its card' },
+  { label: 'Dexterity → time', value: '+0.5s / 50 DEX', formula: 'timeLimit = base + ⌊dex÷50⌋ × 0.5 — except Hold, see its card. Also widens Timing\'s zone directly, see its card.' },
   { label: "Thief's Lockpick", value: '+1.0s flat', formula: 'stacks per copy equipped' },
   { label: "Thief's Skeleton", value: '1 free retry', formula: 'fresh session on first fail · 100 dmg if the retry fails too' },
   { label: "Thief's Socks", value: 'No fail damage', formula: "skips the event's own trap/backfire damage" },
@@ -63,7 +63,7 @@ const MATRIX_ROWS = [
     item: "Thief's Prophecy", sub: "Thief's Goggles · double-advance",
     cells: [
       'correct press also clears the next arrow',
-      '+2 rounds banked per hit',
+      'two zones on the track instead of one',
       'slit width ×1.5, stacked after Ring/Sleeves',
       'correct press also fills the next symbol',
       'fill-per-press ×2',

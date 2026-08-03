@@ -8,6 +8,7 @@ import {
   THORNS_REFLECT_PER_STACK,
 } from '../utils/Constants.js';
 import { clamp, rollChance, roundUp } from '../utils/MathUtils.js';
+import { STATUS_EFFECTS } from '../data/statusEffectConfig.js';
 
 export class DamageCalculator {
   static getScalingStat(attacker, scaling) {
@@ -251,10 +252,24 @@ export class DamageCalculator {
 }
 
 export class EnergyCalculator {
+  /**
+   * One combined roll per turn, not one independent roll per stack — per
+   * user request, 4 stacks should mean "energy gain is blocked," full
+   * stop, not "4 chances to get unlucky." Total chance is
+   * stacks × energyBlockChancePerStack, capped at 100% (so 4 stacks on a
+   * non-boss is a guaranteed block). Bosses apply
+   * bossEffectivenessMultiplier on top of that per-stack rate AND are
+   * separately capped at bossMaxStacks stacks in the first place (see
+   * Character.addStatusEffect's clampBossStacks) — a boss can never
+   * exceed 50% (4 stacks × 25% × 0.5), even off a single huge
+   * application.
+   */
   static rollEnergyGain(character) {
     const frostbiteStacks = character.getStatusStacks('frostbite');
-    for (let i = 0; i < frostbiteStacks; i += 1) {
-      if (rollChance(25)) return 0;
+    if (frostbiteStacks > 0) {
+      const cfg = STATUS_EFFECTS.frostbite;
+      const perStackChance = cfg.energyBlockChancePerStack * (character.isBoss ? cfg.bossEffectivenessMultiplier : 1);
+      if (rollChance(Math.min(100, frostbiteStacks * perStackChance))) return 0;
     }
 
     let gain = 1;

@@ -228,11 +228,13 @@ export class Character {
     const existing = this.statusEffects.find((e) => e.id === effectId);
     if (existing && !extra.replace) {
       existing.stacks += stacks;
+      this.clampBossStacks(existing);
       if (extra.durationFightTurns) existing.durationFightTurns = extra.durationFightTurns;
       return existing;
     }
     const effect = StatusEffect.fromType(effectId, stacks, extra);
     if (!effect) return null;
+    this.clampBossStacks(effect);
     if (existing && extra.replace) {
       const idx = this.statusEffects.indexOf(existing);
       this.statusEffects[idx] = effect;
@@ -240,6 +242,13 @@ export class Character {
     }
     this.statusEffects.push(effect);
     return effect;
+  }
+
+  /** Some statuses (currently only Frostbite — see its bossMaxStacks in statusEffectConfig.js) cap out lower on bosses than on regular characters. No-op for non-boss characters or statuses without that field. */
+  clampBossStacks(effect) {
+    if (!this.isBoss) return;
+    const cap = STATUS_EFFECTS[effect.id]?.bossMaxStacks;
+    if (cap != null) effect.stacks = Math.min(effect.stacks, cap);
   }
 
   removeStatusEffect(effectId) {

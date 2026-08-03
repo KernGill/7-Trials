@@ -60,7 +60,16 @@ export const STATUS_EFFECTS = {
     type: 'debuff',
     icon: 'Fb',
     color: '#0984e3',
-    energyBlockChancePerStack: 0.25,
+    // ONE roll per turn, not one independent roll per stack: total block
+    // chance is stacks × this value (percent, not a fraction), capped at
+    // 100% — so 4 stacks = guaranteed block on a non-boss. See
+    // EnergyCalculator.rollEnergyGain.
+    energyBlockChancePerStack: 25,
+    // Bosses take half the per-stack chance (so 4 stacks = 50%, not
+    // 100%) AND can never carry more than bossMaxStacks of this at all —
+    // see Character.addStatusEffect's clampBossStacks.
+    bossEffectivenessMultiplier: 0.5,
+    bossMaxStacks: 4,
     stacksDecrease: false,
     cannotCleanse: true,
     // Can't be redirected back onto the attacker by Status Reflection

@@ -384,9 +384,11 @@ select {
   transition: background 0.1s ease;
 }
 .qte-key.correct { background: #2ecc71; }
-/* Thief's Prophecy (Thief's Goggles): which arrows still need a real press vs which get auto-cleared for free. Shared by the Arrow strip (.qte-key), Memory's reveal flashes (.qte-key.qte-key-reveal), and Memory's answer slots (.qte-key-slot) — same visual language everywhere the passive applies. */
+/* Thief's Prophecy (Thief's Goggles): which arrows still need a real press vs which get auto-cleared for free. Shared by Memory's reveal flashes (.qte-key.qte-key-reveal) and Memory's answer slots (.qte-key-slot). */
 .qte-key-press { box-shadow: 0 0 14px 4px rgba(233, 69, 96, 0.85), inset 0 0 10px rgba(233, 69, 96, 0.5); }
 .qte-key-skip { filter: grayscale(1); opacity: 0.45; }
+/* Combo QTE only (Temporal Chest): an arrow that's been correctly pressed but not yet broken free by a timing-bar hit — see ExploreState's lockComboArrow/renderComboArrowState. Dark blue + a soft glow so it reads as "provisionally done, still at risk" rather than fully complete (that's .correct's flat green). */
+.qte-key.locked { background: #0f2a4d; box-shadow: 0 0 10px 2px rgba(9, 132, 227, 0.6), inset 0 0 8px rgba(9, 132, 227, 0.5); }
 .qte-timer-track { height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
 .qte-timer-fill { height: 100%; width: 100%; background: #e94560; }
 
@@ -413,6 +415,8 @@ select {
   border-left: 2px solid #f1c40f; border-right: 2px solid #f1c40f;
 }
 .timing-track { position: relative; width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; cursor: pointer; }
+/* Combo QTE only (Temporal Chest): 3x the standard track width so it doesn't read as tiny next to the arrow strip above it — a container-size change only. The green zone and marker speed are NOT scaled up with it — ExploreState's buildComboQTE shrinks the zone's %-of-track and stretches periodSeconds by the same factor so both the zone's pixel width and the marker's pixel speed (and the resulting hit-window difficulty) come out identical to standalone Timing's. */
+.timing-track.combo-wide { width: 780px; }
 .timing-zone { position: absolute; top: 0; bottom: 0; background: rgba(46, 204, 113, 0.55); }
 .timing-zone.hit { background: #2ecc71; }
 .timing-marker {
