@@ -647,7 +647,7 @@ export const MOVE_TEMPLATES = {
   thiefs_skill: {
     id: 'thiefs_skill',
     name: "Thief's Skill",
-    description: 'Grants 1 extra second on locked door and chest quick-time events.',
+    description: 'Grants 1 extra second on locked door and chest quick-time events. Also makes the Sealed Shrine\'s kill bar more forgiving, raising its threshold from 65% to 80%.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -657,11 +657,13 @@ export const MOVE_TEMPLATES = {
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     // Read directly by ExploreState.startQTE() — not a generic trigger.
     qteBonusSeconds: 1,
+    // Summed into HOLD_KILL_BAR_THRESHOLD_PERCENT by buildHoldQTE — 65 + 15 = 80.
+    holdKillBarBonusPercent: 15,
   },
   thiefs_greed: {
     id: 'thiefs_greed',
     name: "Thief's Greed",
-    description: 'Increases gold and material rewards from chests and locked rooms by 20%.',
+    description: 'Increases gold and material rewards from chests and locked rooms by 20%. Also makes the Sealed Shrine slightly more likely to roll an epic, legendary, or mythic card.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -671,6 +673,12 @@ export const MOVE_TEMPLATES = {
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     // Read directly by ExploreState's chest/locked-room reward resolution.
     rewardBonusPercent: 20,
+    // Summed (with Thief's Resolve's own copies) into rollShrineCard's
+    // rarity weights by ExploreState.resolveSealedShrine — kept modest per
+    // user request ("shouldn't be too much").
+    shrineEpicWeightBonus: 1,
+    shrineLegendaryWeightBonus: 1,
+    shrineMythicWeightBonus: 2,
   },
   thiefs_experience: {
     id: 'thiefs_experience',
@@ -689,7 +697,7 @@ export const MOVE_TEMPLATES = {
   thiefs_providence: {
     id: 'thiefs_providence',
     name: "Thief's Providence",
-    description: 'Reduces the number of arrows required in every quick-time event by 17% (rounded up).',
+    description: 'Reduces every quick-time event\'s difficulty knob (arrow count, timing rounds, memory length, etc) by 20%, always removing at least 1 whole unit even when the percentage alone would round back up to no change.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -698,13 +706,14 @@ export const MOVE_TEMPLATES = {
     cooldown: 999,
     cooldownType: COOLDOWN_TYPES.CHARACTER_TURN,
     // Read directly by ExploreState.startQTE() — same pattern as Thief's
-    // Skill's qteBonusSeconds, summed additively across copies.
-    qteArrowReductionPercent: 17,
+    // Skill's qteBonusSeconds, summed additively across copies. See
+    // ExploreState.applyDiscreteQteReduction for the min-1-unit guarantee.
+    qteArrowReductionPercent: 20,
   },
   thiefs_prophecy: {
     id: 'thiefs_prophecy',
     name: "Thief's Prophecy",
-    description: 'Every correct quick-time event press automatically counts the next arrow in the sequence too — so each press effectively covers 2 arrows.',
+    description: "Every correct quick-time event press automatically counts the next step too — so each press effectively covers 2. Reinterpreted per QTE type: Timing gets two sweet-spot zones, Hold gets two (faster-drifting) slits, and Mash presses also drain its stamina bar a little (a double edge: fewer presses needed overall, but blind mashing into a near-empty bar now risks draining it yourself).",
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -746,7 +755,7 @@ export const MOVE_TEMPLATES = {
   thiefs_resolve: {
     id: 'thiefs_resolve',
     name: "Thief's Resolve",
-    description: 'Quick-time events require 30% more arrows (rounded up), but successful event rewards are increased by 50%.',
+    description: 'Quick-time events require 30% more arrows (rounded up), but successful event rewards are increased by 50%. Also makes the Sealed Shrine slightly more likely to roll an epic, legendary, or mythic card.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -758,6 +767,10 @@ export const MOVE_TEMPLATES = {
     // is the same field Thief's Greed already uses (getRewardMultiplier), summed together.
     qteArrowIncreasePercent: 30,
     rewardBonusPercent: 50,
+    // Summed with Thief's Greed's own copies — see thiefs_greed's comment.
+    shrineEpicWeightBonus: 1,
+    shrineLegendaryWeightBonus: 2,
+    shrineMythicWeightBonus: 2,
   },
   thiefs_repentance: {
     id: 'thiefs_repentance',

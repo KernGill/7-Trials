@@ -25,11 +25,12 @@ export function mashIconSVG() {
   </svg>`;
 }
 
-/** Padlock glyph — Combo QTE's "arrow pressed but not broken free yet" state (see ExploreState's lockComboArrow). */
-export function lockIconSVG() {
+/** Padlock glyph — Combo QTE's "arrow locked in this color's half" state (see ExploreState's lockComboArrow). `color` picks the stroke tint to match which half (blue/red) the arrow was locked in. */
+export function lockIconSVG(color = 'blue') {
+  const stroke = color === 'red' ? '#ff9e9e' : '#8ec9ff';
   return `<svg viewBox="0 0 24 24" width="28" height="28">
-    <rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="#8ec9ff" stroke-width="2"></rect>
-    <path d="M8 11 V7 a4 4 0 0 1 8 0 V11" fill="none" stroke="#8ec9ff" stroke-width="2"></path>
-    <circle cx="12" cy="16" r="1.6" fill="#8ec9ff"></circle>
+    <rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="${stroke}" stroke-width="2"></rect>
+    <path d="M8 11 V7 a4 4 0 0 1 8 0 V11" fill="none" stroke="${stroke}" stroke-width="2"></path>
+    <circle cx="12" cy="16" r="1.6" fill="${stroke}"></circle>
   </svg>`;
 }

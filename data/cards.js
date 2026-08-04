@@ -150,6 +150,55 @@ export const CARDS = {
 
 const SHRINE_CARD_IDS = ['shrine_int', 'shrine_str', 'shrine_dex', 'shrine_def', 'shrine_spd'];
 
+// Sealed Shrine's card rarity, per user request, scales off the current
+// floor instead of using the flat RARITY_WEIGHTS every other card roll
+// uses — "can't win by getting lucky from the shrine too much." Common and
+// Uncommon stay flat; as the rarer tiers unlock and grow with floor, their
+// SHARE of the total pool shrinks on its own, no separate low-tier formula
+// needed. Each of Rare/Epic/Legendary/Mythic has its own "unlock floor"
+// (weight is exactly 0 below it) and linear growth rate above it, capped:
+//   floor(weight) = floor < unlockFloor ? 0 : min(cap, (floor-unlockFloor+1) * growth)
+// Tuned so floors 1-5 (no gear) land exactly where requested: Mythic is
+// 0% through floor 5 (unlocks floor 6); Epic is 0% at floor 1 specifically
+// and stays low the rest of the way to floor 5 (unlocks floor 2, tiny
+// growth); Legendary unlocks alongside Mythic at floor 6; Rare is present
+// from floor 1 but grows fast enough that floor 5 gives a real, noticeable
+// chance. Thief's Greed/Resolve add flat bonuses on TOP of these (see
+// rollShrineCard) — that's the only way to see Epic/Legendary/Mythic at
+// all in floors 1-5's otherwise-locked tiers.
+const SHRINE_COMMON_WEIGHT = 25;
+const SHRINE_UNCOMMON_WEIGHT = 25;
+const SHRINE_RARE_UNLOCK_FLOOR = 1;
+const SHRINE_RARE_GROWTH_PER_FLOOR = 3;
+const SHRINE_RARE_MAX_WEIGHT = 20;
+const SHRINE_EPIC_UNLOCK_FLOOR = 2;
+const SHRINE_EPIC_GROWTH_PER_FLOOR = 1;
+const SHRINE_EPIC_MAX_WEIGHT = 15;
+const SHRINE_LEGENDARY_UNLOCK_FLOOR = 6;
+const SHRINE_LEGENDARY_GROWTH_PER_FLOOR = 1;
+const SHRINE_LEGENDARY_MAX_WEIGHT = 10;
+const SHRINE_MYTHIC_UNLOCK_FLOOR = 6;
+const SHRINE_MYTHIC_GROWTH_PER_FLOOR = 0.6;
+const SHRINE_MYTHIC_MAX_WEIGHT = 5;
+
+function shrineTierWeight(floor, unlockFloor, growthPerFloor, maxWeight) {
+  if (floor < unlockFloor) return 0;
+  return Math.min(maxWeight, (floor - unlockFloor + 1) * growthPerFloor);
+}
+
+/** Floor-scaled base weights (indexed exactly like RARITIES) for the Sealed Shrine's card roll — see the SHRINE_* constants above. */
+function shrineBaseWeights(floor) {
+  return [
+    SHRINE_COMMON_WEIGHT,
+    SHRINE_UNCOMMON_WEIGHT,
+    shrineTierWeight(floor, SHRINE_RARE_UNLOCK_FLOOR, SHRINE_RARE_GROWTH_PER_FLOOR, SHRINE_RARE_MAX_WEIGHT),
+    shrineTierWeight(floor, SHRINE_EPIC_UNLOCK_FLOOR, SHRINE_EPIC_GROWTH_PER_FLOOR, SHRINE_EPIC_MAX_WEIGHT),
+    shrineTierWeight(floor, SHRINE_LEGENDARY_UNLOCK_FLOOR, SHRINE_LEGENDARY_GROWTH_PER_FLOOR, SHRINE_LEGENDARY_MAX_WEIGHT),
+    shrineTierWeight(floor, SHRINE_MYTHIC_UNLOCK_FLOOR, SHRINE_MYTHIC_GROWTH_PER_FLOOR, SHRINE_MYTHIC_MAX_WEIGHT),
+    0, // god — never rolled naturally, see RARITY_WEIGHTS' own comment
+  ];
+}
+
 export function cardsInCategory(category) {
   return Object.values(CARDS).filter((c) => c.category === category && !c.shrineOnly);
 }
@@ -162,8 +211,8 @@ export function cardValueForRarity(cardId, rarityIndex) {
   return type.values[rarityIndex] ?? 0;
 }
 
-function rollRarityIndex() {
-  return rollWeightedChoice(RARITIES.map((r, i) => ({ weight: RARITY_WEIGHTS[i], value: i })));
+function rollRarityIndex(weights = RARITY_WEIGHTS) {
+  return rollWeightedChoice(RARITIES.map((r, i) => ({ weight: weights[i], value: i })));
 }
 
 function rollOneCard(category) {
@@ -178,10 +227,25 @@ export function rollCardOffer() {
   return [CARD_CATEGORIES.ATTACK, CARD_CATEGORIES.SUSTAIN, CARD_CATEGORIES.UTIL].map(rollOneCard);
 }
 
-/** Sealed Shrine reward: a random shrine-only stat card at a random rarity, following the same RARITY_WEIGHTS odds as a normal card roll. */
-export function rollShrineCard() {
+/**
+ * Sealed Shrine reward: a random shrine-only stat card at a random rarity,
+ * using shrineBaseWeights(floor) — NOT the flat RARITY_WEIGHTS every other
+ * card roll uses — so the odds scale with how deep the run is (see that
+ * function's comment). Thief's Greed and Thief's Resolve each nudge weight
+ * from the low tiers into epic/legendary/mythic on TOP of the floor curve
+ * (see their shrineEpicWeightBonus/shrineLegendaryWeightBonus/
+ * shrineMythicWeightBonus move fields, summed by the caller in
+ * ExploreState's resolveSealedShrine) — kept deliberately modest per user
+ * request ("shouldn't be too much... having all epic and above cards is
+ * overpowered"), god stays untouched (still unreachable naturally, weight 0).
+ */
+export function rollShrineCard({ floor = 1, epicBonus = 0, legendaryBonus = 0, mythicBonus = 0 } = {}) {
   const cardId = pickRandom(SHRINE_CARD_IDS);
-  const rarityIndex = rollRarityIndex();
+  const weights = shrineBaseWeights(floor);
+  weights[RARITIES.indexOf('epic')] += epicBonus;
+  weights[RARITIES.indexOf('legendary')] += legendaryBonus;
+  weights[RARITIES.indexOf('mythic')] += mythicBonus;
+  const rarityIndex = rollRarityIndex(weights);
   return { cardId, category: CARDS[cardId].category, rarityIndex, value: cardValueForRarity(cardId, rarityIndex) };
 }
 

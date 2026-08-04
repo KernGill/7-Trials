@@ -374,9 +374,13 @@ select {
   display: flex; align-items: center; justify-content: center; z-index: 65;
 }
 .qte-box { display: flex; flex-direction: column; align-items: stretch; gap: 12px; max-width: 92vw; }
+/* Wraps at a fixed 14 keys/row (56px key + 6px gap * 14, plus padding) rather than
+   wrapping wherever the viewport happens to cut it off — keeps the row count (and
+   therefore the strip's shape) consistent across screen sizes. Still shrinks below
+   that on narrow/mobile viewports via the 92vw cap. */
 .qte-strip {
-  display: flex; gap: 6px; background: #000; padding: 14px; border-radius: 6px;
-  max-width: 92vw; overflow-x: auto;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; background: #000; padding: 14px; border-radius: 6px;
+  max-width: min(900px, 92vw);
 }
 .qte-key {
   flex: 0 0 auto; width: 56px; height: 56px; background: #1e3a5f; border-radius: 4px;
@@ -387,8 +391,9 @@ select {
 /* Thief's Prophecy (Thief's Goggles): which arrows still need a real press vs which get auto-cleared for free. Shared by Memory's reveal flashes (.qte-key.qte-key-reveal) and Memory's answer slots (.qte-key-slot). */
 .qte-key-press { box-shadow: 0 0 14px 4px rgba(233, 69, 96, 0.85), inset 0 0 10px rgba(233, 69, 96, 0.5); }
 .qte-key-skip { filter: grayscale(1); opacity: 0.45; }
-/* Combo QTE only (Temporal Chest): an arrow that's been correctly pressed but not yet broken free by a timing-bar hit — see ExploreState's lockComboArrow/renderComboArrowState. Dark blue + a soft glow so it reads as "provisionally done, still at risk" rather than fully complete (that's .correct's flat green). */
+/* Combo QTE only (Temporal Chest): an arrow locked in whichever half (blue/red) the timing marker occupied at press-time — see ExploreState's lockComboArrow/renderComboArrowState. Tinted to match the half it was locked in, so it reads as "provisionally done, still at risk of THAT color's reset" rather than fully complete. */
 .qte-key.locked { background: #0f2a4d; box-shadow: 0 0 10px 2px rgba(9, 132, 227, 0.6), inset 0 0 8px rgba(9, 132, 227, 0.5); }
+.qte-key.locked-red { background: #4d0f18; box-shadow: 0 0 10px 2px rgba(233, 69, 96, 0.6), inset 0 0 8px rgba(233, 69, 96, 0.5); }
 .qte-timer-track { height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
 .qte-timer-fill { height: 100%; width: 100%; background: #e94560; }
 
@@ -415,8 +420,15 @@ select {
   border-left: 2px solid #f1c40f; border-right: 2px solid #f1c40f;
 }
 .timing-track { position: relative; width: 260px; max-width: 92vw; height: 28px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #444; cursor: pointer; }
-/* Combo QTE only (Temporal Chest): 3x the standard track width so it doesn't read as tiny next to the arrow strip above it — a container-size change only. The green zone and marker speed are NOT scaled up with it — ExploreState's buildComboQTE shrinks the zone's %-of-track and stretches periodSeconds by the same factor so both the zone's pixel width and the marker's pixel speed (and the resulting hit-window difficulty) come out identical to standalone Timing's. */
+/* Combo QTE only (Temporal Chest): 3x the standard track width so it doesn't read as tiny next to the arrow strip above it — a container-size change only. The marker speed is NOT scaled up with it — ExploreState's buildComboQTE stretches periodSeconds by the same factor so the marker's pixel speed comes out identical to standalone Timing's. */
 .timing-track.combo-wide { width: 780px; }
+/* Combo QTE's two-color rework: the track is split into a blue left half and red right half — which half an arrow gets LOCKED in (and therefore which color's reset it's at risk from) depends on the marker's position at press-time. See ExploreState's buildComboQTE/currentComboHalf. */
+.timing-track.combo-duo { background: transparent; }
+/* Bumped up from an initial 0.22 opacity per user report ("too hard to see") — solid enough to read as two distinct zones at a glance, not just a faint wash. */
+.timing-half { position: absolute; top: 0; bottom: 0; width: 50%; }
+.timing-half-blue { left: 0; background: rgba(41, 121, 255, 0.55); box-shadow: inset 0 0 12px rgba(41, 121, 255, 0.6); }
+.timing-half-red { left: 50%; background: rgba(233, 69, 96, 0.55); box-shadow: inset 0 0 12px rgba(233, 69, 96, 0.6); }
+/* The green break-zone (shared visual language with standalone Timing's own .timing-zone/.hit) sits ON TOP of the blue/red halves — later in DOM order wins the stack with no z-index needed. For Combo specifically it's tiny and fixed dead-center on the blue/red boundary (see COMBO_GREEN_ZONE_PERCENT) rather than randomly positioned. Landing a press here (Space/click/tap) is what actually converts locked arrows into permanent progress — see submitComboGreenZone. */
 .timing-zone { position: absolute; top: 0; bottom: 0; background: rgba(46, 204, 113, 0.55); }
 .timing-zone.hit { background: #2ecc71; }
 .timing-marker {
@@ -430,11 +442,14 @@ select {
   background: rgba(30, 58, 95, 0.9); border: 2px solid #e94560;
 }
 .timing-touch-btn:active, .hold-touch-btn:active, .mash-touch-btn:active { background: rgba(233, 69, 96, 0.55); }
-/* Mash QTE's stamina meter — a slim bar above the main fill bar. Gold while
-   charged, red and pulsing once spent (presses don't register — see
-   submitMashPress/tickQTEProgress's lockout handling) until it refills. */
+/* Mash QTE's stamina meter — a slim bar above the main fill bar. Its background
+   is driven from JS (submitMashPress/tickQTEProgress), continuously lerping
+   green->red as it drains rather than only flipping color at the extremes —
+   the color rules below are just the pre-JS/no-JS fallback. Once spent
+   (presses don't register — see the lockout handling in those methods) it
+   snaps to a FULL, solid-red, pulsing bar until it refills. */
 .mash-stamina-track { height: 10px; }
-.mash-stamina-bar { background: #f1c40f; }
+.mash-stamina-bar { background: #2ecc71; }
 .mash-stamina-bar.locked { background: #e94560; animation: mash-stamina-pulse 0.4s ease-in-out infinite alternate; }
 @keyframes mash-stamina-pulse { from { opacity: 1; } to { opacity: 0.45; } }
 .mash-touch-btn.locked { opacity: 0.4; }
@@ -706,6 +721,39 @@ select {
 .events-legend-item .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .events-legend-item .qt { color: #eee; font-weight: bold; }
 .events-legend-item .ev { color: #888; }
+
+.thiefs-set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.thiefs-set-card {
+  background: #14151f; border: 1px solid #222; border-top: 3px solid #f1c40f;
+  border-radius: 6px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.thiefs-set-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.thiefs-set-name { color: #f1c40f; font-size: 13px; font-weight: bold; }
+.thiefs-set-slot { color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+.thiefs-set-passive { color: #bbb; font-size: 11px; line-height: 1.5; border-bottom: 1px dashed #222; padding-bottom: 8px; }
+.thiefs-set-passive strong { color: #eee; }
+.thiefs-set-events { display: flex; flex-direction: column; gap: 6px; }
+.thiefs-set-event-row { display: flex; gap: 8px; align-items: baseline; }
+.thiefs-set-event-chip {
+  flex: 0 0 auto; font-size: 10px; font-weight: bold; padding: 2px 7px; border-radius: 999px;
+  background: rgba(241, 196, 15, 0.1); border: 1px solid rgba(241, 196, 15, 0.3); color: #f1c40f; white-space: nowrap;
+}
+.thiefs-set-event-desc { color: #999; font-size: 10.5px; line-height: 1.45; }
+.thiefs-set-none { color: #666; font-size: 11px; font-style: italic; }
+
+/* Sealed Shrine's floor-scaled rarity tables — see EventsState's shrineRarityTableHTML/shrineGearInfluenceHTML. */
+.shrine-rarity-scroll { overflow-x: auto; border: 1px solid #222; border-radius: 6px; background: #14151f; margin-bottom: 10px; }
+.shrine-rarity-table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 11px; }
+.shrine-rarity-table th, .shrine-rarity-table td { padding: 7px 10px; text-align: right; white-space: nowrap; }
+.shrine-rarity-table th { background: #1a1a24; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; text-align: right; }
+.shrine-rarity-table th:first-child, .shrine-rarity-table td:first-child { text-align: left; }
+.shrine-rarity-table tbody tr { border-top: 1px solid #222; }
+.shrine-rarity-table td { color: #eee; font-variant-numeric: tabular-nums; }
+.shrine-rarity-table td.zero { color: #555; }
+.shrine-rarity-floor { color: #f1c40f; font-weight: bold; }
+.shrine-gear-table td:first-child { color: #f1c40f; }
+.shrine-gear-total { background: rgba(241, 196, 15, 0.06); }
+.shrine-gear-total td { font-weight: bold; }
 
 /* ---------------- Inn (roster + detail panel) ---------------- */
 .inn-body { display: flex; align-items: flex-start; gap: 32px; margin-top: 24px; }
