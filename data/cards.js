@@ -250,14 +250,23 @@ export function rollCardOffer() {
  * function's comment). Thief's Greed and Thief's Resolve each nudge weight
  * from the low tiers into epic/legendary/mythic on TOP of the floor curve
  * (see their shrineEpicWeightBonus/shrineLegendaryWeightBonus/
- * shrineMythicWeightBonus move fields, summed by the caller in
- * ExploreState's resolveSealedShrine) — kept deliberately modest per user
- * request ("shouldn't be too much... having all epic and above cards is
- * overpowered"), god stays untouched (still unreachable naturally, weight 0).
+ * shrineMythicWeightBonus move fields, plus a shrineRareWeightBonus,
+ * summed by the caller in ExploreState's resolveSealedShrine) — kept
+ * deliberately modest per user request ("shouldn't be too much... having
+ * all epic and above cards is overpowered"), god stays untouched (still
+ * unreachable naturally, weight 0). Mythic's bonus is deliberately smaller
+ * than Legendary's (see thiefs_greed/thiefs_resolve's own comments) — on
+ * floors 1-5, where Legendary/Mythic both still have exactly 0 BASE weight
+ * (they unlock at floor 6), the gear bonus is the ONLY thing setting their
+ * odds, so Mythic's bonus outweighing Legendary's would make the rarer
+ * tier roll MORE often than the one below it.
  */
-export function rollShrineCard({ floor = 1, epicBonus = 0, legendaryBonus = 0, mythicBonus = 0 } = {}) {
+export function rollShrineCard({
+  floor = 1, rareBonus = 0, epicBonus = 0, legendaryBonus = 0, mythicBonus = 0,
+} = {}) {
   const cardId = pickRandom(SHRINE_CARD_IDS);
   const weights = shrineBaseWeights(floor);
+  weights[RARITIES.indexOf('rare')] += rareBonus;
   weights[RARITIES.indexOf('epic')] += epicBonus;
   weights[RARITIES.indexOf('legendary')] += legendaryBonus;
   weights[RARITIES.indexOf('mythic')] += mythicBonus;

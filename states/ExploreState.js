@@ -2660,6 +2660,7 @@ export class ExploreState {
     if (success) {
       const picked = rollShrineCard({
         floor: run.floor,
+        rareBonus: this.getPassiveSum('shrineRareWeightBonus'),
         epicBonus: this.getPassiveSum('shrineEpicWeightBonus'),
         legendaryBonus: this.getPassiveSum('shrineLegendaryWeightBonus'),
         mythicBonus: this.getPassiveSum('shrineMythicWeightBonus'),

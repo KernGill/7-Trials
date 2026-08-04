@@ -663,7 +663,7 @@ export const MOVE_TEMPLATES = {
   thiefs_greed: {
     id: 'thiefs_greed',
     name: "Thief's Greed",
-    description: 'Increases gold and material rewards from chests and locked rooms by 20%. Also makes the Sealed Shrine slightly more likely to roll an epic, legendary, or mythic card.',
+    description: 'Increases gold and material rewards from chests and locked rooms by 20%. Also makes the Sealed Shrine slightly more likely to roll a rare, epic, legendary, or mythic card.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -675,10 +675,18 @@ export const MOVE_TEMPLATES = {
     rewardBonusPercent: 20,
     // Summed (with Thief's Resolve's own copies) into rollShrineCard's
     // rarity weights by ExploreState.resolveSealedShrine — kept modest per
-    // user request ("shouldn't be too much").
+    // user request ("shouldn't be too much"). Mythic trimmed and Rare added
+    // per a later user report: with both pieces equipped, Legendary and
+    // Mythic have exactly 0 BASE weight on floors 1-5 (they don't unlock
+    // until floor 6 — see data/cards.js), so on those floors the gear
+    // bonus is the ONLY thing determining their weight — and the old
+    // mythicBonus (2+2=4 combined) outweighing legendaryBonus (1+2=3
+    // combined) meant Mythic actually rolled MORE OFTEN than Legendary
+    // there, backwards from the tiers' intended rarity order.
+    shrineRareWeightBonus: 1,
     shrineEpicWeightBonus: 1,
     shrineLegendaryWeightBonus: 1,
-    shrineMythicWeightBonus: 2,
+    shrineMythicWeightBonus: 1,
   },
   thiefs_experience: {
     id: 'thiefs_experience',
@@ -755,7 +763,7 @@ export const MOVE_TEMPLATES = {
   thiefs_resolve: {
     id: 'thiefs_resolve',
     name: "Thief's Resolve",
-    description: 'Quick-time events require 30% more arrows (rounded up), but successful event rewards are increased by 50%. Also makes the Sealed Shrine slightly more likely to roll an epic, legendary, or mythic card.',
+    description: 'Quick-time events require 30% more arrows (rounded up), but successful event rewards are increased by 50%. Also makes the Sealed Shrine slightly more likely to roll a rare, epic, legendary, or mythic card.',
     properties: [MOVE_PROPERTIES.PASSIVE],
     damage: 0,
     scaling: SCALING_TYPES.NONE,
@@ -768,9 +776,9 @@ export const MOVE_TEMPLATES = {
     qteArrowIncreasePercent: 30,
     rewardBonusPercent: 50,
     // Summed with Thief's Greed's own copies — see thiefs_greed's comment.
-    shrineEpicWeightBonus: 1,
+    shrineEpicWeightBonus: 2,
     shrineLegendaryWeightBonus: 2,
-    shrineMythicWeightBonus: 2,
+    shrineMythicWeightBonus: 1,
   },
   thiefs_repentance: {
     id: 'thiefs_repentance',

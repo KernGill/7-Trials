@@ -246,31 +246,38 @@ const SHRINE_RARITY_BY_FLOOR = [
  * Thief's Greed and Thief's Resolve each add a FLAT bonus to the Epic/
  * Legendary/Mythic weight, on top of the floor curve above, before the
  * percentages are recomputed — see rollShrineCard in data/cards.js and
- * their shrineEpicWeightBonus/shrineLegendaryWeightBonus/
- * shrineMythicWeightBonus move fields. Stacks if both are equipped.
+ * their shrineRareWeightBonus/shrineEpicWeightBonus/
+ * shrineLegendaryWeightBonus/shrineMythicWeightBonus move fields. Stacks
+ * if both are equipped. Mythic's bonus is deliberately SMALLER than
+ * Legendary's per a user report: on floors 1-5, Legendary/Mythic both
+ * have exactly 0 base weight (they unlock at floor 6 — see
+ * SHRINE_RARITY_BY_FLOOR), so on those floors the gear bonus is the ONLY
+ * thing setting their odds — and Mythic's bonus outweighing Legendary's
+ * meant the rarer tier was rolling MORE often than the one below it.
  */
 const SHRINE_GEAR_BONUS_ROWS = [
-  { item: "Thief's Earring", passive: "Thief's Greed", epic: 1, legendary: 1, mythic: 2 },
-  { item: "Thief's Sleeves", passive: "Thief's Resolve", epic: 1, legendary: 2, mythic: 2 },
-  { item: 'Both equipped', passive: 'stacked', epic: 2, legendary: 3, mythic: 4, wide: true },
+  { item: "Thief's Earring", passive: "Thief's Greed", rare: 1, epic: 1, legendary: 1, mythic: 1 },
+  { item: "Thief's Sleeves", passive: "Thief's Resolve", rare: 0, epic: 2, legendary: 2, mythic: 1 },
+  { item: 'Both equipped', passive: 'stacked', rare: 1, epic: 3, legendary: 3, mythic: 2, wide: true },
 ];
 
 /**
  * Worked examples showing exactly what those bonuses do to two floors:
  * floor 1 (where epic/legendary/mythic are otherwise 0% — this is the ONLY
  * way to see them that early) and floor 10, where common/uncommon/rare are
- * ALREADY at 0% from the floor curve alone (see SHRINE_RARITY_BY_FLOOR) —
- * the bonus there just further tilts the epic/legendary/mythic split, it
- * can't summon a low tier back into the pool.
+ * ALREADY at (or nearly at) 0% from the floor curve alone (see
+ * SHRINE_RARITY_BY_FLOOR) — the bonus there just further tilts the epic/
+ * legendary/mythic split (plus the tiny +1 Rare weight peeking back in),
+ * it can't meaningfully summon a low tier back into the pool.
  */
 const SHRINE_GEAR_EXAMPLES = [
   {
     floor: 1, label: 'Floor 1, both equipped',
-    common: 40.32, uncommon: 40.32, rare: 4.84, epic: 3.23, legendary: 4.84, mythic: 6.45,
+    common: 40.32, uncommon: 40.32, rare: 6.45, epic: 4.84, legendary: 4.84, mythic: 3.23,
   },
   {
     floor: 10, label: 'Floor 10, both equipped',
-    common: 0, uncommon: 0, rare: 0, epic: 38.53, legendary: 34.86, mythic: 26.61,
+    common: 0, uncommon: 0, rare: 0.92, epic: 39.45, legendary: 34.86, mythic: 24.77,
   },
 ];
 
@@ -336,12 +343,12 @@ function shrineGearInfluenceHTML() {
     <div class="shrine-rarity-scroll">
       <table class="shrine-rarity-table shrine-gear-table">
         <thead>
-          <tr><th>Gear</th><th>Passive</th><th style="color:#9b59b6">Epic weight</th><th style="color:#f1c40f">Legendary weight</th><th style="color:#e74c3c">Mythic weight</th></tr>
+          <tr><th>Gear</th><th>Passive</th><th style="color:#3498db">Rare weight</th><th style="color:#9b59b6">Epic weight</th><th style="color:#f1c40f">Legendary weight</th><th style="color:#e74c3c">Mythic weight</th></tr>
         </thead>
         <tbody>
           ${SHRINE_GEAR_BONUS_ROWS.map((r) => `
             <tr${r.wide ? ' class="shrine-gear-total"' : ''}>
-              <td>${r.item}</td><td>${r.passive}</td><td>+${r.epic}</td><td>+${r.legendary}</td><td>+${r.mythic}</td>
+              <td>${r.item}</td><td>${r.passive}</td><td>${r.rare ? `+${r.rare}` : '—'}</td><td>+${r.epic}</td><td>+${r.legendary}</td><td>+${r.mythic}</td>
             </tr>`).join('')}
         </tbody>
       </table>
