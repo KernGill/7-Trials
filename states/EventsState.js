@@ -219,30 +219,27 @@ const THIEFS_SET_EVENTS = [
 /**
  * Sealed Shrine's card rarity, computed at representative floors from the
  * exact formula in data/cards.js (shrineBaseWeights) — no gear equipped.
- * Common and Uncommon are pinned at weight 25 each; Rare/Epic/Legendary/
- * Mythic each have their own "unlock floor" (weight 0 below it) and a
- * flat growth rate per floor above it, capped:
- *   weight(floor) = floor < unlockFloor ? 0 : min(cap, (floor-unlockFloor+1) × growth)
- * Rare: unlocks floor 1, +3/floor, caps at 20 (floor 7+).
- * Epic: unlocks floor 2 (so floor 1 is exactly 0%), +1/floor, caps at 15 (floor 16+).
- * Legendary: unlocks floor 6, +1/floor, caps at 10 (floor 15+).
- * Mythic: unlocks floor 6 (so floors 1-5 are exactly 0%), +0.6/floor, caps at 5 (floor 15+).
- * By floor 16 every tier is at its cap and the odds land EXACTLY on the
- * same weights (25/25/20/15/10/5) every other card roll in the game uses
- * — the floor curve only suppresses EARLY floors, it doesn't change the
- * ceiling.
+ * Per user request ("scale much better — floor 10 should be MINIMUM epic,
+ * with a decent chance at legendary and mythic"), Common/Uncommon/Rare all
+ * decay linearly to EXACTLY 0 weight by floor 10 (not just a shrinking
+ * share — floor 10 genuinely cannot roll them), while Epic/Legendary/
+ * Mythic (still unlocking at floor 2 and floor 6 respectively, so floor 1
+ * is still exactly 0% for all three) grow fast enough to land on a literal
+ * 40%/35%/25% split at floor 10 (nothing else is left in the pool there),
+ * then keep climbing a bit further before their caps settle the odds near
+ * 32%/39%/29% for floor 15 onward.
  */
 const SHRINE_RARITY_BY_FLOOR = [
   { floor: 1, common: 47.17, uncommon: 47.17, rare: 5.66, epic: 0, legendary: 0, mythic: 0 },
-  { floor: 2, common: 43.86, uncommon: 43.86, rare: 10.53, epic: 1.75, legendary: 0, mythic: 0 },
-  { floor: 3, common: 40.98, uncommon: 40.98, rare: 14.75, epic: 3.28, legendary: 0, mythic: 0 },
-  { floor: 4, common: 38.46, uncommon: 38.46, rare: 18.46, epic: 4.62, legendary: 0, mythic: 0 },
-  { floor: 5, common: 36.23, uncommon: 36.23, rare: 21.74, epic: 5.80, legendary: 0, mythic: 0 },
-  { floor: 6, common: 33.51, uncommon: 33.51, rare: 24.13, epic: 6.70, legendary: 1.34, mythic: 0.80 },
-  { floor: 7, common: 31.57, uncommon: 31.57, rare: 25.25, epic: 7.58, legendary: 2.53, mythic: 1.52 },
-  { floor: 10, common: 28.74, uncommon: 28.74, rare: 22.99, epic: 10.34, legendary: 5.75, mythic: 3.45 },
-  { floor: 15, common: 25.25, uncommon: 25.25, rare: 20.20, epic: 14.14, legendary: 10.10, mythic: 5.05 },
-  { floor: 16, common: 25, uncommon: 25, rare: 20, epic: 15, legendary: 10, mythic: 5 },
+  { floor: 2, common: 40.98, uncommon: 40.98, rare: 9.84, epic: 8.20, legendary: 0, mythic: 0 },
+  { floor: 3, common: 35.50, uncommon: 35.50, rare: 12.78, epic: 16.23, legendary: 0, mythic: 0 },
+  { floor: 4, common: 30.49, uncommon: 30.49, rare: 14.63, epic: 24.39, legendary: 0, mythic: 0 },
+  { floor: 5, common: 25.77, uncommon: 25.77, rare: 15.46, epic: 32.99, legendary: 0, mythic: 0 },
+  { floor: 6, common: 17.24, uncommon: 17.24, rare: 12.41, epic: 34.48, legendary: 10.86, mythic: 7.76 },
+  { floor: 7, common: 11.26, uncommon: 11.26, rare: 9.01, epic: 36.04, legendary: 18.92, mythic: 13.51 },
+  { floor: 10, common: 0, uncommon: 0, rare: 0, epic: 40, legendary: 35, mythic: 25 },
+  { floor: 13, common: 0, uncommon: 0, rare: 0, epic: 34.25, legendary: 38.36, mythic: 27.40 },
+  { floor: 15, common: 0, uncommon: 0, rare: 0, epic: 32.26, legendary: 38.71, mythic: 29.03 },
 ];
 
 /**
@@ -260,10 +257,11 @@ const SHRINE_GEAR_BONUS_ROWS = [
 
 /**
  * Worked examples showing exactly what those bonuses do to two floors:
- * floor 1 (where epic/legendary/mythic are otherwise 0% or close to it —
- * this is the ONLY way to see them that early) and floor 10 (mid-curve,
- * to show the bonus is additive on top of an already-growing base, not a
- * replacement for it).
+ * floor 1 (where epic/legendary/mythic are otherwise 0% — this is the ONLY
+ * way to see them that early) and floor 10, where common/uncommon/rare are
+ * ALREADY at 0% from the floor curve alone (see SHRINE_RARITY_BY_FLOOR) —
+ * the bonus there just further tilts the epic/legendary/mythic split, it
+ * can't summon a low tier back into the pool.
  */
 const SHRINE_GEAR_EXAMPLES = [
   {
@@ -272,7 +270,7 @@ const SHRINE_GEAR_EXAMPLES = [
   },
   {
     floor: 10, label: 'Floor 10, both equipped',
-    common: 26.04, uncommon: 26.04, rare: 20.83, epic: 11.46, legendary: 8.33, mythic: 7.29,
+    common: 0, uncommon: 0, rare: 0, epic: 38.53, legendary: 34.86, mythic: 26.61,
   },
 ];
 
@@ -324,7 +322,7 @@ function shrineRarityTableHTML() {
         <tbody>
           ${SHRINE_RARITY_BY_FLOOR.map((row) => `
             <tr>
-              <td class="shrine-rarity-floor">${row.floor}${row.floor === 16 ? '+' : ''}</td>
+              <td class="shrine-rarity-floor">${row.floor}${row.floor === 15 ? '+' : ''}</td>
               ${RARITY_COLS.map((c) => `<td class="${row[c.key] === 0 ? 'zero' : ''}">${pct(row[c.key])}</td>`).join('')}
             </tr>`).join('')}
         </tbody>

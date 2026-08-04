@@ -152,46 +152,62 @@ const SHRINE_CARD_IDS = ['shrine_int', 'shrine_str', 'shrine_dex', 'shrine_def',
 
 // Sealed Shrine's card rarity, per user request, scales off the current
 // floor instead of using the flat RARITY_WEIGHTS every other card roll
-// uses — "can't win by getting lucky from the shrine too much." Common and
-// Uncommon stay flat; as the rarer tiers unlock and grow with floor, their
-// SHARE of the total pool shrinks on its own, no separate low-tier formula
-// needed. Each of Rare/Epic/Legendary/Mythic has its own "unlock floor"
-// (weight is exactly 0 below it) and linear growth rate above it, capped:
-//   floor(weight) = floor < unlockFloor ? 0 : min(cap, (floor-unlockFloor+1) * growth)
-// Tuned so floors 1-5 (no gear) land exactly where requested: Mythic is
-// 0% through floor 5 (unlocks floor 6); Epic is 0% at floor 1 specifically
-// and stays low the rest of the way to floor 5 (unlocks floor 2, tiny
-// growth); Legendary unlocks alongside Mythic at floor 6; Rare is present
-// from floor 1 but grows fast enough that floor 5 gives a real, noticeable
-// chance. Thief's Greed/Resolve add flat bonuses on TOP of these (see
-// rollShrineCard) — that's the only way to see Epic/Legendary/Mythic at
-// all in floors 1-5's otherwise-locked tiers.
+// uses — "can't win by getting lucky from the shrine too much." Per a
+// later user request ("scale much better — floor 10 should be MINIMUM
+// epic, with a decent chance at legendary and mythic"), Common/Uncommon
+// now actively DECAY to exactly 0 weight by floor 10 (shrineDecayWeight)
+// instead of just sitting flat while other tiers dilute their share — floor
+// 10 genuinely can't roll them anymore, not just "rarely." Rare rises
+// through the early-mid floors (same growth formula as before) but is
+// ALSO decayed to exactly 0 by floor 10 via the same multiplier, so it
+// phases out right as Epic/Legendary/Mythic take over rather than lingering
+// forever as a low-odds trap. Epic/Legendary/Mythic keep the original
+// unlock-floor-then-grow shape (shrineTierWeight) — Epic still unlocks at
+// floor 2 (0% at floor 1, per the original request), Legendary/Mythic still
+// unlock at floor 6 — but their growth rates are tuned so floor 10 lands on
+// weights 40/35/25 respectively (with nothing else in the pool at that
+// floor, that's a literal 40%/35%/25% split), then keep climbing a bit
+// further before their caps take over around floor 13-14, settling near a
+// 32%/39%/29% split for the rest of the run. Thief's Greed/Resolve still
+// add flat bonuses on top of all this (see rollShrineCard) — now a much
+// smaller proportional nudge than before given how much bigger these base
+// weights are, but still the only way to see Epic/Legendary/Mythic at all
+// in floors 1-5's otherwise-locked tiers.
 const SHRINE_COMMON_WEIGHT = 25;
 const SHRINE_UNCOMMON_WEIGHT = 25;
+const SHRINE_LOW_TIER_ZERO_FLOOR = 10; // Common/Uncommon/Rare all hit exactly 0 weight at this floor
 const SHRINE_RARE_UNLOCK_FLOOR = 1;
 const SHRINE_RARE_GROWTH_PER_FLOOR = 3;
 const SHRINE_RARE_MAX_WEIGHT = 20;
 const SHRINE_EPIC_UNLOCK_FLOOR = 2;
-const SHRINE_EPIC_GROWTH_PER_FLOOR = 1;
-const SHRINE_EPIC_MAX_WEIGHT = 15;
+const SHRINE_EPIC_GROWTH_PER_FLOOR = 40 / 9; // hits exactly 40 weight at floor 10 (see module comment)
+const SHRINE_EPIC_MAX_WEIGHT = 50;
 const SHRINE_LEGENDARY_UNLOCK_FLOOR = 6;
-const SHRINE_LEGENDARY_GROWTH_PER_FLOOR = 1;
-const SHRINE_LEGENDARY_MAX_WEIGHT = 10;
+const SHRINE_LEGENDARY_GROWTH_PER_FLOOR = 7; // hits exactly 35 weight at floor 10
+const SHRINE_LEGENDARY_MAX_WEIGHT = 60;
 const SHRINE_MYTHIC_UNLOCK_FLOOR = 6;
-const SHRINE_MYTHIC_GROWTH_PER_FLOOR = 0.6;
-const SHRINE_MYTHIC_MAX_WEIGHT = 5;
+const SHRINE_MYTHIC_GROWTH_PER_FLOOR = 5; // hits exactly 25 weight at floor 10
+const SHRINE_MYTHIC_MAX_WEIGHT = 45;
 
 function shrineTierWeight(floor, unlockFloor, growthPerFloor, maxWeight) {
   if (floor < unlockFloor) return 0;
   return Math.min(maxWeight, (floor - unlockFloor + 1) * growthPerFloor);
 }
 
+/** Linearly decays from `startWeight` at floor 1 to exactly 0 at floor=`zeroFloor` (and stays 0 beyond) — see SHRINE_LOW_TIER_ZERO_FLOOR's comment. */
+function shrineDecayWeight(floor, startWeight, zeroFloor) {
+  if (floor >= zeroFloor) return 0;
+  return startWeight * (1 - (floor - 1) / (zeroFloor - 1));
+}
+
 /** Floor-scaled base weights (indexed exactly like RARITIES) for the Sealed Shrine's card roll — see the SHRINE_* constants above. */
 function shrineBaseWeights(floor) {
+  const rareGrowth = shrineTierWeight(floor, SHRINE_RARE_UNLOCK_FLOOR, SHRINE_RARE_GROWTH_PER_FLOOR, SHRINE_RARE_MAX_WEIGHT);
+  const rareDecayFactor = floor >= SHRINE_LOW_TIER_ZERO_FLOOR ? 0 : 1 - (floor - 1) / (SHRINE_LOW_TIER_ZERO_FLOOR - 1);
   return [
-    SHRINE_COMMON_WEIGHT,
-    SHRINE_UNCOMMON_WEIGHT,
-    shrineTierWeight(floor, SHRINE_RARE_UNLOCK_FLOOR, SHRINE_RARE_GROWTH_PER_FLOOR, SHRINE_RARE_MAX_WEIGHT),
+    shrineDecayWeight(floor, SHRINE_COMMON_WEIGHT, SHRINE_LOW_TIER_ZERO_FLOOR),
+    shrineDecayWeight(floor, SHRINE_UNCOMMON_WEIGHT, SHRINE_LOW_TIER_ZERO_FLOOR),
+    rareGrowth * rareDecayFactor,
     shrineTierWeight(floor, SHRINE_EPIC_UNLOCK_FLOOR, SHRINE_EPIC_GROWTH_PER_FLOOR, SHRINE_EPIC_MAX_WEIGHT),
     shrineTierWeight(floor, SHRINE_LEGENDARY_UNLOCK_FLOOR, SHRINE_LEGENDARY_GROWTH_PER_FLOOR, SHRINE_LEGENDARY_MAX_WEIGHT),
     shrineTierWeight(floor, SHRINE_MYTHIC_UNLOCK_FLOOR, SHRINE_MYTHIC_GROWTH_PER_FLOOR, SHRINE_MYTHIC_MAX_WEIGHT),
