@@ -4,6 +4,7 @@ import { clamp } from '../utils/MathUtils.js';
 import { t } from '../ui/i18n.js';
 import { createBrickWallTexture, createStoneFloorTexture } from './Textures.js';
 import { buildReliefWallGeometry } from './WallRelief.js';
+import { buildEventMarkerGeometries, getMarkerLayout } from './EventMarkers.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
@@ -66,24 +67,21 @@ const CARDINAL_DIRS = [
 // Artius herself, not square rings stepped out from a tile origin. This
 // also means the light already tracks smoothly through the movement
 // tween today, and will keep working unchanged once free (non-grid-
-// locked) movement lands. Each material is still precomputed per
-// INTEGER distance (0..VISIBLE_RADIUS, or 0..TORCH_VISIBLE_RADIUS — see
-// visibilityStrength/torchVisibilityStrength below) since a continuous
-// distance would need one material per tile per frame; the live radial
-// distance is rounded to the nearest of those precomputed steps to pick
-// a material, while the visible/not-visible cutoff itself still uses the
-// unrounded distance, so the outer edge of the circle stays smooth
-// rather than snapping to whichever ring rounds closest. Every
-// individual tile distance still gets its own point on a smooth
-// continuous falloff curve rather than a handful of discrete bands, so
-// the fade reads as gradual rather than stepped; anything past
-// VISIBLE_RADIUS isn't rendered at all — true darkness.
+// locked) movement lands. The visible/not-visible cutoff uses the
+// unrounded radial distance, so the outer edge of the circle stays smooth
+// rather than snapping to a ring; anything past VISIBLE_RADIUS (or
+// TORCH_VISIBLE_RADIUS — see visibilityStrength/torchVisibilityStrength
+// below) isn't rendered at all — true darkness.
 //
-// Walls/floor stay fully OPAQUE at every distance — they fade by blending
-// their color toward the background color instead, so a distant wall
-// still fully occludes what's behind it (no see-through). Markers (the
-// actual objects on a tile) are the opposite: they stay transparent,
-// fading via opacity instead of color.
+// Walls/floor/markers all stay fully OPAQUE at every distance — everything
+// fades by blending its own color toward the background color instead
+// (see blendColor), never via transparency/opacity, so a distant object
+// still fully occludes what's behind it rather than going see-through.
+// Markers are the one thing with a genuine multi-color identity of their
+// own (see EventMarkers.js) rather than a single shared per-type hue —
+// each part keeps its own base color live on `mesh.userData.baseColor`
+// and blends THAT toward the background per frame, using the tile's own
+// continuous (unrounded) distance, same as floor/walls do.
 const VISIBLE_RADIUS = 9; // max distance (tiles) anything renders at all — +2 over the original 7, per user request: bird's-eye camera angles already give away too much, so ground-level play needed a bit more reach to compensate
 // >1 keeps the falloff gentle for the first few tiles and steep from
 // ~5 tiles out — visibilityStrength(5..7) drops off much faster than
@@ -99,7 +97,13 @@ const MAX_FLOOR_KEEP = 0.62; // floor color-keep fraction at distance 0 (rest bl
 // base color before the per-vertex height gradient (see
 // WALL_HEIGHT_GRADIENT_SPAN) darkens the wall going up.
 const MAX_WALL_KEEP = MAX_FLOOR_KEEP;
-const MAX_MARKER_OPACITY = 1; // marker opacity at distance 0
+// Higher than MAX_FLOOR_KEEP/MAX_WALL_KEEP — markers are the actual objects
+// of interest on a tile (doors, chests, shrines...), so they should read as
+// close to their true color as possible right next to the player, unlike
+// the floor/walls which are deliberately kept a bit muted even at distance
+// 0. Still fades all the way to BACKGROUND_COLOR at range, same mechanism.
+const MAX_MARKER_KEEP = 0.92;
+const TORCH_MARKER_KEEP = 0.97; // brighter still under torchlight, matching TORCH_FLOOR_KEEP/TORCH_WALL_KEEP's "genuinely lit" boost
 
 // Ambient (no Torch) lighting reads as pale moonlight falling on whatever's
 // closest to the player, fading through a series of increasingly dark,
@@ -151,6 +155,11 @@ const VANGUARD_CALLING_FLOOR_FALLOFF_POWER = 4;
 const _hueOut = new THREE.Color();
 const _hueLerpTarget = new THREE.Color();
 const _blendTarget = new THREE.Color();
+// Scratch for marker color blending (see updateVisibility()'s marker
+// branch) — copies each part's own persistent `userData.baseColor` in here
+// before blending, so blendColor's in-place `.lerp()` never mutates that
+// stored original.
+const _markerHueScratch = new THREE.Color();
 
 /** Ambient equivalent of torchHue(): pale moonlight near, fading through five color stops (moonlight -> light navy -> darkish blue -> really dark blue -> black) across four equal quarter-segments of the visible radius — no background blending yet (see blendColor for that half, applied on top via MAX_FLOOR_KEEP/MAX_WALL_KEEP same as before). Mutates and returns the shared `_hueOut` scratch (see comment above) instead of allocating. */
 function moonHue(dist) {
@@ -176,17 +185,19 @@ function visibilityStrength(dist) {
 // sees TORCH_EXTRA_RADIUS tiles further than normal, and the fade itself
 // reads as actual firelight (warm yellow up close, through orange, to a
 // dying red at the edge of its reach) instead of the plain grey-to-black
-// blend everyone else gets. A larger set of precomputed per-distance
-// marker materials (torchMarkerByDist — see the constructor) exists
-// purely so markers never need to rebuild anything at runtime; floor and
-// walls both compute their own color live every frame instead of picking
-// from a precomputed set at all (see updateVisibility()'s doc comment) —
-// for walls that means writing a real per-band GEOMETRY color (see
+// blend everyone else gets. Floor, walls, AND markers all compute their
+// own color live every frame rather than picking from any precomputed set
+// — for walls that means writing a real per-band GEOMETRY color (see
 // writeTorchWallGeometryColors) since climbing one needs a height
-// component too, not just a flat hue.
-// updateVisibility() picks which set to index into (or which hue/keep
-// function/geometry-write to use, for floor/walls) based on current
-// equipment, every frame.
+// component too, not just a flat hue; for markers it's a straight
+// per-part blendColor call using TORCH_MARKER_KEEP/torchVisibilityStrength
+// instead of MAX_MARKER_KEEP/visibilityStrength (see updateVisibility()'s
+// marker branch) — markers don't get the torch's warm hue itself (torchHue
+// is what makes floor/walls glow yellow/orange/red), just a bigger reach
+// and a brighter near-field, so each part keeps its own true color under
+// torchlight instead of getting overridden by it.
+// updateVisibility() picks which hue/keep function/geometry-write to use,
+// for floor/walls/markers alike, based on current equipment, every frame.
 const TORCH_EXTRA_RADIUS = 3;
 const TORCH_VISIBLE_RADIUS = VISIBLE_RADIUS + TORCH_EXTRA_RADIUS;
 const TORCH_COLOR_NEAR = 0xffe066; // warm yellow, right at the flame
@@ -345,19 +356,13 @@ const MOUSELOOK_ESC_HINT_MS = 4000;
 // flat constant — COLOR_WALL survives only for the flat behindWall overlay
 // below, which isn't distance-graded.
 const COLOR_WALL = 0x3a3a3a; // walls had no prior color — they were invisible blank cells in the old grid
+// Every OTHER marker type gets its own multi-part color palette straight
+// from EventMarkers.js now (see getMarkerLayout) — ENEMY/HIDDEN_ENEMY are
+// the one deliberate exception, still a single-hue plain cube (see
+// EventMarkers.js's comment), so this table only needs to cover those two.
 const MARKER_COLORS = {
   [TILE_TYPES.ENEMY]: 0x7a1f1f,
-  [TILE_TYPES.STAIRS]: 0x7a5c1f,
-  [TILE_TYPES.LOCKED_DOOR]: 0x3a1f7a,
-  [TILE_TYPES.TREASURE]: 0x7a6a1f,
-  [TILE_TYPES.TEMPORAL_CHEST]: 0x1f5fd9,
   [TILE_TYPES.HIDDEN_ENEMY]: 0x000000,
-  [TILE_TYPES.ELEVATOR]: 0x2ecc71,
-  [TILE_TYPES.VENDOR]: 0xd4af37, // gold — reads as a distinct "shop" landmark against the elevator's green
-  [TILE_TYPES.SEALED_SHRINE]: 0x9b59b6, // violet — reads as "arcane/holy", distinct from the locked door's darker purple
-  [TILE_TYPES.ARCANE_SIGIL]: 0x1fd9c9, // teal/cyan — reads as a magic sigil, distinct from every other hue here
-  [TILE_TYPES.WANDERING_SATCHEL]: 0x8a5a2f, // brown/leather — reads as a satchel, distinct from treasure's gold
-  [TILE_TYPES.WOUNDED_ANIMAL]: 0xc0392b, // red — a living thing, not loot
 };
 
 function tileKey(x, y) {
@@ -624,10 +629,11 @@ export class DungeonRenderer3D {
       wallPanelWest: buildReliefWallGeometry({
         direction: 'west', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: WALL_HEIGHT_SEGMENTS,
       }),
-      marker: new THREE.BoxGeometry(TILE_SIZE * 0.5, TILE_SIZE * 0.25, TILE_SIZE * 0.5),
-      stairsMarker: new THREE.BoxGeometry(TILE_SIZE * 0.6, TILE_SIZE * 0.075, TILE_SIZE * 0.6),
-      // Enemy tiles get their own plain cube for now (placeholder, per design).
-      enemyCube: new THREE.BoxGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8, TILE_SIZE * 0.8),
+      // Per-tile-type themed marker geometry (door, chest, shrine, sigil,
+      // satchel, wounded animal, elevator, vendor, stairs...) — see
+      // EventMarkers.js. Enemy/hidden-enemy tiles are the one deliberate
+      // exception, still a plain cube (see that file's comment).
+      eventMarkers: buildEventMarkerGeometries(TILE_SIZE),
     };
     ['wallPanelNorth', 'wallPanelSouth', 'wallPanelEast', 'wallPanelWest'].forEach((key) => {
       applyWallHeightGradient(this._geo[key], WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
@@ -665,40 +671,11 @@ export class DungeonRenderer3D {
     // its own persistent, live-colored material (ambient) and geometry
     // (torch), built in setDungeon() and updated every frame in
     // updateVisibility(); see that method's wall-color comment for why.
-    const markerByDist = Object.fromEntries(
-      Object.entries(MARKER_COLORS).map(([type, color]) => [
-        type,
-        // depthWrite:false — a semi-transparent box writing depth lets its
-        // own back faces fight its front faces (and neighboring geometry)
-        // for the depth buffer in an undefined order, which is what turns a
-        // partly-faded marker into a hazy, glow-like blob instead of a
-        // clean translucent cube. Doesn't matter for a small marker sitting
-        // on its own floor tile, and fixes the artifact for free.
-        Array.from({ length: VISIBLE_RADIUS + 1 }, (_, d) => new THREE.MeshBasicMaterial({
-          color, transparent: true, depthWrite: false, opacity: MAX_MARKER_OPACITY * visibilityStrength(d),
-        })),
-      ]),
-    );
-    // Torch-equipped equivalents — see the TORCH_* constants' comment above.
-    // Same structure as markerByDist, just sized to TORCH_VISIBLE_RADIUS
-    // and colored via torchHue() instead of moonHue(). Markers keep their
-    // own distinct colors (re-hueing an enemy cube red-to-yellow would
-    // blur what it means) — only their opacity falloff uses the torch's
-    // longer reach. torchWallMaterial (below) is the single plain-white
-    // material every torch-lit wall panel's mesh uses regardless of
-    // distance — the real color comes from each panel's own private,
-    // live-updated geometry (see createTorchWallGeometry/
-    // writeTorchWallGeometryColors), not from this material.
-    const torchMarkerByDist = Object.fromEntries(
-      Object.entries(MARKER_COLORS).map(([type, color]) => [
-        type,
-        Array.from({ length: TORCH_VISIBLE_RADIUS + 1 }, (_, d) => new THREE.MeshBasicMaterial({
-          color, transparent: true, depthWrite: false, opacity: MAX_MARKER_OPACITY * torchVisibilityStrength(d),
-        })),
-      ]),
-    );
+    // Markers now follow the same pattern (see _applyMarker/updateVisibility)
+    // — each marker PART gets its own persistent, opaque, live-colored
+    // material built from that part's own base color (EventMarkers.js),
+    // rather than picking from a shared precomputed-per-type set here.
     this._mat = {
-      markerByDist,
       torchWallMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: this._wallTexture }),
       // Brick relief's group-1 material (see WallRelief.js) — plain white,
       // NO map, so the fully-baked-per-frame vertex color from
@@ -706,8 +683,7 @@ export class DungeonRenderer3D {
       // getting multiplied (and darkened) by whatever texel its dummy UV
       // happens to land on.
       torchReliefMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide }),
-      torchMarkerByDist,
-      // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above. depthWrite:false for the same reason as the marker materials above.
+      // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above. depthWrite:false since semi-transparent geometry writing depth lets its own back faces fight its front faces (and neighboring geometry) for the depth buffer in an undefined order.
       behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, depthWrite: false, opacity: BEHIND_WALL_OPACITY, vertexColors: true, map: this._wallTexture, side: THREE.DoubleSide }),
     };
 
@@ -986,7 +962,7 @@ export class DungeonRenderer3D {
     }
     this._applyCameraFromCurrentState();
     this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
-    this.updateVisibility();
+    this.updateVisibility(dt);
     if (this._playerGridX !== undefined) {
       this._applyBehindWallOcclusion(this._playerGridX, this._playerGridY, nearestFacingFromYaw(this._lookYaw));
     }
@@ -996,15 +972,17 @@ export class DungeonRenderer3D {
   setDungeon(dungeon) {
     // Geometries/materials are shared (this._geo/this._mat) and disposed
     // once in unmount() — removing the group from the scene is enough.
-    // Floor materials and wall panels' ambientMaterial/torchGeometry are
-    // the exception (see updateVisibility()'s floor-color and wall-color
-    // comments) — each tile/panel owns its own persistent, live-updated
-    // one rather than sharing from this._mat/this._geo, so the outgoing
-    // floor's need disposing explicitly here before they're replaced, same
-    // as unmount() does for the renderer's own teardown.
+    // Floor materials, wall panels' ambientMaterial/torchGeometry, and
+    // marker parts' materials are the exception (see updateVisibility()'s
+    // floor-color/wall-color comments and _applyMarker's comment) — each
+    // tile/panel/part owns its own persistent, live-updated one rather
+    // than sharing from this._mat/this._geo, so the outgoing floor's need
+    // disposing explicitly here before they're replaced, same as
+    // unmount() does for the renderer's own teardown.
     this.tileMeshes.forEach((entry) => {
       entry.floor?.material.dispose();
       entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.reliefMaterial.dispose(); w.torchGeometry.dispose(); });
+      entry.marker?.children.forEach((child) => child.material.dispose());
     });
     if (this.dungeonGroup) this.scene.remove(this.dungeonGroup);
     this.dungeon = dungeon;
@@ -1132,44 +1110,33 @@ export class DungeonRenderer3D {
     // restored/continued run doesn't show a chest that no longer does
     // anything when walked onto.
     if (tile.meta?.resolved) return;
-    const markerMats = this._mat.markerByDist[tile.type];
-    if (!markerMats || entry.marker) return;
-    let geo = this._geo.marker;
-    let height = TILE_SIZE * 0.3;
-    if (tile.type === TILE_TYPES.STAIRS) {
-      geo = this._geo.stairsMarker;
-      height = TILE_SIZE * 0.15;
-    } else if (tile.type === TILE_TYPES.ENEMY) {
-      geo = this._geo.enemyCube;
-      height = TILE_SIZE * 0.4;
-    } else if (tile.type === TILE_TYPES.TEMPORAL_CHEST) {
-      // A genuine cube (per user request "make it a blue cube"), not the
-      // flatter default marker block used for STAIRS/LOCKED_DOOR/TREASURE.
-      geo = this._geo.enemyCube;
-      height = TILE_SIZE * 0.4;
-    } else if (tile.type === TILE_TYPES.HIDDEN_ENEMY) {
-      // Pure black cube — deliberately reads as an anomaly against the
-      // dark-but-not-black dungeon palette, for a player who's already
-      // gone looking somewhere the game gives them no other reason to.
-      geo = this._geo.enemyCube;
-      height = TILE_SIZE * 0.4;
-    } else if (tile.type === TILE_TYPES.ELEVATOR || tile.type === TILE_TYPES.VENDOR) {
-      // Genuine cube, same treatment as TEMPORAL_CHEST — a permanent
-      // landmark, never one-shot/consumed like the flatter default marker.
-      geo = this._geo.enemyCube;
-      height = TILE_SIZE * 0.4;
-    } else if (tile.type === TILE_TYPES.SEALED_SHRINE || tile.type === TILE_TYPES.ARCANE_SIGIL) {
-      // Same taller cube treatment as TEMPORAL_CHEST — both are QTE-gated
-      // "special" rewards, unlike the flatter default marker used for
-      // Wandering Satchel/Wounded Animal below (no branch needed for
-      // those two — they fall through to the LOCKED_DOOR/TREASURE default).
-      geo = this._geo.enemyCube;
-      height = TILE_SIZE * 0.4;
-    }
-    const marker = new THREE.Mesh(geo, markerMats[VISIBLE_RADIUS]);
-    marker.position.set(tile.x * TILE_SIZE, height, tile.y * TILE_SIZE);
-    this.dungeonGroup.add(marker);
-    entry.marker = marker;
+    if (entry.marker) return;
+    const layout = getMarkerLayout(tile.type, this._geo.eventMarkers, TILE_SIZE, MARKER_COLORS[tile.type]);
+    if (!layout) return;
+    // A small Group of themed, individually-colored parts (door, chest,
+    // shrine gem, sigil rings, ...) rather than one plain box — see
+    // EventMarkers.js. Each part gets its OWN persistent, opaque material
+    // (never shared across tiles or types, same as floor tiles/wall
+    // panels) so it can keep its own true color instead of every marker of
+    // a type sharing one flat hue. `userData.baseColor` holds that part's
+    // pristine color — updateVisibility() blends INTO the material's own
+    // `.color` every frame, never touching this stored original.
+    const group = new THREE.Group();
+    layout.parts.forEach(({
+      geometry, position, rotation, scale, color,
+    }) => {
+      const material = new THREE.MeshBasicMaterial({ color });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.baseColor = new THREE.Color(color);
+      mesh.position.set(...position);
+      mesh.rotation.set(...rotation);
+      mesh.scale.set(...scale);
+      group.add(mesh);
+    });
+    group.position.set(tile.x * TILE_SIZE, 0, tile.y * TILE_SIZE);
+    group.userData.spinSpeed = layout.spinSpeed ?? 0;
+    this.dungeonGroup.add(group);
+    entry.marker = group;
   }
 
   /** True while the equipped offHand item is the Torch — see the TORCH_* constants above. Cheap enough (a shallow inventory read, already called every frame elsewhere — see ExploreState.revealNearbyTiles) to just re-check on demand rather than cache. */
@@ -1215,15 +1182,16 @@ export class DungeonRenderer3D {
    *
    * The visible/not-visible cutoff itself always uses the unrounded
    * distance (for markers too) so the circle's outer edge stays smooth.
-   * Walls/floor fade by shifting color toward the background while
-   * staying fully opaque; markers fade via transparency instead. Runs
-   * every frame (from update()) — this is live sight, not a permanent
-   * "once seen" reveal.
+   * Walls/floor/markers all fade by shifting color toward the background
+   * while staying fully opaque — nothing here uses transparency/opacity to
+   * fade. Runs every frame (from update()) — this is live sight, not a
+   * permanent "once seen" reveal.
    */
-  updateVisibility() {
+  updateVisibility(dt = 0) {
     const torch = this._hasTorchEquipped();
     const maxRadius = torch ? TORCH_VISIBLE_RADIUS : VISIBLE_RADIUS;
-    const markerByDist = torch ? this._mat.torchMarkerByDist : this._mat.markerByDist;
+    const markerKeep = torch ? TORCH_MARKER_KEEP : MAX_MARKER_KEEP;
+    const markerStrengthFor = torch ? torchVisibilityStrength : visibilityStrength;
     const floorKeep = torch ? TORCH_FLOOR_KEEP : MAX_FLOOR_KEEP;
     const floorHueFor = torch ? torchHue : moonHue;
     const floorStrengthFor = torch ? torchVisibilityStrength : visibilityStrength;
@@ -1242,7 +1210,6 @@ export class DungeonRenderer3D {
       const dy = entry.y - py;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const visible = dist <= maxRadius;
-      const distIdx = Math.min(Math.round(dist), maxRadius);
 
       if (entry.walls) {
         entry.walls.forEach((w) => {
@@ -1272,9 +1239,8 @@ export class DungeonRenderer3D {
       // itself shrinks in around you during this effect.
       const floorVisible = vanguardCalling ? dist <= VANGUARD_CALLING_FLOOR_VISIBLE_RADIUS : visible;
       entry.floor.visible = floorVisible;
-      // See this method's doc comment — floor is deliberately NOT bucketed
-      // by rounded distance like walls/markers; only actually compute (and
-      // allocate the intermediate Color objects for) it while visible.
+      // Only actually compute (and allocate the intermediate Color objects
+      // for) this while visible.
       if (floorVisible) {
         if (vanguardCalling) {
           // One formula covers both the 0..GRADIENT_RADIUS fade AND the
@@ -1289,7 +1255,25 @@ export class DungeonRenderer3D {
       }
       if (entry.marker) {
         entry.marker.visible = visible;
-        entry.marker.material = markerByDist[entry.type]?.[distIdx];
+        // Only actually compute (and allocate) this while visible — same
+        // as floor above. Each part blends its OWN base color toward
+        // BACKGROUND_COLOR using this tile's continuous (unrounded)
+        // distance, exactly like floor/walls do — see _applyMarker's
+        // comment on why every part gets its own persistent material
+        // instead of sharing one per type.
+        if (visible) {
+          const keep = markerKeep * markerStrengthFor(dist);
+          entry.marker.children.forEach((child) => {
+            child.material.color.copy(blendColor(_markerHueScratch.copy(child.userData.baseColor), keep, BACKGROUND_COLOR));
+          });
+          // Slow idle spin (currently just Arcane Sigil — see
+          // EventMarkers.js) — only while actually visible, so it doesn't
+          // run for the whole (much larger) set of markers scattered
+          // across an unvisited floor.
+          if (entry.marker.userData.spinSpeed) {
+            entry.marker.rotation.y += entry.marker.userData.spinSpeed * dt;
+          }
+        }
       }
     });
   }
@@ -1408,14 +1392,15 @@ export class DungeonRenderer3D {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     if (this._hintHideTimeout) clearTimeout(this._hintHideTimeout);
     this._hintEl?.remove();
-    // Both _geo and _mat hold a mix of shapes: plain objects (behindWall),
-    // flat arrays (markerByDist's per-type arrays) — recurse until
-    // something disposable is found rather than assuming a fixed depth.
-    // Floor materials and wall panels' ambientMaterial/torchGeometry are
-    // the exception: they're private per-tile/per-panel instances (see
-    // updateVisibility()'s floor-color and wall-color comments), never
-    // stored in this._mat/this._geo, so they're disposed directly off
-    // tileMeshes here instead.
+    // Both _geo and _mat hold a mix of shapes: plain objects and nested
+    // objects (e.g. this._geo.eventMarkers) — recurse until something
+    // disposable is found rather than assuming a fixed depth. Floor
+    // materials, wall panels' ambientMaterial/torchGeometry, and marker
+    // parts' materials are the exception: they're private per-tile/
+    // per-panel/per-part instances (see updateVisibility()'s floor-color/
+    // wall-color comments and _applyMarker's comment), never stored in
+    // this._mat/this._geo, so they're disposed directly off tileMeshes
+    // here instead.
     const disposeDeep = (value) => {
       if (!value) return;
       if (typeof value.dispose === 'function') value.dispose();
@@ -1424,6 +1409,7 @@ export class DungeonRenderer3D {
     this.tileMeshes.forEach((entry) => {
       entry.floor?.material.dispose();
       entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.reliefMaterial.dispose(); w.torchGeometry.dispose(); });
+      entry.marker?.children.forEach((child) => child.material.dispose());
     });
     disposeDeep(this._geo);
     disposeDeep(this._mat);
