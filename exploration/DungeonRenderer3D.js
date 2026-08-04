@@ -2,6 +2,8 @@ import * as THREE from '../vendor/three/three.module.js';
 import { TILE_TYPES } from './Tile.js';
 import { clamp } from '../utils/MathUtils.js';
 import { t } from '../ui/i18n.js';
+import { createBrickWallTexture, createStoneFloorTexture } from './Textures.js';
+import { buildReliefWallGeometry } from './WallRelief.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
@@ -18,14 +20,24 @@ const WALL_THICKNESS = TILE_SIZE * 0.1; // thin panel, not a full-tile block
 // intermediate vertices, the GPU can only ever draw a single straight-line
 // blend between whatever color sits at the bottom and whatever sits at the
 // top, no matter what curve/span was actually computed. So both the
-// ambient wall panels (wallPanelNS/EW, ordinary ambient light) and the
-// torch-lit ones (torchWallBaseNS/EW, createTorchWallGeometry/
+// ambient wall panels (wallPanelNorth/South/East/West, ordinary ambient
+// light) and the torch-lit ones (torchWallBaseNorth/South/East/West, createTorchWallGeometry/
 // writeTorchWallGeometryColors — a finer subdivision since it also needs
 // to bake real per-band hue shifts, not just a grayscale multiplier) are
 // built with real intermediate rows of vertices so
 // applyWallHeightGradient's span/curve actually shows up.
 const WALL_HEIGHT_SEGMENTS = 8;
 const TORCH_WALL_SEGMENTS = 10;
+// Reused across every writeTorchWallGeometryColors call (once per visible
+// torch-lit wall panel, every single frame) — see that function's doc
+// comment. `band` is a rounded integer in [0, TORCH_WALL_SEGMENTS], so
+// even though a relief panel can have thousands of vertices (see
+// WallRelief.js), they only ever land on one of these TORCH_WALL_SEGMENTS+1
+// possible values — caching the (expensive: several Color object ops)
+// per-band color instead of recomputing it per vertex is what keeps torch
+// mode's frame cost from scaling with the brick relief's vertex count.
+// Cleared (not reallocated) at the top of every call.
+const _torchBandColorCache = new Array(TORCH_WALL_SEGMENTS + 1).fill(null);
 // How far up from the floor the vertical shading gradient travels before
 // settling at its dimmest value. Per user request, this is deliberately
 // shorter than the full WALL_HEIGHT (was the entire panel) so the fade to
@@ -375,10 +387,21 @@ function blendColor(color, keepFraction, towardHex) {
  * using it, so this only ever needs to run once per geometry — see mount(),
  * which calls it once for the ambient wall geometries and once more (with a
  * steeper span) for the torch-lit ones.
+ *
+ * MULTIPLIES into any pre-existing 'color' attribute instead of overwriting
+ * it (defaulting to white — i.e. no change — if the geometry doesn't have
+ * one yet), rather than assuming a plain white starting point. That's what
+ * lets WallRelief.js's baked brick-front/skirt colors (see
+ * BRICK_FRONT_COLOR/BRICK_SKIRT_COLOR) still darken toward the top exactly
+ * like the rest of the panel, instead of this call clobbering them.
  */
 function applyWallHeightGradient(geometry, span, brightnessTop) {
   const position = geometry.attributes.position;
-  const colors = new Float32Array(position.count * 3);
+  let colorAttr = geometry.attributes.color;
+  if (!colorAttr) {
+    colorAttr = new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3);
+    geometry.setAttribute('color', colorAttr);
+  }
   for (let i = 0; i < position.count; i += 1) {
     const heightFromFloor = position.getY(i) + WALL_HEIGHT / 2;
     const t = clamp(heightFromFloor / span, 0, 1);
@@ -386,16 +409,16 @@ function applyWallHeightGradient(geometry, span, brightnessTop) {
     // the typical camera framing (which sits well above floor level, not
     // right at it) lands mid-transition instead of near the flat top end.
     const brightness = 1 - Math.sqrt(t) * (1 - brightnessTop);
-    colors[i * 3] = brightness;
-    colors[i * 3 + 1] = brightness;
-    colors[i * 3 + 2] = brightness;
+    colorAttr.setX(i, colorAttr.getX(i) * brightness);
+    colorAttr.setY(i, colorAttr.getY(i) * brightness);
+    colorAttr.setZ(i, colorAttr.getZ(i) * brightness);
   }
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  colorAttr.needsUpdate = true;
 }
 
 /**
  * Clones a torch-lit wall panel's base shape (must already have
- * heightSegments = TORCH_WALL_SEGMENTS — see torchWallBaseNS/EW in
+ * heightSegments = TORCH_WALL_SEGMENTS — see torchWallBaseNorth/South/East/West in
  * mount() — giving TORCH_WALL_SEGMENTS+1 rows of vertices evenly spaced
  * from floor to ceiling) and gives the clone its own private 'color'
  * attribute for writeTorchWallGeometryColors to fill in every frame. One
@@ -432,21 +455,54 @@ function createTorchWallGeometry(baseGeometry) {
  * radial distance (see updateVisibility()) — not rounded to an integer
  * tier — so climbing a wall AND walking toward one both animate along the
  * exact same continuous curve, with no banding either way.
+ *
+ * Multiplies in each vertex's baked `aoMultiplier` (see WallRelief.js) —
+ * 1 for the flat panel and brick fronts, ~0.45 for the relief skirts —
+ * since this function OVERWRITES 'color' outright every frame rather than
+ * multiplying into it like applyWallHeightGradient does, so the brick
+ * relief's "shadow in the groove" would otherwise get clobbered blank
+ * every single frame instead of just showing up once at build time.
  */
 function writeTorchWallGeometryColors(geometry, dist) {
   const position = geometry.attributes.position;
   const color = geometry.attributes.color;
-  const segmentHeight = WALL_HEIGHT / TORCH_WALL_SEGMENTS;
+  const aoMultiplier = geometry.attributes.aoMultiplier;
+  // A vertex's band depends only on its (never-changing) Y position, so
+  // it's computed once per geometry (its very first frame under torch,
+  // via createTorchWallGeometry's clone — see that function) and cached on
+  // geometry.userData from then on, instead of redoing the getY/divide/
+  // round work for every vertex on every single frame.
+  let bandByVertex = geometry.userData.bandByVertex;
+  if (!bandByVertex) {
+    const segmentHeight = WALL_HEIGHT / TORCH_WALL_SEGMENTS;
+    bandByVertex = new Uint8Array(position.count);
+    for (let i = 0; i < position.count; i += 1) {
+      const heightFromFloor = position.getY(i) + WALL_HEIGHT / 2;
+      bandByVertex[i] = Math.round(heightFromFloor / segmentHeight);
+    }
+    geometry.userData.bandByVertex = bandByVertex;
+  }
+  _torchBandColorCache.fill(null);
   for (let i = 0; i < position.count; i += 1) {
-    const heightFromFloor = position.getY(i) + WALL_HEIGHT / 2;
-    const band = Math.round(heightFromFloor / segmentHeight);
-    const effectiveDist = dist + band;
-    const c = blendColor(
-      torchHue(effectiveDist),
-      TORCH_WALL_KEEP * torchVisibilityStrength(effectiveDist),
-      BACKGROUND_COLOR,
-    );
-    color.setXYZ(i, c.r, c.g, c.b);
+    const band = bandByVertex[i];
+    // Cached per band, not recomputed per vertex — see _torchBandColorCache's
+    // comment. This (plus the bandByVertex precompute above) is the whole
+    // fix for the lag brick relief introduced: thousands of relief vertices
+    // per panel all collapse onto one of only TORCH_WALL_SEGMENTS+1
+    // distinct bands.
+    let base = _torchBandColorCache[band];
+    if (!base) {
+      const effectiveDist = dist + band;
+      const c = blendColor(
+        torchHue(effectiveDist),
+        TORCH_WALL_KEEP * torchVisibilityStrength(effectiveDist),
+        BACKGROUND_COLOR,
+      );
+      base = [c.r, c.g, c.b];
+      _torchBandColorCache[band] = base;
+    }
+    const ao = aoMultiplier ? aoMultiplier.getX(i) : 1;
+    color.setXYZ(i, base[0] * ao, base[1] * ao, base[2] * ao);
   }
   color.needsUpdate = true;
 }
@@ -530,6 +586,16 @@ export class DungeonRenderer3D {
     this.playerSprite.scale.set(TILE_SIZE, TILE_SIZE, 1);
     this.scene.add(this.playerSprite);
 
+    // One shared stone texture each for every wall panel / floor tile's
+    // material (see Textures.js) — three.js multiplies a material's `map`
+    // with its vertexColors/`.color` per pixel, so these layer under the
+    // existing distance-fog/moonlight/torch coloring below for free,
+    // without that system needing to know textures exist at all. Disposed
+    // once in unmount() (each tile's own material is disposed separately,
+    // but disposing a material does NOT dispose its shared `map`).
+    this._wallTexture = createBrickWallTexture(WALL_HEIGHT / TILE_SIZE);
+    this._floorTexture = createStoneFloorTexture();
+
     // Shared geometries/materials, reused across every tile mesh —
     // cheap to keep alive for the renderer's lifetime, disposed in unmount().
     // Walls/floor fade purely by color (toward the background, staying
@@ -540,18 +606,32 @@ export class DungeonRenderer3D {
     this._geo = {
       floor: new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
       // Thin panels, not full-tile blocks — see CARDINAL_DIRS comment above.
-      // wallPanelNS spans the tile's width, wallPanelEW spans its depth;
-      // both are only WALL_THICKNESS deep in the direction they face.
-      // heightSegments = WALL_HEIGHT_SEGMENTS — see that constant's comment.
-      wallPanelNS: new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS, 1, WALL_HEIGHT_SEGMENTS, 1),
-      wallPanelEW: new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE, 1, WALL_HEIGHT_SEGMENTS, 1),
+      // One geometry per cardinal direction (not just NS/EW) since each now
+      // carries real extruded brick relief on its own outward-facing side
+      // only (see WallRelief.js) — a shared NS geometry could no longer
+      // serve both a north- and a south-facing panel once the relief isn't
+      // symmetric front/back. heightSegments = WALL_HEIGHT_SEGMENTS — see
+      // that constant's comment.
+      wallPanelNorth: buildReliefWallGeometry({
+        direction: 'north', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: WALL_HEIGHT_SEGMENTS,
+      }),
+      wallPanelSouth: buildReliefWallGeometry({
+        direction: 'south', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: WALL_HEIGHT_SEGMENTS,
+      }),
+      wallPanelEast: buildReliefWallGeometry({
+        direction: 'east', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: WALL_HEIGHT_SEGMENTS,
+      }),
+      wallPanelWest: buildReliefWallGeometry({
+        direction: 'west', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: WALL_HEIGHT_SEGMENTS,
+      }),
       marker: new THREE.BoxGeometry(TILE_SIZE * 0.5, TILE_SIZE * 0.25, TILE_SIZE * 0.5),
       stairsMarker: new THREE.BoxGeometry(TILE_SIZE * 0.6, TILE_SIZE * 0.075, TILE_SIZE * 0.6),
       // Enemy tiles get their own plain cube for now (placeholder, per design).
       enemyCube: new THREE.BoxGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8, TILE_SIZE * 0.8),
     };
-    applyWallHeightGradient(this._geo.wallPanelNS, WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
-    applyWallHeightGradient(this._geo.wallPanelEW, WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
+    ['wallPanelNorth', 'wallPanelSouth', 'wallPanelEast', 'wallPanelWest'].forEach((key) => {
+      applyWallHeightGradient(this._geo[key], WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
+    });
     // Torch-equipped wall geometry template — heightSegments =
     // TORCH_WALL_SEGMENTS (finer than WALL_HEIGHT_SEGMENTS) since climbing
     // a torch-lit wall needs to trace the same curve real distance does
@@ -561,8 +641,25 @@ export class DungeonRenderer3D {
     // per wall panel via createTorchWallGeometry, since every panel needs
     // its own live-mutable copy — see updateVisibility()'s wall-color
     // comment for why a shared/precomputed set doesn't work here.
-    this._geo.torchWallBaseNS = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, WALL_THICKNESS, 1, TORCH_WALL_SEGMENTS, 1);
-    this._geo.torchWallBaseEW = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, TILE_SIZE, 1, TORCH_WALL_SEGMENTS, 1);
+    // Same relief treatment as the ambient geometries above — one per
+    // direction, real brick bumps included — so torch-equipped view shows
+    // the same extruded bricks instead of a flat panel. writeTorchWallGeometryColors
+    // reads each vertex's baked `aoMultiplier` (see WallRelief.js) to darken
+    // the skirts, since it overwrites 'color' outright every frame (a live
+    // per-tile-distance bake, not a multiplier like applyWallHeightGradient
+    // above) and so can't rely on 'color' already holding that AO value.
+    this._geo.torchWallBaseNorth = buildReliefWallGeometry({
+      direction: 'north', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: TORCH_WALL_SEGMENTS,
+    });
+    this._geo.torchWallBaseSouth = buildReliefWallGeometry({
+      direction: 'south', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: TORCH_WALL_SEGMENTS,
+    });
+    this._geo.torchWallBaseEast = buildReliefWallGeometry({
+      direction: 'east', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: TORCH_WALL_SEGMENTS,
+    });
+    this._geo.torchWallBaseWest = buildReliefWallGeometry({
+      direction: 'west', panelWidth: TILE_SIZE, panelHeight: WALL_HEIGHT, panelThickness: WALL_THICKNESS, heightSegments: TORCH_WALL_SEGMENTS,
+    });
     // Walls have no precomputed distance-bucketed material/geometry of
     // their own here, ambient or torch — like floor, each wall panel gets
     // its own persistent, live-colored material (ambient) and geometry
@@ -602,10 +699,16 @@ export class DungeonRenderer3D {
     );
     this._mat = {
       markerByDist,
-      torchWallMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }),
+      torchWallMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, map: this._wallTexture }),
+      // Brick relief's group-1 material (see WallRelief.js) — plain white,
+      // NO map, so the fully-baked-per-frame vertex color from
+      // writeTorchWallGeometryColors shows through unmodified instead of
+      // getting multiplied (and darkened) by whatever texel its dummy UV
+      // happens to land on.
+      torchReliefMaterial: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide }),
       torchMarkerByDist,
       // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above. depthWrite:false for the same reason as the marker materials above.
-      behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, depthWrite: false, opacity: BEHIND_WALL_OPACITY, vertexColors: true }),
+      behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, depthWrite: false, opacity: BEHIND_WALL_OPACITY, vertexColors: true, map: this._wallTexture, side: THREE.DoubleSide }),
     };
 
     this._onResize = () => this.resize();
@@ -901,7 +1004,7 @@ export class DungeonRenderer3D {
     // as unmount() does for the renderer's own teardown.
     this.tileMeshes.forEach((entry) => {
       entry.floor?.material.dispose();
-      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.torchGeometry.dispose(); });
+      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.reliefMaterial.dispose(); w.torchGeometry.dispose(); });
     });
     if (this.dungeonGroup) this.scene.remove(this.dungeonGroup);
     this.dungeon = dungeon;
@@ -921,6 +1024,15 @@ export class DungeonRenderer3D {
     this._callingGateTile = dungeon.tiles.find((t) => t.meta.isHiddenGate) ?? null;
 
     const tilesByKey = new Map(dungeon.tiles.map((t) => [tileKey(t.x, t.y), t]));
+    // Keyed by CARDINAL_DIRS' `side` string, not by isNS — see the relief
+    // geometries' own comment for why a panel now needs its EXACT facing,
+    // not just NS-vs-EW, to pick the right (asymmetric) geometry.
+    const wallGeometryBySide = {
+      north: this._geo.wallPanelNorth, south: this._geo.wallPanelSouth, east: this._geo.wallPanelEast, west: this._geo.wallPanelWest,
+    };
+    const torchWallGeometryBySide = {
+      north: this._geo.torchWallBaseNorth, south: this._geo.torchWallBaseSouth, east: this._geo.torchWallBaseEast, west: this._geo.torchWallBaseWest,
+    };
 
     dungeon.tiles.forEach((tile) => {
       // Everything past the floor-5 hidden gate gets skipped entirely —
@@ -963,9 +1075,17 @@ export class DungeonRenderer3D {
           // wall-color comment for why. Initial values don't matter; the
           // very next updateVisibility() call overwrites them before a
           // frame ever renders.
-          const ambientMaterial = new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR, vertexColors: true });
-          const torchGeometry = createTorchWallGeometry(isNS ? this._geo.torchWallBaseNS : this._geo.torchWallBaseEW);
-          const panel = new THREE.Mesh(isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW, ambientMaterial);
+          const ambientMaterial = new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR, vertexColors: true, map: this._wallTexture, side: THREE.DoubleSide });
+          // Brick relief's group-1 material (see WallRelief.js) — no map,
+          // and its `.color` is the SAME Color object ambientMaterial's is
+          // (not a copy) so every place that updates ambientMaterial.color
+          // (see updateVisibility()) tints the relief bricks identically
+          // for free, with no extra per-frame code needed.
+          const reliefMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+          reliefMaterial.color = ambientMaterial.color;
+          const torchGeometry = createTorchWallGeometry(torchWallGeometryBySide[side]);
+          const ambientGeometry = wallGeometryBySide[side];
+          const panel = new THREE.Mesh(ambientGeometry, [ambientMaterial, reliefMaterial]);
           panel.position.set(
             worldX + (dx * TILE_SIZE) / 2,
             WALL_HEIGHT / 2,
@@ -973,7 +1093,7 @@ export class DungeonRenderer3D {
           );
           this.dungeonGroup.add(panel);
           walls.push({
-            mesh: panel, dx, dy, isNS, ambientMaterial, torchGeometry,
+            mesh: panel, dx, dy, isNS, ambientMaterial, reliefMaterial, ambientGeometry, torchGeometry,
           });
         });
         this.tileMeshes.set(tileKey(tile.x, tile.y), {
@@ -987,7 +1107,7 @@ export class DungeonRenderer3D {
       // Initial color doesn't matter; the very next updateVisibility()
       // call (from setPlayerState, right after setDungeon() in every
       // caller) overwrites it before a frame ever renders.
-      const floor = new THREE.Mesh(this._geo.floor, new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR }));
+      const floor = new THREE.Mesh(this._geo.floor, new THREE.MeshBasicMaterial({ color: BACKGROUND_COLOR, map: this._floorTexture }));
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(worldX, 0, worldZ);
       this.dungeonGroup.add(floor);
@@ -1133,16 +1253,16 @@ export class DungeonRenderer3D {
             // (see VANGUARD_CALLING_WALL_NEAR_RADIUS's comment; the floor
             // branch below is what shrinks the render distance, not this).
             w.ambientMaterial.color.set(dist <= VANGUARD_CALLING_WALL_NEAR_RADIUS ? MOON_COLOR_NEAR : MOON_COLOR_FAR);
-            w.mesh.material = w.ambientMaterial;
-            w.mesh.geometry = w.isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW;
+            w.mesh.material = [w.ambientMaterial, w.reliefMaterial];
+            w.mesh.geometry = w.ambientGeometry;
           } else if (torch) {
             writeTorchWallGeometryColors(w.torchGeometry, dist);
-            w.mesh.material = this._mat.torchWallMaterial;
+            w.mesh.material = [this._mat.torchWallMaterial, this._mat.torchReliefMaterial];
             w.mesh.geometry = w.torchGeometry;
           } else {
             w.ambientMaterial.color.copy(blendColor(moonHue(dist), MAX_WALL_KEEP * visibilityStrength(dist), BACKGROUND_COLOR));
-            w.mesh.material = w.ambientMaterial;
-            w.mesh.geometry = w.isNS ? this._geo.wallPanelNS : this._geo.wallPanelEW;
+            w.mesh.material = [w.ambientMaterial, w.reliefMaterial];
+            w.mesh.geometry = w.ambientGeometry;
           }
         });
         return;
@@ -1303,10 +1423,15 @@ export class DungeonRenderer3D {
     };
     this.tileMeshes.forEach((entry) => {
       entry.floor?.material.dispose();
-      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.torchGeometry.dispose(); });
+      entry.walls?.forEach((w) => { w.ambientMaterial.dispose(); w.reliefMaterial.dispose(); w.torchGeometry.dispose(); });
     });
     disposeDeep(this._geo);
     disposeDeep(this._mat);
+    // Shared across every wall/floor material above (each of which was just
+    // disposed individually) — disposing a material never disposes its
+    // `map`, so these need their own explicit dispose here too.
+    this._wallTexture?.dispose();
+    this._floorTexture?.dispose();
     this.playerSprite?.material.map?.dispose();
     this.playerSprite?.material.dispose();
     this.renderer?.dispose();
