@@ -387,6 +387,12 @@ export class StateManager {
       // — see archiveCurrentFloor), never on victory/defeat. See
       // ExploreState.resolveArcaneSigil / CombatManager.applyFloorBuffs.
       floorBuffs: [],
+      // One stat id per completed Arcane Sigil this floor, in completion
+      // order (same clear-on-floor-change lifecycle as floorBuffs right
+      // above — cleared in archiveCurrentFloor, never persisted) — drives
+      // the glowing wall runes DungeonRenderer3D engraves onto every wall
+      // panel per user request (see syncArcaneRunes/_addRuneMesh).
+      floorRunes: [],
       // Wounded Animal's queued "next enemy starts combat with 2 bleed
       // stacks" reward — single-slot, non-stacking (see
       // ExploreState.resolveWoundedAnimalMash), consumed the instant the
@@ -502,13 +508,15 @@ export class StateManager {
    * `run.floor` changes, whether via stairs (applyCardPick) or the
    * elevator (travelToFloor), so nothing about a floor's progress is lost
    * when the player moves on from it. Also the single shared "leaving
-   * this floor" hook, so run.floorBuffs (Arcane Sigil's reward — see
-   * DEFAULT_RUN's comment) is cleared here too, unconditionally, before
-   * the dungeon-snapshot early-return below.
+   * this floor" hook, so run.floorBuffs AND run.floorRunes (Arcane
+   * Sigil's reward and its matching wall runes — see startRun's comment)
+   * are cleared here too, unconditionally, before the dungeon-snapshot
+   * early-return below.
    */
   archiveCurrentFloor() {
     const run = this.gameState.run;
     run.floorBuffs = [];
+    run.floorRunes = [];
     if (!run.dungeon) return;
     this.saveSystem.saveFloor(run.floor, {
       dungeon: run.dungeon,

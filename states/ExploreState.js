@@ -2701,6 +2701,12 @@ export class ExploreState {
    * floor-linear formula (not getRewardMultiplier's compounding curve,
    * which is tuned for gold/materials and would undervalue a flat stat
    * buff at low floors) — see ARCANE_SIGIL_BASE_BUFF_AMOUNT.
+   *
+   * Also records the buffed stat onto run.floorRunes (same clear-on-
+   * floor-change lifecycle as floorBuffs — see StateManager.
+   * archiveCurrentFloor) and tells the live renderer to engrave that
+   * stat's glowing rune onto every wall in the dungeon right now, per
+   * user request — see DungeonRenderer3D.syncArcaneRunes/_addRuneMesh.
    */
   resolveArcaneSigil(success, tile) {
     const { app } = this;
@@ -2711,6 +2717,9 @@ export class ExploreState {
       amount = Math.round(amount * (1 + this.getPassiveSum('rewardBonusPercent') / 100));
       run.floorBuffs = run.floorBuffs ?? [];
       run.floorBuffs.push({ type: 'stat', stat, amount, duration: -1 });
+      run.floorRunes = run.floorRunes ?? [];
+      run.floorRunes.push(stat);
+      this.renderer3d?.syncArcaneRunes();
       tile.meta.looted = true;
       const lines = [t('explore.reward_sigil_buff', { n: amount, stat: statLabel(stat) })];
       const healed = this.applyEventSuccessHeal();

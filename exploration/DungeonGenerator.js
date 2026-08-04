@@ -17,14 +17,18 @@ const STRAIGHT_BIAS = 0.7;
 
 // Trimmed from 3 (Timing QTE reads as a comparable time investment per
 // attempt to the old arrow QTE, even at a slightly lower tile count) to
-// make room for the 4 new event types below, landing at 11 total
+// make room for the 4 new event types below, landing at 12 total
 // events/floor — enough that a player is likely to descend without
 // clearing every event on a floor.
 const LOCKED_DOOR_COUNT = 2;
 const TREASURE_COUNT = 2;
 const TEMPORAL_CHEST_COUNT = 1;
 const SEALED_SHRINE_COUNT = 2;
-const ARCANE_SIGIL_COUNT = 2;
+// 2 -> 3 per user request: with 3 wall-rune slots (see
+// DungeonRenderer3D's RUNE_* constants / ExploreState.resolveArcaneSigil),
+// a floor's Arcane Sigil count needed to match so "collect all of them"
+// is actually achievable within a single floor.
+const ARCANE_SIGIL_COUNT = 3;
 const WANDERING_SATCHEL_COUNT = 1;
 const WOUNDED_ANIMAL_COUNT = 1;
 const ELEVATOR_COUNT = 1;

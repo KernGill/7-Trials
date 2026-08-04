@@ -62,10 +62,12 @@ export function buildEventMarkerGeometries(TILE_SIZE) {
     sigilInnerRing: new THREE.TorusGeometry(s * 0.14, s * 0.02, 6, 20),
     sigilShard: new THREE.TetrahedronGeometry(s * 0.1),
 
-    // Wandering Satchel: a squashed rounded pouch + a flap + a carry loop.
-    satchelBody: new THREE.SphereGeometry(s * 0.24, 10, 8),
-    satchelFlap: new THREE.BoxGeometry(s * 0.3, s * 0.06, s * 0.2),
-    satchelLoop: new THREE.TorusGeometry(s * 0.16, s * 0.02, 6, 16, Math.PI),
+    // Wandering Satchel: a modern briefcase — a slim rectangular case, a
+    // seam where the lid meets the base, twin latches, and an arched handle.
+    satchelBody: new THREE.BoxGeometry(s * 0.52, s * 0.34, s * 0.15),
+    satchelSeam: new THREE.BoxGeometry(s * 0.53, s * 0.018, s * 0.01),
+    satchelLatch: new THREE.BoxGeometry(s * 0.055, s * 0.05, s * 0.025),
+    satchelHandle: new THREE.TorusGeometry(s * 0.1, s * 0.016, 6, 16, Math.PI),
 
     // Wounded Animal: a low curled body + head + ears + a drooping tail.
     animalBody: new THREE.SphereGeometry(s * 0.24, 10, 8),
@@ -189,9 +191,11 @@ export function getMarkerLayout(type, geo, TILE_SIZE, fallbackColor) {
     case TILE_TYPES.WANDERING_SATCHEL:
       return {
         parts: [
-          part(geo.satchelBody, 0x8a5a2f, pt(0, 0.22, 0), IDENTITY_ROT, [1, 0.85, 0.9]), // brown leather
-          part(geo.satchelFlap, 0x5f3d20, pt(0, 0.36, 0.02), [0.35, 0, 0]), // darker leather flap
-          part(geo.satchelLoop, 0xb98a4e, pt(0, 0.5, -0.08), [0, 0, Math.PI / 2]), // tan strap
+          part(geo.satchelBody, 0x2b2b30, pt(0, 0.19, 0)), // charcoal case
+          part(geo.satchelSeam, 0x18181b, pt(0, 0.19, 0.076)), // lid/base seam line, front face
+          part(geo.satchelLatch, 0xb8933f, pt(0.14, 0.2, 0.083)), // brass latch
+          part(geo.satchelLatch, 0xb8933f, pt(-0.14, 0.2, 0.083)), // brass latch
+          part(geo.satchelHandle, 0x9a9aa2, pt(0, 0.37, 0)), // brushed-steel handle, arching over the top
         ],
       };
 

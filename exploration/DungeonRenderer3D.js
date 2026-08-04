@@ -5,6 +5,8 @@ import { t } from '../ui/i18n.js';
 import { createBrickWallTexture, createStoneFloorTexture } from './Textures.js';
 import { buildReliefWallGeometry } from './WallRelief.js';
 import { buildEventMarkerGeometries, getMarkerLayout } from './EventMarkers.js';
+import { createRuneGlowTexture, RUNE_COLORS, RUNE_GLYPHS } from './ArcaneRunes.js';
+import { buildPlayerModel, disposePlayerModel } from './PlayerModel.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
   DEFAULT_CAMERA_ANGLE, DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_SENSITIVITY_PERCENT, DEFAULT_CAMERA_ZOOM_PERCENT,
@@ -251,16 +253,67 @@ function torchHue(dist) {
 // normal and makes whichever wall is newly "behind" transparent instead.
 const BEHIND_WALL_OPACITY = 0.15;
 
-const PLAYER_SPRITE_PATH = '../assets/sprites/characters/artius.png';
 const PLAYER_HEIGHT = TILE_SIZE * 0.6;
 const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
-// SpriteMaterial is unlit, so unlike every tile mesh (which dims with
-// distance via blendColor) the player sprite would otherwise always render
-// at full, un-dimmed brightness — and since it always sits at distance 0,
-// right in front of the camera, that made it look glaringly bright next to
-// the tiles around it. Flat tint, not a fade: there's no "distance" for the
-// sprite to fade over.
-const PLAYER_SPRITE_BRIGHTNESS = 0.75;
+
+// Arcane Sigil wall runes — see setDungeon()'s wall-panel loop and
+// addArcaneRune(). Each completed Arcane Sigil this floor (up to
+// ARCANE_SIGIL_COUNT — see DungeonGenerator.js) engraves one more glowing
+// rune onto EVERY wall panel in the dungeon — centered on the panel's own
+// width, stacked bottom to top in completion order (the first one sits at
+// RUNE_HEIGHT_Y, "a little above eye level"; each later one appears one
+// RUNE_SPACING higher), floating just off the wall surface. Per user
+// request each rune is now genuine 3D geometry (a white extruded "beam" —
+// see _addRuneMesh) with real thickness, not a flat painted glyph, plus a
+// real additive-blended glow quad radiating the stat's own color around it
+// (see ArcaneRunes.js's createRuneGlowTexture). Fixed size/height, never
+// rebuilt per-frame: unlike floor/wall color these don't fade continuously
+// with distance — they're just visible or not, exactly following their
+// parent wall panel's own visibility flag (see updateVisibility()'s wall
+// branch), same as how a real light source would still read as bright
+// right up until it's out of sight entirely, rather than dimming into mud
+// like inert stone.
+const RUNE_GLYPH_SIZE = TILE_SIZE * 0.64; // twice the previous (already-doubled) size, per user request
+const RUNE_BAR_WIDTH = RUNE_GLYPH_SIZE * 0.1; // in-plane stroke thickness of each beam segment
+const RUNE_BAR_DEPTH = RUNE_GLYPH_SIZE * 0.07; // extrusion depth (sticks out from the wall) — the actual "3D, not 2D" part
+const RUNE_GLOW_SIZE = RUNE_GLYPH_SIZE * 1.25; // the additive glow quad — bigger than the glyph itself so light visibly radiates past its edges, but not so big 3 stacked runes wash out into one blown-out blob (see createRuneGlowTexture's own reduced peak alpha for the other half of that fix)
+const RUNE_HEIGHT_Y = PLAYER_HEIGHT + TILE_SIZE * 0.4; // "a little higher than eye level" — where the FIRST (bottom-most) rune sits
+const RUNE_SPACING = RUNE_GLYPH_SIZE * 1.35; // vertical gap between stacked runes' centers — plenty of headroom on a WALL_HEIGHT-tall panel, unlike the old horizontal layout; wide enough that adjacent glyphs' tips don't touch
+const RUNE_FORWARD_OFFSET = WALL_THICKNESS / 2 + TILE_SIZE * 0.08; // clears the wall's own thickness + brick relief depth — "just ever so slightly" off the wall
+// Player model walk-cycle (see PlayerModel.js/_updatePlayerModel) — a flat
+// billboard "paper doll": one static Sprite for the head/torso plus four
+// separate limb Sprites (legL/legR/armL/armR) pivoting via SpriteMaterial's
+// own `rotation` (around each Sprite's `center` anchor, set to its top edge
+// — see buildPlayerModel), so limbs swing in-plane while every sprite still
+// auto-faces the camera like the original single billboard did.
+//
+// Each limb Sprite's rest POSITION is a small fixed offset in the model
+// root's local X/Z (see PlayerModel.js's PIVOT_BOXES) — that offset reads
+// correctly as "left/right of the torso" only when the camera is roughly
+// in front of the model. Sprites don't rotate to face the camera (only
+// their position moves with the parent), so as the camera orbits away from
+// that front-on angle, the limbs' fixed offsets increasingly misproject —
+// by 90°/180° they visibly detach from the torso ("floating"). Per user
+// report, PLAYER_BILLBOARD_MAX_ANGLE caps how far that misprojection is
+// ever allowed to get: once the camera has orbited more than this many
+// radians from the model's own root.rotation.y, the root itself starts
+// rotating to keep pace (see the tail end of _updatePlayerModel), holding
+// the camera-relative angle at exactly the cap instead of growing further.
+// Below the cap, root.rotation.y just sits still — the limbs are meant to
+// read as very slightly off-axis there, not perfectly re-centered every
+// frame.
+const PLAYER_BILLBOARD_MAX_ANGLE = Math.PI / 6; // 30°
+const PLAYER_WALK_MOVE_EPSILON = 0.0008; // per-frame distance below which we treat the player as standing still
+const PLAYER_WALK_EASE_SPEED = 8; // how fast the walk-cycle amplitude ramps in/out when starting/stopping
+// Walk phase advances per WORLD UNIT TRAVELED, not per second — so stride
+// cadence automatically tracks actual movement speed (the Walk Speed
+// setting, ExploreState's PLAYER_MOVE_SPEED, or any future speed modifier)
+// instead of playing back at a fixed rate regardless of how fast the
+// character is actually crossing the floor.
+const PLAYER_WALK_STRIDE_RATE = 1.5; // radians of walk-phase per world-unit traveled
+const PLAYER_WALK_SWING_MAX = 0.35; // max limb swing angle (radians) at full stride — deliberately subtle ("moving a little") for a 2D sprite
+const PLAYER_ARM_SWING_RATIO = 0.8; // arms swing slightly less than legs, opposite the same-side leg
+const PLAYER_WALK_BOB_HEIGHT = TILE_SIZE * 0.02; // subtle vertical bob, peaks once per half-stride
 
 const CAMERA_HORIZONTAL_OFFSET = TILE_SIZE; // camera sits up to 1 tile behind the player at angle=0, shrinking toward 0 as angle approaches 90 (bird's eye)
 // Extra height added to the look-at target only (not the camera) — aims
@@ -582,14 +635,19 @@ export class DungeonRenderer3D {
     this._shakeUntil = 0;
     this._shakeMagnitude = 0;
 
-    const spriteUrl = new URL(PLAYER_SPRITE_PATH, import.meta.url).href;
-    const spriteMaterial = new THREE.SpriteMaterial({
-      map: new THREE.TextureLoader().load(spriteUrl),
-      color: new THREE.Color().setScalar(PLAYER_SPRITE_BRIGHTNESS),
-    });
-    this.playerSprite = new THREE.Sprite(spriteMaterial);
-    this.playerSprite.scale.set(TILE_SIZE, TILE_SIZE, 1);
-    this.scene.add(this.playerSprite);
+    // Flat billboard "paper doll" (see PlayerModel.js) — a static head/torso
+    // Sprite plus four limb Sprites that swing via SpriteMaterial.rotation.
+    // `root` sits with its feet at floor level (y=0); DungeonRenderer3D
+    // moves it and drives the limb swing every frame in _updatePlayerModel
+    // (called from update()).
+    const builtPlayer = buildPlayerModel(TILE_SIZE);
+    this.playerModel = builtPlayer.root;
+    this._playerModelParts = builtPlayer.parts;
+    this.scene.add(this.playerModel);
+    this._walkPhase = 0;
+    this._walkAmount = 0;
+    this._prevPlayerPos = new THREE.Vector3();
+    this._playerBillboardRight = new THREE.Vector3(); // scratch vector for _updatePlayerModel's dead-zone yaw follow
 
     // One shared stone texture each for every wall panel / floor tile's
     // material (see Textures.js) — three.js multiplies a material's `map`
@@ -634,6 +692,22 @@ export class DungeonRenderer3D {
       // EventMarkers.js. Enemy/hidden-enemy tiles are the one deliberate
       // exception, still a plain cube (see that file's comment).
       eventMarkers: buildEventMarkerGeometries(TILE_SIZE),
+      // Arcane Sigil wall runes (see the RUNE_* constants and
+      // _addRuneMesh) — three shared geometries reused across every rune
+      // on every wall in the dungeon, regardless of stat:
+      // - runeBarBeam: a unit-length box (width=RUNE_BAR_WIDTH,
+      //   depth=RUNE_BAR_DEPTH) for each glyph's straight-line segments —
+      //   _addRuneMesh scales its Y per-instance to match that segment's
+      //   real length, so one geometry serves every segment of every
+      //   glyph. The BOX's depth is what makes this "actually 3D" — a
+      //   real extruded beam, not a flat painted line.
+      // - runeRing: a torus for con's circle (the one non-straight glyph
+      //   — see ArcaneRunes.js's RUNE_GLYPHS.con).
+      // - runeGlow: the additive glow quad every rune gets behind/around
+      //   its beam (see this._mat.runeGlowByStat).
+      runeBarBeam: new THREE.BoxGeometry(RUNE_BAR_WIDTH, 1, RUNE_BAR_DEPTH),
+      runeRing: new THREE.TorusGeometry(0.5 * RUNE_GLYPH_SIZE, RUNE_BAR_WIDTH / 2, 8, 28),
+      runeGlow: new THREE.PlaneGeometry(RUNE_GLOW_SIZE, RUNE_GLOW_SIZE),
     };
     ['wallPanelNorth', 'wallPanelSouth', 'wallPanelEast', 'wallPanelWest'].forEach((key) => {
       applyWallHeightGradient(this._geo[key], WALL_HEIGHT_GRADIENT_SPAN, WALL_HEIGHT_BRIGHTNESS_TOP);
@@ -686,6 +760,29 @@ export class DungeonRenderer3D {
       // Behind-the-player occlusion override — see BEHIND_WALL_OPACITY comment above. depthWrite:false since semi-transparent geometry writing depth lets its own back faces fight its front faces (and neighboring geometry) for the depth buffer in an undefined order.
       behindWall: new THREE.MeshBasicMaterial({ color: COLOR_WALL, transparent: true, depthWrite: false, opacity: BEHIND_WALL_OPACITY, vertexColors: true, map: this._wallTexture, side: THREE.DoubleSide }),
     };
+    // Arcane Sigil rune materials — see ArcaneRunes.js's file comment for
+    // why the glow one is deliberately real alpha (additive is
+    // order-independent, so it never causes the depth-sorting artifacts
+    // real blending causes elsewhere in this renderer).
+    // The beam/ring itself is always plain white — ONE shared opaque
+    // material for every stat's solid geometry (see runeBarBeam/runeRing
+    // above); the stat's own color lives entirely in the glow underneath.
+    this._mat.runeCore = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    // One additive glow material per stat, each with its own baked
+    // radial-gradient texture — shared across every wall panel that's
+    // earned that rune. depthWrite:false (standard for additive glow
+    // quads) so it never blocks anything behind it; AdditiveBlending sums
+    // light instead of alpha-compositing, so overlapping glows from
+    // adjacent runes just brighten rather than fighting for draw order.
+    this._runeTextures = {};
+    this._mat.runeGlowByStat = {};
+    Object.keys(RUNE_COLORS).forEach((stat) => {
+      const texture = createRuneGlowTexture(stat);
+      this._runeTextures[stat] = texture;
+      this._mat.runeGlowByStat[stat] = new THREE.MeshBasicMaterial({
+        map: texture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      });
+    });
 
     this._onResize = () => this.resize();
     window.addEventListener('resize', this._onResize);
@@ -961,10 +1058,78 @@ export class DungeonRenderer3D {
       this._lookYaw += shortestAngleDelta(this._lookYaw, this._yawSnapTarget) * tweenT;
     }
     this._applyCameraFromCurrentState();
-    this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
+    this._updatePlayerModel(dt);
     this.updateVisibility(dt);
     if (this._playerGridX !== undefined) {
       this._applyBehindWallOcclusion(this._playerGridX, this._playerGridY, nearestFacingFromYaw(this._lookYaw));
+    }
+  }
+
+  /**
+   * Poses the player model (see PlayerModel.js) every frame: position
+   * follows currentPlayerPos (feet at floor level, no PLAYER_HEIGHT offset
+   * — that constant is for eye-level references like RUNE_HEIGHT_Y, not
+   * this model), and a walk-cycle swings the limb sprites' in-plane
+   * rotation while actually moving. No-ops until the first setPlayerState()
+   * call (mirrors _applyCameraFromCurrentState's guard) since there's
+   * nothing meaningful to pose before that.
+   *
+   * Movement is detected generically — how far currentPlayerPos actually
+   * moved since last frame — rather than reading any one movement code
+   * path directly, so this works identically whether the position just
+   * came from update()'s own tween (setPlayerState) or was set directly
+   * moments ago (setPlayerPositionLive). There's no movement-facing logic
+   * here — these are billboard sprites (always facing the camera, like the
+   * original single sprite) — but the root DOES still rotate, purely to
+   * keep the limb sprites' fixed local offsets from misprojecting once the
+   * camera has orbited too far around the model; see
+   * PLAYER_BILLBOARD_MAX_ANGLE above.
+   */
+  _updatePlayerModel(dt) {
+    if (this._lookYaw === undefined) return;
+    const movedDist = this.currentPlayerPos.distanceTo(this._prevPlayerPos);
+    const moving = movedDist > PLAYER_WALK_MOVE_EPSILON;
+    const walkEase = 1 - Math.exp(-PLAYER_WALK_EASE_SPEED * dt);
+    this._walkAmount += ((moving ? 1 : 0) - this._walkAmount) * walkEase;
+    this._walkPhase += movedDist * PLAYER_WALK_STRIDE_RATE;
+    this._prevPlayerPos.copy(this.currentPlayerPos);
+
+    const swing = Math.sin(this._walkPhase) * PLAYER_WALK_SWING_MAX * this._walkAmount;
+    const parts = this._playerModelParts;
+    parts.legL.material.rotation = swing;
+    parts.legR.material.rotation = -swing;
+    parts.armL.material.rotation = -swing * PLAYER_ARM_SWING_RATIO;
+    parts.armR.material.rotation = swing * PLAYER_ARM_SWING_RATIO;
+
+    const bob = Math.abs(Math.sin(this._walkPhase)) * PLAYER_WALK_BOB_HEIGHT * this._walkAmount;
+    this.playerModel.position.set(this.currentPlayerPos.x, bob, this.currentPlayerPos.z);
+
+    // Dead-zone yaw follow (see PLAYER_BILLBOARD_MAX_ANGLE): only rotate
+    // the root by however much the camera has drifted PAST the cap, so it
+    // sits still inside the cap and just keeps pace beyond it, rather than
+    // constantly re-centering on the camera every frame.
+    //
+    // The target angle is read directly off the camera's own world-space
+    // right vector (matrixWorld's first column) rather than derived from
+    // _lookYaw by formula — _lookYaw follows this renderer's own camera-
+    // orbit convention (see _applyCameraFromCurrentState's facingVec),
+    // which is NOT the same convention root.rotation.y uses to place local
+    // +X in world space, and getting that conversion's sign/offset wrong
+    // silently produces exactly this bug (limbs swinging further OUT as
+    // the camera orbits instead of staying put) — reading the camera's
+    // actual basis vector sidesteps needing that conversion to be right.
+    // updateMatrixWorld() forces matrixWorld to reflect the position/
+    // lookAt _applyCameraFromCurrentState() just set THIS frame — it's
+    // otherwise only refreshed by the renderer's own render() call, which
+    // would read last frame's (stale) camera orientation here instead.
+    this.camera.updateMatrixWorld();
+    this._playerBillboardRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const targetYaw = Math.atan2(-this._playerBillboardRight.z, this._playerBillboardRight.x);
+    const yawDiff = shortestAngleDelta(this.playerModel.rotation.y, targetYaw);
+    if (yawDiff > PLAYER_BILLBOARD_MAX_ANGLE) {
+      this.playerModel.rotation.y += yawDiff - PLAYER_BILLBOARD_MAX_ANGLE;
+    } else if (yawDiff < -PLAYER_BILLBOARD_MAX_ANGLE) {
+      this.playerModel.rotation.y += yawDiff + PLAYER_BILLBOARD_MAX_ANGLE;
     }
   }
 
@@ -1070,9 +1235,14 @@ export class DungeonRenderer3D {
             worldZ + (dy * TILE_SIZE) / 2,
           );
           this.dungeonGroup.add(panel);
-          walls.push({
+          const wallEntry = {
             mesh: panel, dx, dy, isNS, ambientMaterial, reliefMaterial, ambientGeometry, torchGeometry,
-          });
+          };
+          // Picks up whatever Arcane Sigil runes have already been earned
+          // this floor (normally none — see syncArcaneRunes()'s comment on
+          // when this matters, e.g. floor 5's hidden-gate rebuild).
+          this._syncWallRunes(wallEntry, this.app?.gameState?.run?.floorRunes ?? []);
+          walls.push(wallEntry);
         });
         this.tileMeshes.set(tileKey(tile.x, tile.y), {
           walls, type: TILE_TYPES.WALL, x: tile.x, y: tile.y,
@@ -1102,6 +1272,92 @@ export class DungeonRenderer3D {
     });
 
     this.scene.add(this.dungeonGroup);
+  }
+
+  /**
+   * Re-syncs EVERY wall panel currently built with the current
+   * run.floorRunes (one stat id per completed Arcane Sigil this floor, in
+   * completion order — see ExploreState.resolveArcaneSigil). Called once
+   * per wall panel from setDungeon() as it's built (normally a no-op set
+   * of runes, since floorRunes resets every floor — but not always: floor
+   * 5's hidden-gate reveal rebuilds geometry via a second setDungeon()
+   * call on the SAME floor, after sigils may already be done), and again
+   * by ExploreState.resolveArcaneSigil right after a successful Arcane
+   * Sigil, so every ALREADY-visible wall panel in the currently-built
+   * dungeon picks up the newly-earned rune immediately — no floor rebuild,
+   * no camera snap. Idempotent: each wall panel remembers how many runes
+   * it already has (`runeCount`) and only ever adds what's missing.
+   */
+  syncArcaneRunes() {
+    const stats = this.app?.gameState?.run?.floorRunes ?? [];
+    this.tileMeshes.forEach((entry) => {
+      entry.walls?.forEach((w) => this._syncWallRunes(w, stats));
+    });
+  }
+
+  _syncWallRunes(wallEntry, stats) {
+    const have = wallEntry.runeCount ?? 0;
+    for (let i = have; i < stats.length; i += 1) {
+      this._addRuneMesh(wallEntry, stats[i], i);
+    }
+    wallEntry.runeCount = stats.length;
+  }
+
+  /**
+   * Mounts one glowing rune (see ArcaneRunes.js's RUNE_GLYPHS) as a CHILD
+   * of the wall panel's own mesh — not a separate top-level object — so it
+   * automatically inherits the panel's own show/hide toggling in
+   * updateVisibility() (Object3D visibility is inherited by children; see
+   * that method's doc comment) with no extra per-frame bookkeeping here.
+   * The panel is never rotated (its geometry is pre-built already facing
+   * outward — see WallRelief.js's OUTWARD table), so the child GROUP's
+   * local position/rotation ARE its effective world position/rotation
+   * relative to the panel. `slotIndex` (0/1/2) stacks it bottom-to-top,
+   * centered on the panel's own horizontal middle — see RUNE_HEIGHT_Y/
+   * RUNE_SPACING's comments.
+   *
+   * Each rune is a small Group: one additive glow quad (this._geo.runeGlow
+   * + this._mat.runeGlowByStat[stat]) plus the solid white 3D beam itself
+   * — a runeBarBeam box per glyph segment (scaled per-instance to match
+   * that segment's real length and rotated to span it) and, for `con`
+   * only, a runeRing torus for its circle. All of it lives in the glyph's
+   * own LOCAL unit space scaled by RUNE_GLYPH_SIZE, exactly like
+   * EventMarkers.js's `pt()` convention.
+   */
+  _addRuneMesh(wallEntry, stat, slotIndex) {
+    const glowMaterial = this._mat.runeGlowByStat[stat];
+    if (!glowMaterial) return;
+    const glyph = RUNE_GLYPHS[stat] ?? RUNE_GLYPHS.str;
+    const { dx, dy, mesh: panel } = wallEntry;
+
+    const group = new THREE.Group();
+
+    const glow = new THREE.Mesh(this._geo.runeGlow, glowMaterial);
+    group.add(glow);
+
+    glyph.segments.forEach(([[x1, y1], [x2, y2]]) => {
+      const bx1 = x1 * RUNE_GLYPH_SIZE; const by1 = y1 * RUNE_GLYPH_SIZE;
+      const bx2 = x2 * RUNE_GLYPH_SIZE; const by2 = y2 * RUNE_GLYPH_SIZE;
+      const length = Math.hypot(bx2 - bx1, by2 - by1);
+      const bar = new THREE.Mesh(this._geo.runeBarBeam, this._mat.runeCore);
+      bar.scale.y = length;
+      bar.position.set((bx1 + bx2) / 2, (by1 + by2) / 2, 0);
+      bar.rotation.z = Math.atan2(by2 - by1, bx2 - bx1) - Math.PI / 2;
+      group.add(bar);
+    });
+    if (glyph.circle) {
+      group.add(new THREE.Mesh(this._geo.runeRing, this._mat.runeCore));
+    }
+
+    // Centered horizontally (no left/right offset) — only forward (off the
+    // wall) and vertical (stacked by slotIndex) position vary.
+    group.position.set(
+      dx * RUNE_FORWARD_OFFSET,
+      RUNE_HEIGHT_Y - WALL_HEIGHT / 2 + slotIndex * RUNE_SPACING,
+      dy * RUNE_FORWARD_OFFSET,
+    );
+    group.rotation.y = Math.atan2(dx, dy);
+    panel.add(group);
   }
 
   _applyMarker(tile, entry) {
@@ -1353,7 +1609,11 @@ export class DungeonRenderer3D {
       this.currentPlayerPos.copy(this.desiredPlayerPos);
       this._lookYaw = FACING_ANGLES[facing] ?? FACING_ANGLES.south;
       this._applyCameraFromCurrentState();
-      this.playerSprite.position.set(this.currentPlayerPos.x, PLAYER_HEIGHT, this.currentPlayerPos.z);
+      this.playerModel.position.set(this.currentPlayerPos.x, 0, this.currentPlayerPos.z);
+      // _prevPlayerPos starts equal to the spawn position so the very first
+      // _updatePlayerModel() call doesn't read a false "moved here from the
+      // origin" walk cycle.
+      this._prevPlayerPos.copy(this.currentPlayerPos);
     }
     // Reads currentPlayerPos, so this must run after the first-call snap
     // above — every subsequent frame's update() keeps this current as the
@@ -1418,8 +1678,8 @@ export class DungeonRenderer3D {
     // `map`, so these need their own explicit dispose here too.
     this._wallTexture?.dispose();
     this._floorTexture?.dispose();
-    this.playerSprite?.material.map?.dispose();
-    this.playerSprite?.material.dispose();
+    Object.values(this._runeTextures ?? {}).forEach((texture) => texture.dispose());
+    disposePlayerModel(this.playerModel);
     this.renderer?.dispose();
     this.canvas?.remove();
     this.scene = null;
@@ -1429,6 +1689,7 @@ export class DungeonRenderer3D {
     this.container = null;
     this.tileMeshes = null;
     this.dungeonGroup = null;
-    this.playerSprite = null;
+    this.playerModel = null;
+    this._playerModelParts = null;
   }
 }
