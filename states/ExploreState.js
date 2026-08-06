@@ -1,5 +1,6 @@
 import { TILE_TYPES } from '../exploration/Tile.js';
 import { ARCANE_SIGIL_COUNT } from '../exploration/DungeonGenerator.js';
+import { getHiddenBossForFloor } from '../data/hiddenBosses.js';
 import { PauseOverlay } from './PauseOverlay.js';
 import { getConsumableConfig } from '../data/consumables.js';
 import { getMaterialConfig } from '../data/items.js';
@@ -1095,7 +1096,10 @@ export class ExploreState {
         setTimeout(() => {
           tile.meta.resolved = true;
           tile.type = TILE_TYPES.FLOOR;
-          app.startCombat('vanguard_of_darkness', { noScale: true });
+          // Guaranteed non-null: a HIDDEN_ENEMY tile only ever exists on a
+          // floor whose hidden boss config placed it (see DungeonGenerator's
+          // getHiddenBossForFloor-gated placeHiddenArenaFromStairs call).
+          app.startCombat(getHiddenBossForFloor(run.floor).id, { noScale: true });
         }, HIDDEN_BOSS_TRANSITION_MS);
         break;
       }
@@ -2968,8 +2972,9 @@ export class ExploreState {
    * Sealed Shrine/Arcane Sigil/Wandering Satchel/Wounded Animal resolvers
    * never call this or updateThiefStreak. Contrast with
    * checkHiddenGateUnlock, which reads getRemainingEventCounts() across ALL
-   * 7 types — since floor 5's gate should require the floor genuinely
-   * cleared, not leave 4 new event types permanently unclearable there —
+   * 7 types — since a hidden boss's gate should require the floor
+   * genuinely cleared, not leave 4 new event types permanently unclearable
+   * there —
    * though per a later user request, that gate treats Arcane Sigil
    * specially (needs `run.floorRunes` at ARCANE_SIGIL_COUNT, i.e. actually
    * ACTIVATED, not merely attempted like the other 6 types).
@@ -3024,22 +3029,28 @@ export class ExploreState {
   }
 
   /**
-   * Floor 5 only: the hidden hallway's mid-point gate (see
-   * DungeonGenerator.placeHiddenArena) stays a plain WALL — reading as an
-   * ordinary dead end — until the floor is genuinely finished: every
-   * regular enemy dead and every event ATTEMPTED (see getRemainingEventCounts'
-   * resolved-not-looted convention — a failed QTE still counts). Arcane
-   * Sigil is the one exception per user request: since a failed sigil
-   * attempt earns no buff/rune, the gate instead requires all
-   * ARCANE_SIGIL_COUNT of them genuinely ACTIVATED (run.floorRunes, only
-   * pushed to on success — see resolveArcaneSigil), not merely attempted.
-   * Only then does it open, per user request, so finding the "dead end"
-   * early doesn't shortcut clearing the floor. Self-guards on the gate
-   * tile's own type, so it's cheap and safe to call from every renderHUD().
+   * Every hidden-boss floor (1/5/8/10 — see data/hiddenBosses.js): the
+   * hidden hallway's mid-point gate (see DungeonGenerator.placeHiddenArena)
+   * stays a plain WALL — reading as an ordinary dead end — until the floor
+   * is genuinely finished: every regular enemy dead and every event
+   * ATTEMPTED (see getRemainingEventCounts' resolved-not-looted convention
+   * — a failed QTE still counts). Arcane Sigil is the one exception per
+   * user request: since a failed sigil attempt earns no buff/rune, the
+   * gate instead requires all ARCANE_SIGIL_COUNT of them genuinely
+   * ACTIVATED (run.floorRunes, only pushed to on success — see
+   * resolveArcaneSigil), not merely attempted. A boss further down the
+   * chain (Warrior/Herald/The Abyss' Old Hero) additionally requires the
+   * PREVIOUS boss already beaten this run (`requiresDefeatedFlag`) on top
+   * of all of the above. Only then does it open, per user request, so
+   * finding the "dead end" early doesn't shortcut clearing the floor.
+   * Self-guards on the gate tile's own type, so it's cheap and safe to
+   * call from every renderHUD().
    */
   checkHiddenGateUnlock() {
     const run = this.app.gameState.run;
-    if (run.floor !== 5) return;
+    const bossConfig = getHiddenBossForFloor(run.floor);
+    if (!bossConfig) return;
+    if (bossConfig.requiresDefeatedFlag && !run[bossConfig.requiresDefeatedFlag]) return;
     const gateTile = (run.dungeon?.tiles ?? []).find((tile) => tile.meta.isHiddenGate);
     if (!gateTile || gateTile.type !== TILE_TYPES.WALL) return;
     if (run.enemiesRemaining > 0) return;

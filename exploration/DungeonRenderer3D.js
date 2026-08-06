@@ -9,6 +9,7 @@ import {
   createRuneGlowTexture, RUNE_COLORS, RUNE_GLYPHS,
   buildVineStemGeometry, buildVineLeafGeometry, buildCornerSprigGeometry, VINE_COLOR,
 } from './ArcaneRunes.js';
+import { getHiddenBossForFloor } from '../data/hiddenBosses.js';
 import { buildPlayerModel, disposePlayerModel } from './PlayerModel.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
@@ -1188,14 +1189,19 @@ export class DungeonRenderer3D {
     // camera/sprite to it on the next setPlayerState() rather than
     // tweening a long swoop across the whole dungeon.
     this._playerStateInitialized = false;
-    // Vanguard-calling wall effect (see VANGUARD_CALLING_WALL_RADIUS) —
+    // "Calling" wall-darkening effect (see VANGUARD_CALLING_WALL_RADIUS) —
     // cached once per setDungeon() call rather than re-scanning
-    // dungeon.tiles every frame in updateVisibility(). Only floor 5's
-    // dungeon has a tile with meta.isHiddenGate at all, so this is null
-    // (effect off) on every other floor automatically; checkHiddenGateUnlock()
-    // mutates THIS SAME tile object's .type in place (never replaces it),
-    // so re-reading .type off the cached reference each frame stays live.
+    // dungeon.tiles every frame in updateVisibility(). Only a hidden-boss
+    // floor's dungeon has a tile with meta.isHiddenGate at all (see
+    // data/hiddenBosses.js), so this is null (effect off) on every other
+    // floor automatically; checkHiddenGateUnlock() mutates THIS SAME tile
+    // object's .type in place (never replaces it), so re-reading .type off
+    // the cached reference each frame stays live. _callingHiddenBoss looks
+    // up which boss (and therefore which defeatedFlag) belongs to THIS
+    // floor, so updateVisibility() below doesn't need to redo that lookup
+    // every frame — see that method's vanguardCalling boolean.
     this._callingGateTile = dungeon.tiles.find((t) => t.meta.isHiddenGate) ?? null;
+    this._callingHiddenBoss = this._callingGateTile ? getHiddenBossForFloor(this.app?.gameState?.run?.floor) : null;
 
     const tilesByKey = new Map(dungeon.tiles.map((t) => [tileKey(t.x, t.y), t]));
     // Keyed by CARDINAL_DIRS' `side` string, not by isNS — see the relief
@@ -1539,11 +1545,14 @@ export class DungeonRenderer3D {
     const py = this.currentPlayerPos.z / TILE_SIZE;
     // See the VANGUARD_CALLING_* constants' comment — overrides wall AND
     // floor coloring (markers keep their normal continuous behavior)
-    // whenever floor 5's gate is open and Vanguard hasn't been beaten yet
-    // this run.
+    // whenever the current floor's own hidden gate is open and ITS boss
+    // (see _callingHiddenBoss, cached per setDungeon()) hasn't been beaten
+    // yet this run — generalized from a single hardcoded vanguardDefeated
+    // read so every hidden-boss floor (1/5/8/10) gets the same effect.
     const vanguardCalling = !!this._callingGateTile
       && this._callingGateTile.type === TILE_TYPES.FLOOR
-      && !this.app?.gameState?.run?.vanguardDefeated;
+      && !!this._callingHiddenBoss
+      && !this.app?.gameState?.run?.[this._callingHiddenBoss.defeatedFlag];
 
     this.tileMeshes.forEach((entry) => {
       const dx = entry.x - px;

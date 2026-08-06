@@ -1,5 +1,6 @@
 import { TILE_TYPES, Tile } from './Tile.js';
 import { randomInt, shuffle } from '../utils/MathUtils.js';
+import { getHiddenBossForFloor } from '../data/hiddenBosses.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
@@ -29,8 +30,9 @@ const SEALED_SHRINE_COUNT = 2;
 // a floor's Arcane Sigil count needed to match so "collect all of them"
 // is actually achievable within a single floor.
 // Exported so ExploreState.checkHiddenGateUnlock can require all of them
-// genuinely ACTIVATED (not just attempted) to open floor 5's hidden gate —
-// see that method's comment.
+// genuinely ACTIVATED (not just attempted) to open a floor's hidden gate
+// (every hidden-boss floor, not just floor 5 — see data/hiddenBosses.js)
+// — see that method's comment.
 export const ARCANE_SIGIL_COUNT = 3;
 const WANDERING_SATCHEL_COUNT = 1;
 const WOUNDED_ANIMAL_COUNT = 1;
@@ -475,11 +477,11 @@ export class DungeonGenerator {
       : shuffle(carved.filter((t) => t !== startTile))[0];
     stairsTile.type = TILE_TYPES.STAIRS;
 
-    // Floor 5 only, and only now that we know exactly where the stairs
-    // ended up — see placeHiddenArenaFromStairs's doc comment for why this
-    // walks straight out of the normal grid instead of being reserved
-    // inside it.
-    if (floor === 5) placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height);
+    // Only on a floor with a hidden superboss (see data/hiddenBosses.js),
+    // and only now that we know exactly where the stairs ended up — see
+    // placeHiddenArenaFromStairs's doc comment for why this walks straight
+    // out of the normal grid instead of being reserved inside it.
+    if (getHiddenBossForFloor(floor)) placeHiddenArenaFromStairs(byKey, tiles, stairsTile, width, height);
 
     const remaining = shuffle(carved.filter((t) => t !== startTile && t !== stairsTile));
     const enemyCount = Math.min(this.arcConfig.enemiesPerFloor ?? 5, remaining.length);

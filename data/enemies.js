@@ -283,6 +283,147 @@ export const ENEMIES = {
       itemPool: ['void_reaver_glaive', 'umbral_striders', 'eclipse_signet'],
     },
   },
+  // Hidden superboss — floor 1, first link in the secret chain (see
+  // data/hiddenBosses.js). Its own hidden gate additionally requires
+  // vanguardDefeated on top of floor 1 being fully cleared — see
+  // ExploreState.checkHiddenGateUnlock. Same never-in-any-enemyPool,
+  // always-{noScale:true} convention as Vanguard.
+  warrior_of_darkness: {
+    id: 'warrior_of_darkness',
+    species: 'warrior',
+    name: 'Warrior of Darkness',
+    description: 'The first and rawest of the dark guardians — no arena tricks, just relentless aggression.',
+    arcs: ['arc0'],
+    isBoss: true,
+    visual: {
+      shape: 'square',
+      width: 64,
+      height: 64,
+      color: '#2b1414',
+      label: 'WARRIOR',
+      spriteId: 'warrior_of_darkness',
+    },
+    baseStats: {
+      con: 2200,
+      dex: 20,
+      str: 60,
+      spd: 150,
+      def: 40,
+      int: 0,
+      critChance: 15,
+      critDamage: 60,
+      dodge: 100,
+      accuracy: 100,
+      energy: 14,
+    },
+    moveIds: [
+      'warrior_reckless_slash',
+      'warrior_savage_momentum',
+      'warrior_bloodfrenzy_cleave',
+      'warrior_unbroken_rage',
+      'warrior_warpath_roar',
+      'warrior_death_throes',
+      'warrior_final_stand',
+    ],
+    drops: {
+      itemPool: ['wraithsteel_warblade', 'berserkers_warwraps'],
+    },
+  },
+  // Hidden superboss — floor 8, second link in the secret chain. Its gate
+  // additionally requires warriorDefeated.
+  herald_of_the_dark: {
+    id: 'herald_of_the_dark',
+    species: 'herald',
+    name: 'Herald of the Dark',
+    description: 'A caster bound to announce the abyss\' arrival — every curse it speaks lingers.',
+    arcs: ['arc0'],
+    isBoss: true,
+    visual: {
+      shape: 'square',
+      width: 64,
+      height: 64,
+      color: '#1a1436',
+      label: 'HERALD',
+      spriteId: 'herald_of_the_dark',
+    },
+    baseStats: {
+      con: 3200,
+      dex: 10,
+      str: 0,
+      spd: 220,
+      def: 60,
+      int: 90,
+      critChance: 15,
+      critDamage: 70,
+      dodge: 100,
+      accuracy: 100,
+      energy: 18,
+    },
+    moveIds: [
+      'herald_abyssal_bolt',
+      'herald_curse_sermon',
+      'herald_withering_gaze',
+      'herald_voice_of_the_abyss',
+      'herald_shroud_ward',
+      'herald_pronouncement_of_doom',
+      'herald_dread_choir',
+      'herald_last_rites',
+      'herald_sermons_end',
+    ],
+    drops: {
+      itemPool: ['voidcall_scepter', 'heralds_vestments', 'doomcallers_circlet'],
+    },
+  },
+  // Hidden superboss — floor 10, arc0's TRUE final boss (see
+  // StateManager.onCombatVictory's floor-10 suppression logic and
+  // data/hiddenBosses.js). Its gate additionally requires heraldDefeated;
+  // beating this one — not the ordinary floor-10 boss — is what completes
+  // arc0 once that prerequisite is met.
+  abyss_old_hero: {
+    id: 'abyss_old_hero',
+    species: 'ancient_hero',
+    name: "The Abyss' Old Hero",
+    description: 'A legendary guardian, lost to the abyss long before this dungeon had a name.',
+    arcs: ['arc0'],
+    isBoss: true,
+    visual: {
+      shape: 'square',
+      width: 64,
+      height: 64,
+      color: '#0d0d1f',
+      label: 'OLD HERO',
+      spriteId: 'abyss_old_hero',
+    },
+    baseStats: {
+      con: 6500,
+      dex: 20,
+      str: 40,
+      spd: 260,
+      def: 120,
+      int: 70,
+      critChance: 25,
+      critDamage: 110,
+      dodge: 100,
+      accuracy: 100,
+      energy: 24,
+    },
+    moveIds: [
+      'abyss_guardian_strike',
+      'abyss_fallen_oath',
+      'abyss_corrupted_vow',
+      'abyss_abyssal_judgment',
+      'abyss_heros_bulwark',
+      'abyss_oathbreakers_snare',
+      'abyss_radiant_ruin',
+      'abyss_undying_vow',
+      'abyss_last_light',
+      'abyss_legends_weight',
+      'abyss_echo_of_the_abyss',
+    ],
+    drops: {
+      itemPool: ['oathkeepers_greatblade', 'ancient_guardians_plate', 'ring_of_the_fallen_hero', 'crown_of_the_abyssal_hero'],
+    },
+  },
 };
 
 export function getEnemyConfig(id) {

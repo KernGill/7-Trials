@@ -128,6 +128,24 @@ export const ACHIEVEMENTS = {
     description: 'Defeat the Vanguard of Darkness.',
     target: 1,
   },
+  defeat_warrior_of_darkness: {
+    id: 'defeat_warrior_of_darkness',
+    name: 'First of the Dark',
+    description: 'Defeat the Warrior of Darkness.',
+    target: 1,
+  },
+  defeat_herald_of_the_dark: {
+    id: 'defeat_herald_of_the_dark',
+    name: "Herald's Silence",
+    description: 'Defeat the Herald of the Dark.',
+    target: 1,
+  },
+  defeat_abyss_old_hero: {
+    id: 'defeat_abyss_old_hero',
+    name: 'The True Ending',
+    description: "Defeat The Abyss' Old Hero.",
+    target: 1,
+  },
 };
 
 export function getAchievementConfig(id) {

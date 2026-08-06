@@ -16,6 +16,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { DungeonGenerator } from '../exploration/DungeonGenerator.js';
 import { Tile, TILE_TYPES } from '../exploration/Tile.js';
 import { getArcForFloor } from '../data/arcs.js';
+import { getHiddenBossById } from '../data/hiddenBosses.js';
 import { rollCardOffer } from '../data/cards.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -408,14 +409,23 @@ export class StateManager {
       // travelToFloor/archiveCurrentFloor) can only ever warp to one of
       // these, each archived to its own lazily-loaded SaveSystem key.
       visitedFloors: [1],
-      // Set true in onCombatVictory() the moment Vanguard of Darkness is
-      // beaten THIS run — unlike achievements.isComplete(), which is a
-      // permanent cross-run flag, this is what actually gates the
-      // "Vanguard calling" wall-lighting effect (see DungeonRenderer3D.
-      // updateVisibility()'s vanguardCalling branch): that effect needs to
-      // fire every time the floor 5 gate opens in a fresh run, even for a
-      // player who's already beaten Vanguard in a past run.
+      // Set true in onCombatVictory() the moment each hidden superboss is
+      // beaten THIS run (see data/hiddenBosses.js's defeatedFlag field) —
+      // unlike achievements.isComplete(), which is a permanent cross-run
+      // flag, these are what actually gate a floor's own "calling"
+      // wall-darkening effect (see DungeonRenderer3D.updateVisibility's
+      // vanguardCalling branch) AND the next boss in the chain's hidden
+      // gate (see ExploreState.checkHiddenGateUnlock's requiresDefeatedFlag
+      // check) — both need to fire fresh every run, even for a player
+      // who's already beaten these bosses in a past run. Warrior of
+      // Darkness (floor 1) requires vanguardDefeated; Herald of the Dark
+      // (floor 8) requires warriorDefeated; The Abyss' Old Hero (floor 10,
+      // arc0's true final boss — see onCombatVictory's floor-10 handling)
+      // requires heraldDefeated.
       vanguardDefeated: false,
+      warriorDefeated: false,
+      heraldDefeated: false,
+      abyssOldHeroDefeated: false,
     };
     // A fresh run (or one explicitly started over via "Begin Anew")
     // discards any pending "Continue: Floor N" offer.
@@ -666,9 +676,10 @@ export class StateManager {
       const config = getEnemyConfig(enemy.enemyId);
       const oneHitKill = enemy.playerHitCount === 1;
 
-      if (enemy.enemyId === 'vanguard_of_darkness') {
-        this.achievements.setComplete('defeat_vanguard_of_darkness');
-        this.gameState.run.vanguardDefeated = true;
+      const hiddenBossConfig = getHiddenBossById(enemy.enemyId);
+      if (hiddenBossConfig) {
+        this.achievements.setComplete(hiddenBossConfig.achievementId);
+        this.gameState.run[hiddenBossConfig.defeatedFlag] = true;
       }
 
       if (config?.species === 'skeleton') {
@@ -739,21 +750,43 @@ export class StateManager {
     // above max, which is fine mid-fight but read as a genuine bug once it
     // showed up in the Explore HUD as e.g. "685/645" until combat next began.
     this.gameState.run.savedHealth = Math.min(this.combatManager.player.currentHealth, this.combatManager.player.getMaxHealth());
-    // The Vanguard was never one of the floor's regular ENEMY tiles (its
-    // own separate HIDDEN_ENEMY tile isn't counted in dungeon.enemiesRemaining
-    // — see DungeonGenerator) — decrementing here for it too would desync
-    // the HUD counter from the true regular-enemy count, and could let
-    // "Enemies remaining" hit 0 (enabling descend / the hidden-gate unlock
-    // check) before the floor's actual enemies are cleared.
-    if (!enemies.some((e) => e.enemyId === 'vanguard_of_darkness')) {
+    // No hidden superboss was ever one of the floor's regular ENEMY tiles
+    // (each one's own separate HIDDEN_ENEMY tile isn't counted in
+    // dungeon.enemiesRemaining — see DungeonGenerator) — decrementing here
+    // for one too would desync the HUD counter from the true regular-enemy
+    // count, and could let "Enemies remaining" hit 0 (enabling descend /
+    // the hidden-gate unlock check) before the floor's actual enemies are
+    // cleared. Floor 10's ORDINARY boss (indebted_fallen_boss) is a real
+    // ENEMY tile and correctly still decrements normally here.
+    if (!enemies.some((e) => getHiddenBossById(e.enemyId))) {
       this.gameState.run.enemiesRemaining -= 1;
     }
     this.gameState.run.explorationBuffs = [];
     this.gameState.addLog(t('log.battle_won'));
 
-    if (this.progression.isBossFloor(this.gameState.run.floor) &&
-        enemies.some((e) => e.isBoss)) {
-      const clearedArc = getArcForFloor(this.gameState.run.floor);
+    // isBossFloor is purely floor-number-based (true for ANY arc's boss
+    // floor, regardless of which enemy was actually just beaten) — on
+    // floor 10 that covers both the ordinary boss tile (always
+    // indebted_fallen_boss, a ProgressionSystem.getBossId(floor) tile
+    // completely separate from the hidden-gate arena) AND The Abyss' Old
+    // Hero (the hidden arc0 final boss, isBoss:true in its own data —
+    // see data/hiddenBosses.js). Per user request: once Herald of the
+    // Dark has been beaten this run, beating the ORDINARY boss no longer
+    // ends the run — it behaves like any other kill, letting the player
+    // keep exploring floor 10 toward the hidden hallway by the stairs.
+    // Beating The Abyss' Old Hero is what completes arc0 in that case
+    // instead; suppression never applies to it (mutually exclusive fights
+    // anyway, but the boolean logic below still isn't gated on which one
+    // fired if `heraldDefeated` is somehow false, e.g. a stray direct kill).
+    const floor = this.gameState.run.floor;
+    const suppressArcCompletion = this.gameState.run.heraldDefeated
+      && enemies.some((e) => e.enemyId === this.progression.getBossId(floor))
+      && !enemies.some((e) => getHiddenBossById(e.enemyId));
+
+    if (this.progression.isBossFloor(floor) &&
+        enemies.some((e) => e.isBoss) &&
+        !suppressArcCompletion) {
+      const clearedArc = getArcForFloor(floor);
       this.progression.completeArc(clearedArc.id); // no-ops if already completed before
       this.gameState.run.active = false;
       this.goHome();
