@@ -28,7 +28,10 @@ const SEALED_SHRINE_COUNT = 2;
 // DungeonRenderer3D's RUNE_* constants / ExploreState.resolveArcaneSigil),
 // a floor's Arcane Sigil count needed to match so "collect all of them"
 // is actually achievable within a single floor.
-const ARCANE_SIGIL_COUNT = 3;
+// Exported so ExploreState.checkHiddenGateUnlock can require all of them
+// genuinely ACTIVATED (not just attempted) to open floor 5's hidden gate —
+// see that method's comment.
+export const ARCANE_SIGIL_COUNT = 3;
 const WANDERING_SATCHEL_COUNT = 1;
 const WOUNDED_ANIMAL_COUNT = 1;
 const ELEVATOR_COUNT = 1;

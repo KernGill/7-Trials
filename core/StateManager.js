@@ -507,14 +507,20 @@ export class StateManager {
    * SaveSystem key, keyed by the floor being left — called right before
    * `run.floor` changes, whether via stairs (applyCardPick) or the
    * elevator (travelToFloor), so nothing about a floor's progress is lost
-   * when the player moves on from it. Also the single shared "leaving
-   * this floor" hook, so run.floorBuffs AND run.floorRunes (Arcane
-   * Sigil's reward and its matching wall runes — see startRun's comment)
-   * are cleared here too, unconditionally, before the dungeon-snapshot
-   * early-return below.
+   * when the player moves on from it. Also the single shared "leaving this
+   * floor" hook, so run.floorBuffs AND run.floorRunes (Arcane Sigil's
+   * reward and its matching wall runes — see startRun's comment) get
+   * cleared off `run` here too, unconditionally — but their PRE-clear
+   * values are captured into the snapshot first, so a floor genuinely
+   * visited again later (via the elevator — see travelToFloor) gets them
+   * back instead of losing every earned sigil, while a brand-new floor
+   * (stairs, or the elevator's own "never generated this run" branch)
+   * still starts with none, exactly as before.
    */
   archiveCurrentFloor() {
     const run = this.gameState.run;
+    const floorBuffs = run.floorBuffs;
+    const floorRunes = run.floorRunes;
     run.floorBuffs = [];
     run.floorRunes = [];
     if (!run.dungeon) return;
@@ -524,6 +530,8 @@ export class StateManager {
       facing: run.facing,
       tilesExplored: run.tilesExplored,
       enemiesRemaining: run.enemiesRemaining,
+      floorBuffs,
+      floorRunes,
     });
   }
 
@@ -569,6 +577,14 @@ export class StateManager {
     run.tilesExplored = archived.tilesExplored;
     run.enemiesRemaining = archived.enemiesRemaining;
     run.facing = archived.facing;
+    // Restores whatever Arcane Sigils were completed on THIS floor before
+    // it was left (see archiveCurrentFloor) — `?? []` covers an archive
+    // written before these fields existed. Must land on `run` before
+    // ExploreState's own post-travel setDungeon() call (see useElevator),
+    // since that's what _addRuneMesh reads to re-engrave the wall runes on
+    // the freshly-built geometry — no separate syncArcaneRunes() call needed.
+    run.floorBuffs = archived.floorBuffs ?? [];
+    run.floorRunes = archived.floorRunes ?? [];
     const elevatorTile = run.dungeon.tiles.find((t) => t.type === TILE_TYPES.ELEVATOR);
     run.playerPosition = elevatorTile ? { x: elevatorTile.x, y: elevatorTile.y } : { ...archived.playerPosition };
     return true;

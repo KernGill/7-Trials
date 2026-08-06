@@ -5,7 +5,10 @@ import { t } from '../ui/i18n.js';
 import { createBrickWallTexture, createStoneFloorTexture } from './Textures.js';
 import { buildReliefWallGeometry } from './WallRelief.js';
 import { buildEventMarkerGeometries, getMarkerLayout } from './EventMarkers.js';
-import { createRuneGlowTexture, RUNE_COLORS, RUNE_GLYPHS } from './ArcaneRunes.js';
+import {
+  createRuneGlowTexture, RUNE_COLORS, RUNE_GLYPHS,
+  buildVineStemGeometry, buildVineLeafGeometry, buildCornerSprigGeometry, VINE_COLOR,
+} from './ArcaneRunes.js';
 import { buildPlayerModel, disposePlayerModel } from './PlayerModel.js';
 import {
   CAMERA_ANGLE_MIN, CAMERA_ANGLE_MAX, CAMERA_HEIGHT_MIN_PERCENT, CAMERA_HEIGHT_MAX_PERCENT,
@@ -59,6 +62,14 @@ const CARDINAL_DIRS = [
   { dx: 0, dy: 1, side: 'south' },
   { dx: 1, dy: 0, side: 'east' },
   { dx: -1, dy: 0, side: 'west' },
+];
+
+// The four possible convex corners of a WALL tile — pairs of adjacent
+// (perpendicular, not opposite) cardinal directions that share a vertical
+// edge whenever BOTH of that tile's panels exist (see setDungeon()'s corner
+// sprig pass and ArcaneRunes.js's buildCornerSprigGeometry doc comment).
+const CORNER_PAIRS = [
+  ['north', 'east'], ['east', 'south'], ['south', 'west'], ['west', 'north'],
 ];
 
 // Tile visibility is a live radius around the player, recomputed every
@@ -273,7 +284,7 @@ const LOOK_AT_HEIGHT = TILE_SIZE * 0.5;
 // branch), same as how a real light source would still read as bright
 // right up until it's out of sight entirely, rather than dimming into mud
 // like inert stone.
-const RUNE_GLYPH_SIZE = TILE_SIZE * 0.64; // twice the previous (already-doubled) size, per user request
+const RUNE_GLYPH_SIZE = TILE_SIZE * 0.56; // shrunk a little from 0.64, per user request
 const RUNE_BAR_WIDTH = RUNE_GLYPH_SIZE * 0.1; // in-plane stroke thickness of each beam segment
 const RUNE_BAR_DEPTH = RUNE_GLYPH_SIZE * 0.07; // extrusion depth (sticks out from the wall) — the actual "3D, not 2D" part
 const RUNE_GLOW_SIZE = RUNE_GLYPH_SIZE * 1.25; // the additive glow quad — bigger than the glyph itself so light visibly radiates past its edges, but not so big 3 stacked runes wash out into one blown-out blob (see createRuneGlowTexture's own reduced peak alpha for the other half of that fix)
@@ -776,13 +787,33 @@ export class DungeonRenderer3D {
     // adjacent runes just brighten rather than fighting for draw order.
     this._runeTextures = {};
     this._mat.runeGlowByStat = {};
+    // Leafy vine flanking each rune (see ArcaneRunes.js's buildVineStemGeometry
+    // doc comment) — plain matte, non-glowing materials, deliberately NOT
+    // MeshBasicMaterial+additive like the rune itself, so it reads as
+    // ordinary foliage rather than part of the light. One merged geometry
+    // per stat (not per wall panel — see that same doc comment for why),
+    // built once here and shared via _addRuneMesh below.
+    this._mat.vineStem = new THREE.MeshBasicMaterial({ color: VINE_COLOR, side: THREE.DoubleSide });
+    // vertexColors (not a flat `color`) — each leaf blade carries its own
+    // shade of green baked into the merged geometry (see
+    // ArcaneRunes.js's VINE_LEAF_SHADES); this material just lets those
+    // vertex colors show through unmodified (default white multiplier).
+    this._mat.vineLeaf = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    this._geo.vineStemByStat = {};
+    this._geo.vineLeafByStat = {};
     Object.keys(RUNE_COLORS).forEach((stat) => {
       const texture = createRuneGlowTexture(stat);
       this._runeTextures[stat] = texture;
       this._mat.runeGlowByStat[stat] = new THREE.MeshBasicMaterial({
         map: texture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       });
+      this._geo.vineStemByStat[stat] = buildVineStemGeometry(stat, TILE_SIZE, RUNE_GLYPH_SIZE);
+      this._geo.vineLeafByStat[stat] = buildVineLeafGeometry(stat, TILE_SIZE, RUNE_GLYPH_SIZE);
     });
+    // One shared, stat-agnostic tuft for convex wall corners (see
+    // ArcaneRunes.js's buildCornerSprigGeometry doc comment and
+    // setDungeon()'s corner-pairing pass below) — reuses vineLeaf's material.
+    this._geo.cornerSprig = buildCornerSprigGeometry(TILE_SIZE, RUNE_GLYPH_SIZE);
 
     this._onResize = () => this.resize();
     window.addEventListener('resize', this._onResize);
@@ -1236,7 +1267,7 @@ export class DungeonRenderer3D {
           );
           this.dungeonGroup.add(panel);
           const wallEntry = {
-            mesh: panel, dx, dy, isNS, ambientMaterial, reliefMaterial, ambientGeometry, torchGeometry,
+            mesh: panel, dx, dy, side, isNS, ambientMaterial, reliefMaterial, ambientGeometry, torchGeometry,
           };
           // Picks up whatever Arcane Sigil runes have already been earned
           // this floor (normally none — see syncArcaneRunes()'s comment on
@@ -1244,8 +1275,35 @@ export class DungeonRenderer3D {
           this._syncWallRunes(wallEntry, this.app?.gameState?.run?.floorRunes ?? []);
           walls.push(wallEntry);
         });
+        // Convex corners — wherever this WALL tile ended up with BOTH
+        // panels of an adjacent pair (see CORNER_PAIRS), those two panels
+        // share a real vertical edge in world space (their world-position
+        // math works out identically at that shared edge), so plant one
+        // corner-sprig Group right there rather than only ever hoping each
+        // wall's own vine happens to read as connected across a real 3D
+        // bend (see ArcaneRunes.js's buildCornerSprigGeometry doc comment
+        // for why it can't, on its own).
+        const cornerSprigs = [];
+        CORNER_PAIRS.forEach(([sideA, sideB]) => {
+          const wallA = walls.find((w) => w.side === sideA);
+          const wallB = walls.find((w) => w.side === sideB);
+          if (!wallA || !wallB) return;
+          const nsWall = wallA.dy !== 0 ? wallA : wallB;
+          const ewWall = wallA.dx !== 0 ? wallA : wallB;
+          const group = new THREE.Group();
+          group.position.set(
+            worldX + ewWall.dx * ((TILE_SIZE / 2) + Math.SQRT1_2 * RUNE_FORWARD_OFFSET),
+            WALL_HEIGHT / 2,
+            worldZ + nsWall.dy * ((TILE_SIZE / 2) + Math.SQRT1_2 * RUNE_FORWARD_OFFSET),
+          );
+          group.rotation.y = Math.atan2(ewWall.dx, nsWall.dy);
+          this.dungeonGroup.add(group);
+          const cornerEntry = { group, spawnedCount: 0 };
+          this._syncCornerSprig(cornerEntry, this.app?.gameState?.run?.floorRunes ?? []);
+          cornerSprigs.push(cornerEntry);
+        });
         this.tileMeshes.set(tileKey(tile.x, tile.y), {
-          walls, type: TILE_TYPES.WALL, x: tile.x, y: tile.y,
+          walls, cornerSprigs, type: TILE_TYPES.WALL, x: tile.x, y: tile.y,
         });
         return;
       }
@@ -1292,6 +1350,7 @@ export class DungeonRenderer3D {
     const stats = this.app?.gameState?.run?.floorRunes ?? [];
     this.tileMeshes.forEach((entry) => {
       entry.walls?.forEach((w) => this._syncWallRunes(w, stats));
+      entry.cornerSprigs?.forEach((c) => this._syncCornerSprig(c, stats));
     });
   }
 
@@ -1301,6 +1360,22 @@ export class DungeonRenderer3D {
       this._addRuneMesh(wallEntry, stats[i], i);
     }
     wallEntry.runeCount = stats.length;
+  }
+
+  /** Same idempotent "only add what's missing" pattern as _syncWallRunes, for the convex-corner tufts (see buildCornerSprigGeometry's doc comment) — one non-glowing tuft per rune slot, stat-agnostic so it never needs to know which stat a slot is. */
+  _syncCornerSprig(cornerEntry, stats) {
+    const have = cornerEntry.spawnedCount ?? 0;
+    for (let i = have; i < stats.length; i += 1) {
+      this._addCornerSprigMesh(cornerEntry.group, i);
+    }
+    cornerEntry.spawnedCount = stats.length;
+  }
+
+  _addCornerSprigMesh(group, slotIndex) {
+    if (!this._geo.cornerSprig) return;
+    const mesh = new THREE.Mesh(this._geo.cornerSprig, this._mat.vineLeaf);
+    mesh.position.y = RUNE_HEIGHT_Y - WALL_HEIGHT / 2 + slotIndex * RUNE_SPACING;
+    group.add(mesh);
   }
 
   /**
@@ -1348,6 +1423,15 @@ export class DungeonRenderer3D {
     if (glyph.circle) {
       group.add(new THREE.Mesh(this._geo.runeRing, this._mat.runeCore));
     }
+
+    // Leafy vine flanking the glyph — see ArcaneRunes.js's
+    // buildVineStemGeometry doc comment. Shared per-stat geometry, so this
+    // just mounts it like any other part of the glyph group; no per-instance
+    // geometry work happens here.
+    const vineStemGeo = this._geo.vineStemByStat[stat];
+    const vineLeafGeo = this._geo.vineLeafByStat[stat];
+    if (vineStemGeo) group.add(new THREE.Mesh(vineStemGeo, this._mat.vineStem));
+    if (vineLeafGeo) group.add(new THREE.Mesh(vineLeafGeo, this._mat.vineLeaf));
 
     // Centered horizontally (no left/right offset) — only forward (off the
     // wall) and vertical (stacked by slotIndex) position vary.
@@ -1488,6 +1572,11 @@ export class DungeonRenderer3D {
             w.mesh.geometry = w.ambientGeometry;
           }
         });
+        // Corner sprigs aren't children of any one wall panel (they sit
+        // between two), so they don't inherit visibility the way rune
+        // groups do — toggle them here off the same per-tile `visible`
+        // flag every panel on this WALL tile already uses.
+        entry.cornerSprigs?.forEach((c) => { c.group.visible = visible; });
         return;
       }
       // Overrides the normal visibility cutoff too, not just the color —
